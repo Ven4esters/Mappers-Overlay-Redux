@@ -28,6 +28,7 @@ from app.ui.album_sidebar import AlbumSidebar
 from app.ui.queue_panel import QueuePanel, ShotItem
 from app.ui.region_overlay import RegionOverlay
 from app.ui.send_panel import SendPanel
+from app.ui.settings_dialog import SettingsDialog
 from app.workers import SendWorker
 
 
@@ -69,7 +70,7 @@ class MainWindow(QMainWindow):
         self.sidebar.openRequested.connect(self._open_album)
         self.sidebar.renameRequested.connect(self._rename_album)
         self.sidebar.forgetRequested.connect(self._forget_album)
-        self.sidebar.settingsRequested.connect(self._settings_stub)
+        self.sidebar.settingsRequested.connect(self._open_settings)
         self.sidebar.historyRequested.connect(self._history_stub)
         layout.addWidget(self.sidebar)
 
@@ -94,6 +95,9 @@ class MainWindow(QMainWindow):
         self._status.showMessage(tr("common.ready"))
 
     def _restore_settings(self) -> None:
+        self._apply_sending_defaults()
+
+    def _apply_sending_defaults(self) -> None:
         settings = self.store.settings
         self.panel.set_send_mode(settings.send_mode if settings.send_mode in ("single", "separate") else "single")
         self.panel.set_style(settings.section_style if settings.section_style in ("text", "embed") else "text")
@@ -404,8 +408,18 @@ class MainWindow(QMainWindow):
         }.get(code, "error.unknown"))
 
     # ---------------------------------------------------------------- misc
-    def _settings_stub(self) -> None:
-        QMessageBox.information(self, tr("nav.settings"), tr("common.module_pending"))
+    def _open_settings(self) -> None:
+        dialog = SettingsDialog(self.store, self)
+        dialog.profilesChanged.connect(self._refresh_profiles)
+        dialog.sendingDefaultsChanged.connect(self._apply_sending_defaults)
+        dialog.configImported.connect(self._on_config_imported)
+        dialog.exec()
+
+    def _on_config_imported(self) -> None:
+        self.store.reload()
+        self._apply_sending_defaults()
+        self._refresh_profiles()
+        self._status.showMessage(tr("settings.import_reloaded"), 4000)
 
     def _history_stub(self) -> None:
         QMessageBox.information(self, tr("nav.history"), tr("common.module_pending"))

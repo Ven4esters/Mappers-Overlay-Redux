@@ -212,6 +212,32 @@ class DiscordClient:
     def close(self) -> None:
         self._http.close()
 
+    def get_webhook_info(self) -> dict:
+        """GET the webhook object (validation & display). Single attempt, no retries.
+        GET-объект вебхука (проверка и отображение). Один запрос, без ретраев."""
+        try:
+            response = self._http.get(self.webhook_url)
+        except httpx.HTTPError as exc:
+            raise TransientDiscordError(f"Network error / Сетевая ошибка: {exc}") from exc
+        code = response.status_code
+        if code == 200:
+            try:
+                data = response.json()
+            except ValueError as exc:
+                raise TransientDiscordError("Bad response / Некорректный ответ Discord") from exc
+            if not isinstance(data, dict):
+                raise TransientDiscordError("Bad response / Некорректный ответ Discord")
+            return data
+        if code == 429:
+            wait = self._retry_after(response)
+            raise RateLimitedError("Rate limited / Превышен лимит запросов", retry_after=wait)
+        if code in (401, 403, 404):
+            raise WebhookDeadError("Webhook is gone or not visible / Вебхук удалён или недоступен")
+        if 500 <= code < 600:
+            raise TransientDiscordError(f"Discord is unavailable (HTTP {code}) / Дискорд недоступен")
+        self._raise_for_client_error(response)
+        raise TransientDiscordError(f"Unexpected HTTP {code} / Неожиданный ответ {code}")
+
     # ------------------------------------------------------- single message
     def execute(self, *, content: Optional[str] = None, embeds: Optional[list[dict]] = None,
                 files: Optional[list[UploadedFile]] = None,

@@ -46,6 +46,23 @@ def save_shot(data: bytes, filename: str = "shot.png") -> Path:
     return target
 
 
+def cache_stats() -> tuple[int, int]:
+    """(files, bytes) currently held in the shots cache. / (файлов, байт) в кэше снимков."""
+    files = 0
+    total = 0
+    root = cache_root()
+    if not root.exists():
+        return 0, 0
+    for path in root.iterdir():
+        if path.is_file():
+            try:
+                total += path.stat().st_size
+                files += 1
+            except OSError:
+                continue
+    return files, total
+
+
 def clear_cache() -> tuple[int, int]:
     """Delete cache contents; returns (files removed, bytes freed). / Очистить кэш; (файлов, байт)."""
     removed = freed = 0
