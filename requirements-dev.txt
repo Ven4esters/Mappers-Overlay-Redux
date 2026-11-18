@@ -1,0 +1,4 @@
+# Development/test dependencies only. / Только для разработки и тестов.
+-r requirements.txt
+pytest>=8.0.0
+respx>=0.21.1

@@ -1,0 +1,22 @@
+# Local secrets & state (never commit) / Локальные секреты и состояние (в репо нельзя)
+.venv/
+__pycache__/
+*.py[cod]
+config.json
+oauth.client.json
+cache/
+history.json
+
+# Build artifacts / Артефакты сборки
+build/
+dist/
+*.egg-info/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# OS noise / Шум ОС
+.DS_Store
+Thumbs.db

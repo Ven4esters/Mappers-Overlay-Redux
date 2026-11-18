@@ -1,0 +1,17 @@
+{
+  "app.window_title": "Скриншот → Discord",
+  "app.tagline": "Снимки в темы-«альбомы» форума Discord — без бота",
+  "app.version": "версия {version}",
+  "nav.albums": "Альбомы",
+  "nav.profiles": "Профили вебхуков",
+  "nav.history": "История отправок",
+  "nav.settings": "Настройки",
+  "empty.title": "Скриншот → Discord",
+  "empty.subtitle": "Снимите экран, окно или область — и отправьте в нужный альбом форума одним действием.",
+  "capture.fullscreen": "Весь экран",
+  "capture.active_window": "Активное окно",
+  "capture.region": "Область",
+  "status.skeleton": "Модуль 1 из ~10: каркас · готово к разработке",
+  "common.coming_soon": "Появится в следующем модуле",
+  "common.ready": "Готово"
+}

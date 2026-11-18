@@ -1,0 +1,8 @@
+# Targets Python 3.12 (see README / см. README). Dependencies are kept lean.
+# Целевой Python 3.12 (см. README). Зависимости держим минимальными.
+PySide6>=6.7.0
+httpx>=0.27.0
+mss>=9.0.1
+Pillow>=10.3.0
+keyring>=24.3.0
+pywin32>=306; sys_platform == 'win32'

@@ -1,0 +1,17 @@
+{
+  "app.window_title": "Screenshot → Discord",
+  "app.tagline": "Shots into forum 'album' threads in Discord — no bot",
+  "app.version": "version {version}",
+  "nav.albums": "Albums",
+  "nav.profiles": "Webhook profiles",
+  "nav.history": "Send history",
+  "nav.settings": "Settings",
+  "empty.title": "Screenshot → Discord",
+  "empty.subtitle": "Capture the screen, a window or a region — then post it to the forum album you need in one go.",
+  "capture.fullscreen": "Full screen",
+  "capture.active_window": "Active window",
+  "capture.region": "Region",
+  "status.skeleton": "Module 1 of ~10: scaffold · ready for development",
+  "common.coming_soon": "Arrives in the next module",
+  "common.ready": "Ready"
+}
