@@ -124,6 +124,8 @@ class AlbumsService:
         if not result.channel_id:
             raise AlbumError("no_thread_id", "Discord did not return the new thread id / Discord не вернул id темы")
         album = self.store.add_album(profile.id, name, result.channel_id)
+        if result.guild_id:
+            self.store.update_album(album.id, guild_id=result.guild_id)
         self.store.touch_profile(profile.id)
         return album
 
@@ -134,7 +136,10 @@ class AlbumsService:
         if ref is None:
             raise AlbumError("bad_link", "Not a Discord thread link or snowflake / Не похоже на ссылку на тему")
         display = name.strip() or f"Thread {ref.thread_id}"
-        return self.store.add_album(profile.id, display, ref.thread_id)
+        album = self.store.add_album(profile.id, display, ref.thread_id)
+        if ref.guild_id:
+            self.store.update_album(album.id, guild_id=ref.guild_id)
+        return album
 
     # --------------------------------------------------------------- misc
     def rename_local(self, album_id: str, name: str) -> Album:

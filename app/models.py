@@ -99,6 +99,7 @@ class Album:
     profile_id: str
     name: str
     thread_id: str
+    guild_id: str = ""  # captured when known (create/attach) — powers “Open in Discord”
     created_at: str = field(default_factory=utcnow_iso)
     last_sent_at: str = ""
     messages_sent: int = 0
@@ -123,6 +124,7 @@ class Album:
             profile_id=str(_pick(raw, "profile_id", "")),
             name=str(_pick(raw, "name", "Album")),
             thread_id=str(_pick(raw, "thread_id", "")),
+            guild_id=str(_pick(raw, "guild_id", "")),
             created_at=str(_pick(raw, "created_at", utcnow_iso())),
             last_sent_at=str(_pick(raw, "last_sent_at", "")),
             messages_sent=int(_pick(raw, "messages_sent", 0) or 0),

@@ -115,6 +115,12 @@ class SectionSendError(DiscordError):
         self.delivered = delivered or []
 
 
+class SectionAborted(SectionSendError):
+    """User cancelled between messages. / Отменено пользователем между сообщениями."""
+
+    code = "aborted"
+
+
 # ------------------------------------------------------------- primitives
 _FORBIDDEN_FILENAME_CHARS = '\\/:*?"<>'
 
@@ -271,7 +277,8 @@ class DiscordClient:
                      thread_id: Optional[str] = None, thread_name: Optional[str] = None,
                      username: Optional[str] = None, avatar_url: Optional[str] = None,
                      duplicate_caption: bool = False,
-                     on_progress: Optional[Callable[[int, int], None]] = None) -> list[SendResult]:
+                     on_progress: Optional[Callable[[int, int], None]] = None,
+                     should_abort: Optional[Callable[[], bool]] = None) -> list[SendResult]:
         """Send one album section (caption + images, split into ≤10-file messages).
         Отправить одну секцию альбома (подпись + изображения, пакеты по ≤10 файлов)."""
         name = section.name.strip()
@@ -286,6 +293,10 @@ class DiscordClient:
         results: list[SendResult] = []
         created_thread_id: Optional[str] = None
         for index, chunk in enumerate(chunks):
+            if should_abort and should_abort():
+                raise SectionAborted(f"Aborted before message {index + 1}/{len(chunks)} / "
+                                     f"Отменено перед сообщением {index + 1}/{len(chunks)}",
+                                     delivered=results)
             caption_here = index == 0 or duplicate_caption
             if style == "embed":
                 content = None
