@@ -11,10 +11,9 @@ Esc или клик мимо — отмена.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
-from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
-    QWidget,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
 from app.i18n import tr
@@ -38,18 +37,18 @@ class CaptureOverlay(QWidget):
     def __init__(self, last_mode: str, parent=None) -> None:
         super().__init__(None)  # independent top-level: never owned by the main window
         self.setObjectName("CaptureOverlay")
-        self.setAttribute(Qt.WA_DeleteOnClose, True)
+        # close() only HIDES: _choose() emits modeChosen right after close() and the
+        # window object must still be alive for the signal to reach the main window.
+        # Deletion would raise RuntimeError: Signal source has been deleted.
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setFixedSize(QSize(640, 216))
         self._current = last_mode if any(m == last_mode for m, _, _ in _MODES) else "fullscreen"
         self._done = False  # set once the picker has been answered or dismissed
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(36)
-        shadow.setColor(QColor(0, 0, 0, 170))
-        shadow.setOffset(0, 10)
-        self.setGraphicsEffect(shadow)
+        # NOTE: no QGraphicsDropShadowEffect here — the effect paints outside the
+        # fixed window rect and breaks layered-window updates on Windows
+        # (UpdateLayeredWindowIndirect failed). Keep the card flat instead.
 
         card = QFrame(self)
         card.setObjectName("CaptureCard")

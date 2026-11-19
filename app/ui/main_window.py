@@ -171,15 +171,18 @@ class MainWindow(QMainWindow):
             self._status.showMessage(tr("settings.hotkey_rebind_failed", combo=combo), 6000)
 
     def _on_hotkey(self, which: str) -> None:
-        if which.startswith("overlay:"):
-            overlay = getattr(self, "_capture_overlay", None)
-            if overlay is not None:
-                overlay.handle_command(which.split(":", 1)[1])
-            return
-        if which == "overlay":
-            self._show_capture_overlay()
-            return
-        self._capture("fullscreen" if which == "fullscreen" else "region")
+        try:
+            if which.startswith("overlay:"):
+                overlay = getattr(self, "_capture_overlay", None)
+                if overlay is not None:
+                    overlay.handle_command(which.split(":", 1)[1])
+                return
+            if which == "overlay":
+                self._show_capture_overlay()
+                return
+            self._capture("fullscreen" if which == "fullscreen" else "region")
+        except Exception:  # noqa: BLE001 — a capture command must never crash the app
+            logger.exception("hotkey action %r failed", which)
 
     def _show_capture_overlay(self) -> None:
         logger.info("capture overlay requested (last mode: %s)", self.store.settings.last_capture_mode)

@@ -108,8 +108,9 @@ def force_foreground(hwnd: int) -> bool:
             logger.info("foreground stolen for overlay (hwnd=%d)", int(hwnd))
             return True
         err = ctypes.get_last_error()
-        logger.warning("could not force foreground (hwnd=%d, err=%d: %s) — game keeps the mouse",
-                       int(hwnd), err, ctypes.WinError(err) if err else "permission denied by Windows")
+        logger.warning("foreground locked: SetForegroundWindow=%s, foreground after=%s "
+                       "(hwnd=%d, GetLastError=%d) — the game keeps the mouse; use borderless",
+                       ok, bool(now_foreground), int(hwnd), err)
         return False
     finally:
         if attached:
