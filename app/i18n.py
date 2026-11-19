@@ -14,7 +14,6 @@ Missing keys fall back to Russian, then to the key itself (never raises).
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from PySide6.QtCore import QLocale, QObject, Signal
 

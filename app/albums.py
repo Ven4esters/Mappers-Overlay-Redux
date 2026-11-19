@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from app.discord_client import DiscordClient, UploadedFile  # noqa: F401  (re-export for tests)
+from app.discord_client import DiscordClient
 from app.models import Album, WebhookProfile
 from app.store import ConfigStore
 from app.webhook_url import parse_webhook_url

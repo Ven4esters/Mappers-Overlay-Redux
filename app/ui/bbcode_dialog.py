@@ -11,12 +11,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
-    QRadioButton, QVBoxLayout, QWidget,
+    QRadioButton, QVBoxLayout,
 )
 
 from app.bbcode import BBSection, build_bbcode

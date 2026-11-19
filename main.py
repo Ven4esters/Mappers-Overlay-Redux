@@ -11,7 +11,8 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from app import __version__
-from app.i18n import translator
+from app.i18n import set_language, translator
+from app.store import ConfigStore
 from app.theme import apply_theme
 from app.ui.main_window import MainWindow
 
@@ -23,7 +24,9 @@ def main() -> int:
     app.setApplicationVersion(__version__)
     app.setOrganizationName("screensaver-into-discord")
 
-    translator()  # pre-warm the language pack (avoids a first-show hitch)
+    # apply the saved UI language before any widget is built
+    set_language(ConfigStore().settings.language)
+    translator()  # warm the language pack (avoids a first-show hitch)
     apply_theme(app)
 
     window = MainWindow()

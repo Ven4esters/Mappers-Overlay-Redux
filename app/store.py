@@ -25,7 +25,7 @@ from app.paths import CONFIG_FILE, HISTORY_FILE
 from app.webhook_url import is_webhook_url
 
 SCHEMA_VERSION = 1
-HISTORY_LIMIT = 200  # keep the history file small; / обрезаем историю
+HISTORY_LIMIT = 50  # locked spec: keep ~50 entries / зафиксировано ТЗ: ~50 записей
 
 
 def _chmod_private(path: Path) -> None:

@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtCore import QCoreApplication
 
 from app import cache as cache_store
-from app.cache import guess_ext, save_shot
+from app.cache import guess_ext, mime_for_suffix, save_shot
 from app.discord_client import SendResult, TransientDiscordError, UploadedFile
 from app.models import Album
 from app.workers import SendWorker
@@ -122,9 +122,16 @@ def test_guess_ext() -> None:
     assert guess_ext("application/octet-stream", "noext") == ".png"
 
 
+def test_mime_for_suffix() -> None:
+    assert mime_for_suffix(".jpg") == "image/jpeg"
+    assert mime_for_suffix("JPEG") == "image/jpeg"
+    assert mime_for_suffix(".png") == "image/png"
+    assert mime_for_suffix("") == "image/png"
+    assert mime_for_suffix(".bin") == "image/png"
+
+
 def test_save_shot_dedupes_and_clears(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(cache_store, "cache_root", lambda: tmp_path / "shots")
-    from app import paths
     monkeypatch.setattr(cache_store, "CACHE_DIR", tmp_path)
     first = save_shot(b"same-bytes", "a.png")
     second = save_shot(b"same-bytes", "b.png")

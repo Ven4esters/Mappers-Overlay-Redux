@@ -15,6 +15,14 @@ from app.paths import CACHE_DIR
 
 _SAFE_SUFFIX_CHARS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 _MIME_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
+_EXT_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+             ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp"}
+
+
+def mime_for_suffix(suffix: str) -> str:
+    """MIME type for an image file extension. / MIME-тип по расширению."""
+    suffix = suffix.lower().lstrip(".")
+    return _EXT_MIME.get(f".{suffix}", "image/png")
 
 
 def guess_ext(mime: str, filename: str = "") -> str:

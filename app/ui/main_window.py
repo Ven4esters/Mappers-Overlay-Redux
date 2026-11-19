@@ -5,15 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QHBoxLayout, QInputDialog, QMainWindow, QMessageBox,
     QStatusBar, QVBoxLayout, QWidget,
 )
 
-from app import __version__
 from app import cache as cache_store
+from app.cache import mime_for_suffix
 from app.albums import AlbumError, AlbumsService, format_shot_filename
 from app.capture import (
     CaptureError, Region, UnsupportedPlatformError, capture_active_window,
@@ -49,6 +49,7 @@ class MainWindow(QMainWindow):
         self._worker: SendWorker | None = None
         self._overlay: RegionOverlay | None = None
         self._shot_seq = 0
+        self._pending_cache_paths: list[str] = []
 
         self._build_ui()
         self._restore_settings()
@@ -172,8 +173,7 @@ class MainWindow(QMainWindow):
             elif which == "region":
                 self._overlay = RegionOverlay()
                 self._overlay.regionSelected.connect(self._region_captured)
-                self._overlay.cancelled.connect(
-                    lambda: self._status.showMessage(tr("capture.cancelled"), 3000))
+                self._overlay.cancelled.connect(self._region_cancelled)
         except UnsupportedPlatformError as exc:
             QMessageBox.warning(self, tr("app.window_title"), str(exc))
         except CaptureError as exc:
@@ -187,6 +187,10 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, tr("app.window_title"), str(exc))
             return
         self._add_image(image)
+
+    def _region_cancelled(self) -> None:
+        self._overlay = None
+        self._status.showMessage(tr("capture.cancelled"), 3000)
 
     def _add_image(self, image) -> None:
         self._shot_seq += 1
@@ -204,10 +208,7 @@ class MainWindow(QMainWindow):
                 data = Path(path).read_bytes()
             except OSError:
                 continue
-            suffix = Path(path).suffix.lower().lstrip(".") or "png"
-            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp",
-                    "gif": "image/gif", "bmp": "image/bmp"}.get(suffix, "image/png")
-            shots.append(ShotItem.create(Path(path).name, data, mime))
+            shots.append(ShotItem.create(Path(path).name, data, mime_for_suffix(Path(path).suffix)))
         if shots:
             self.queue.add(shots)
 
@@ -369,7 +370,7 @@ class MainWindow(QMainWindow):
             self.store.save()
 
         if summary.status == "ok":
-            cache_paths = list(getattr(self, "_pending_cache_paths", []))
+            cache_paths = self._pending_cache_paths
             flat_index = 0
             for result in summary.results:
                 attachments = []

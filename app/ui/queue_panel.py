@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QMenu, QPushButton, QVBoxLayout, QWidget,
 )
 
-from app.cache import guess_ext
+from app.cache import guess_ext, mime_for_suffix
 from app.i18n import tr
 
 
@@ -165,9 +165,6 @@ class QueuePanel(QWidget):
         self._update_empty_state()
         self.changed.emit()
 
-    def all_shots(self) -> list[ShotItem]:
-        return list(self._shots.values())
-
     def checked_shots(self) -> list[ShotItem]:
         result = []
         for index in range(self._list.count()):
@@ -204,10 +201,7 @@ class QueuePanel(QWidget):
             except OSError:
                 continue
             name = path.replace("\\", "/").rsplit("/", 1)[-1]
-            mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-                    "webp": "image/webp", "gif": "image/gif", "bmp": "image/bmp"}.get(
-                name.rsplit(".", 1)[-1].lower(), "image/png")
-            shots.append(ShotItem.create(name, data, mime))
+            shots.append(ShotItem.create(name, data, mime_for_suffix(name.rsplit(".", 1)[-1])))
         if shots:
             self.add(shots)
 

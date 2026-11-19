@@ -3,11 +3,10 @@
 
 from __future__ import annotations
 
-import json
 
 import pytest
 
-from app.models import Album, AppSettings, HistoryItem, utcnow_iso
+from app.models import AppSettings, HistoryItem, utcnow_iso
 from app.store import ConfigStore, HistoryStore
 from app.webhook_url import is_webhook_url, parse_webhook_url
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import BinaryIO, Literal, Optional
+from typing import Literal, Optional
 
 from PIL import Image
 

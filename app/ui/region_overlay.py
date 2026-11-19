@@ -40,9 +40,13 @@ class RegionOverlay(QWidget):
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setCursor(Qt.CrossCursor)
         self.setGeometry(virtual_geometry())
+        self.setMouseTracking(True)
         self._origin: QPoint | None = None
         self._current: QPoint | None = None
-        self.showFullScreen()
+        # no showFullScreen(): it collapses the widget onto the primary screen on
+        # multi-monitor setups; a frameless stays-on-top widget keeps virtual geometry
+        self.show()
+        self.raise_()
         self.activateWindow()
         self.setFocus(Qt.ActiveWindowFocusReason)
 

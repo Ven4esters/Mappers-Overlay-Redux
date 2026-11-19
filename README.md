@@ -45,7 +45,7 @@ app/
   bbcode.py              # сборщик BB-кода XenForo (заголовок, секции, спойлеры)
   catbox.py              # анонимная загрузка на catbox.moe (постоянные ссылки)
 assets/i18n/             # языковые пакеты (RU+EN, ключи синхронны)
-tests/                   # pytest (100 тестов: 99 ✓ + 1 GUI-skip, respx-моки)
+tests/                   # pytest (101 тест: 100 ✓ + 1 GUI-skip, respx-моки)
 oauth.client.example.json  # шаблон oauth.client.json (сам файл НЕ коммитится)
 ```
 
