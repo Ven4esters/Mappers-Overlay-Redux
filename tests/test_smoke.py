@@ -68,7 +68,7 @@ def test_qt_modules_import_when_qt_available() -> None:
                  "app.ui.main_window", "app.ui.region_overlay", "app.hotkeys", "app.theme",
                  "app.ui.hotkey_qt", "app.ui.capture_overlay",
                  "app.ui.import_threads_dialog", "app.ui.widgets",
-                 "app.hotkey_filter", "app.logging_setup"):
+                 "app.hotkey_filter", "app.logging_setup", "app.ui.catbox_window"):
         importlib.import_module(name)
 
 

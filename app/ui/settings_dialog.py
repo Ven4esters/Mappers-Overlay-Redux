@@ -569,21 +569,21 @@ class SettingsDialog(QDialog):
         hotkeys_layout.addWidget(self._hotkey_note)
         layout.addWidget(hotkeys_box)
 
-        moecat_box = QGroupBox(tr("settings.moecat_group"), page)
-        moecat_layout = QVBoxLayout(moecat_box)
-        hash_label = QLabel(tr("settings.moecat_userhash_label"), moecat_box)
-        moecat_layout.addWidget(hash_label)
-        self._moecat_userhash = QLineEdit(moecat_box)
-        self._moecat_userhash.setPlaceholderText("userhash")
-        self._moecat_userhash.setClearButtonEnabled(True)
-        self._moecat_userhash.setText(self._store.settings.catbox_userhash)
-        self._moecat_userhash.editingFinished.connect(self._on_moecat_userhash_changed)
-        moecat_layout.addWidget(self._moecat_userhash)
-        moecat_hint = QLabel(tr("settings.moecat_userhash_hint"), moecat_box)
-        moecat_hint.setObjectName("Hint")
-        moecat_hint.setWordWrap(True)
-        moecat_layout.addWidget(moecat_hint)
-        layout.addWidget(moecat_box)
+        catbox_box = QGroupBox(tr("settings.catbox_group"), page)
+        catbox_layout = QVBoxLayout(catbox_box)
+        hash_label = QLabel(tr("settings.catbox_userhash_label"), catbox_box)
+        catbox_layout.addWidget(hash_label)
+        self._catbox_userhash = QLineEdit(catbox_box)
+        self._catbox_userhash.setPlaceholderText("userhash")
+        self._catbox_userhash.setClearButtonEnabled(True)
+        self._catbox_userhash.setText(self._store.settings.catbox_userhash)
+        self._catbox_userhash.editingFinished.connect(self._on_catbox_userhash_changed)
+        catbox_layout.addWidget(self._catbox_userhash)
+        catbox_hint = QLabel(tr("settings.catbox_userhash_hint"), catbox_box)
+        catbox_hint.setObjectName("Hint")
+        catbox_hint.setWordWrap(True)
+        catbox_layout.addWidget(catbox_hint)
+        layout.addWidget(catbox_box)
 
         cache_box = QGroupBox(tr("settings.cache"), page)
         cache_layout = QVBoxLayout(cache_box)
@@ -653,8 +653,8 @@ class SettingsDialog(QDialog):
         self._store.settings.keep_local_cache = checked
         self._store.save()
 
-    def _on_moecat_userhash_changed(self) -> None:
-        value = self._moecat_userhash.text().strip()
+    def _on_catbox_userhash_changed(self) -> None:
+        value = self._catbox_userhash.text().strip()
         if self._store.settings.catbox_userhash == value:
             return
         self._store.settings.catbox_userhash = value

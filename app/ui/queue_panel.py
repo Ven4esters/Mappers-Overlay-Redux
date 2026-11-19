@@ -114,7 +114,7 @@ class QueuePanel(QWidget):
     removeRequested = Signal()
     clearRequested = Signal()
     deleteCheckedRequested = Signal()
-    moeCatRequested = Signal()
+    catboxRequested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -134,23 +134,28 @@ class QueuePanel(QWidget):
         capture_menu.addAction(tr("capture.active_window"), lambda: self.captureRequested.emit("window"))
         capture_menu.addAction(tr("capture.region"), lambda: self.captureRequested.emit("region"))
         self._capture_button.setMenu(capture_menu)
+        self._capture_button.setStyleSheet("padding: 8px 10px; font-size: 12px;")
         toolbar.addWidget(self._capture_button)
 
-        self._add_files = QPushButton(f"📂  {tr('queue.add_files')}", self)
+        self._add_files = QPushButton(f"📂  {tr('queue.files_short')}", self)
+        self._add_files.setObjectName("ToolbarButton")
         self._add_files.clicked.connect(self.openFilesRequested.emit)
         toolbar.addWidget(self._add_files)
 
-        self._moecat = QPushButton(f"⬆  {tr('queue.upload_moecat')}", self)
-        self._moecat.setToolTip(tr("queue.upload_moecat_tooltip"))
-        self._moecat.clicked.connect(self.moeCatRequested)
-        toolbar.addWidget(self._moecat)
+        self._catbox = QPushButton(f"{tr('queue.upload_catbox')}", self)
+        self._catbox.setToolTip(tr("queue.upload_catbox_tooltip"))
+        self._catbox.clicked.connect(self.catboxRequested)
+        toolbar.addWidget(self._catbox)
 
-        self._remove = QPushButton(tr("queue.remove_selected"), self)
+        self._remove = QPushButton(tr("queue.remove_short"), self)
+        self._remove.setObjectName("ToolbarButton")
+        self._remove.setToolTip(tr("queue.remove_selected"))
         self._remove.clicked.connect(self.removeRequested)
         toolbar.addWidget(self._remove)
 
         self._clear = QPushButton(tr("queue.clear"), self)
         self._clear.setObjectName("Ghost")
+        self._clear.setStyleSheet("font-size: 12px; padding: 8px 10px;")
         self._clear.clicked.connect(self.clearRequested)
         toolbar.addWidget(self._clear)
         toolbar.addStretch(1)

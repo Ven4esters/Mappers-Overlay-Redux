@@ -95,6 +95,9 @@ QPushButton#Danger {{ background: transparent; color: {COLORS['danger']};
                       border: 1px solid {COLORS['danger']}; }}
 QPushButton#Danger:hover {{ background: rgba(248, 113, 113, 31); }}
 
+QPushButton#ToolbarButton {{ font-size: 12px; padding: 8px 10px; }}
+QPushButton#ToolbarButton:hover {{ border-color: {COLORS['accent']}; }}
+
 QPushButton#HotkeyRecorder {{ background: {COLORS['panel']}; border: 1px dashed {COLORS['border']};
                               border-radius: 8px; padding: 6px 18px; min-width: 96px;
                               font-size: 13px; font-weight: 600; }}

@@ -37,7 +37,7 @@ from app.ui.hotkey_qt import build_shortcut_sequence
 
 logger = logging.getLogger("screensaver.ui")
 from app.ui.import_threads_dialog import ImportThreadsDialog
-from app.ui.moecat_window import MoeCatWindow
+from app.ui.catbox_window import CatBoxWindow
 from app.ui.queue_panel import QueuePanel, ShotItem
 from app.ui.region_overlay import RegionOverlay
 from app.ui.send_panel import SendPanel
@@ -107,7 +107,7 @@ class MainWindow(QMainWindow):
         self.queue.removeRequested.connect(self._confirm_remove_selected)
         self.queue.clearRequested.connect(self._confirm_clear_queue)
         self.queue.deleteCheckedRequested.connect(self._confirm_remove_checked)
-        self.queue.moeCatRequested.connect(self._open_moecat_window)
+        self.queue.catboxRequested.connect(self._open_catbox_window)
         center_layout.addWidget(self.queue)
         layout.addWidget(center, stretch=1)
 
@@ -383,14 +383,14 @@ class MainWindow(QMainWindow):
         logger.info("queue: cleared %d item(s) by user request", removed)
         self._status.showMessage(tr("queue.removed", count=removed), 3000)
 
-    # ------------------------------------------------------------- MoeCat
-    def _open_moecat_window(self) -> None:
-        """Open (or focus) the MoeCat viewer; auto-upload the checked shots."""
+    # ------------------------------------------------------------- CatBox
+    def _open_catbox_window(self) -> None:
+        """Open (or focus) the CatBox viewer; auto-upload the checked shots."""
         shots = self.queue.checked_shots()
-        window = getattr(self, "_moecat_window", None)
+        window = getattr(self, "_catbox_window", None)
         if window is None or not window.isVisible():
-            window = MoeCatWindow(self.store, self.history)
-            self._moecat_window = window
+            window = CatBoxWindow(self.store, self.history)
+            self._catbox_window = window
         window.show()
         window.raise_()
         window.activateWindow()
