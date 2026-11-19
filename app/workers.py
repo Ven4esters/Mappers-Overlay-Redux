@@ -138,10 +138,11 @@ class CatboxUploadWorker(QThread):
     progress = Signal(int, int)
     done = Signal(CatboxSummary)
 
-    def __init__(self, files: list[tuple[str, str, str]], *, parent=None) -> None:
+    def __init__(self, files: list[tuple[str, str, str]], *, userhash: str = "", parent=None) -> None:
         """files: list of (key, filename, local_path). / (ключ, имя, путь)."""
         super().__init__(parent)
         self._files = list(files)
+        self._userhash = userhash
         self._abort = threading.Event()
 
     def abort(self) -> None:
@@ -161,7 +162,7 @@ class CatboxUploadWorker(QThread):
                 self.progress.emit(index + 1, total)
                 continue
             try:
-                urls[key] = upload_file(data, filename)
+                urls[key] = upload_file(data, filename, userhash=self._userhash)
             except CatboxError as exc:
                 errors[key] = str(exc)
             self.progress.emit(index + 1, total)
@@ -172,3 +173,53 @@ class CatboxUploadWorker(QThread):
         else:
             status = "failed"
         self.done.emit(CatboxSummary(status=status, urls=urls, errors=errors))
+
+
+class CatboxFilesWorker(QThread):
+    """Lists the files uploaded under a catbox userhash. / Список файлов по userhash.
+
+    Signals: done(urls: list[str]) / failed(message: str).
+    Всё делается в фоне — UI не виснет на сети.
+    """
+
+    done = Signal(list)
+    failed = Signal(str)
+
+    def __init__(self, userhash: str, *, parent=None) -> None:
+        super().__init__(parent)
+        self._userhash = userhash
+
+    def run(self) -> None:
+        from app.catbox import CatboxError, fetch_userfiles
+
+        try:
+            self.done.emit(fetch_userfiles(self._userhash))
+        except CatboxError as exc:
+            self.failed.emit(str(exc))
+
+
+class CatboxThumbnailWorker(QThread):
+    """Downloads thumbnails one by one without blocking the UI.
+    Скачивает миниатюры по одной, не блокируя UI.
+
+    Signals: itemReady(url, image_bytes) per successful image.
+    """
+
+    itemReady = Signal(str, bytes)
+
+    def __init__(self, urls: list[str], *, parent=None) -> None:
+        super().__init__(parent)
+        self._urls = [u for u in urls if isinstance(u, str)][:240]
+
+    def run(self) -> None:
+        try:
+            import httpx
+        except ImportError:
+            return
+        for url in self._urls:
+            try:
+                response = httpx.get(url, timeout=20.0, follow_redirects=True)
+                if response.status_code == 200 and response.content:
+                    self.itemReady.emit(url, response.content)
+            except Exception:  # noqa: BLE001 — a thumbnail is never critical
+                continue

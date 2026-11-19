@@ -114,6 +114,7 @@ class QueuePanel(QWidget):
     removeRequested = Signal()
     clearRequested = Signal()
     deleteCheckedRequested = Signal()
+    moeCatRequested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -139,6 +140,11 @@ class QueuePanel(QWidget):
         self._add_files.clicked.connect(self.openFilesRequested.emit)
         toolbar.addWidget(self._add_files)
 
+        self._moecat = QPushButton(f"⬆  {tr('queue.upload_moecat')}", self)
+        self._moecat.setToolTip(tr("queue.upload_moecat_tooltip"))
+        self._moecat.clicked.connect(self.moeCatRequested)
+        toolbar.addWidget(self._moecat)
+
         self._remove = QPushButton(tr("queue.remove_selected"), self)
         self._remove.clicked.connect(self.removeRequested)
         toolbar.addWidget(self._remove)
@@ -157,6 +163,8 @@ class QueuePanel(QWidget):
         self._list.itemChanged.connect(lambda _item: self.changed.emit())
         self._list.filesDropped.connect(self._on_files_dropped)
         self._list.deleteRequested.connect(self.deleteCheckedRequested)
+        self._list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self._list, stretch=1)
 
         self._empty = QLabel(tr("queue.empty"), self)
@@ -244,6 +252,41 @@ class QueuePanel(QWidget):
             queue_store.write_entries(entries)
         except OSError:
             logger.exception("could not persist the queue index")
+
+    # -------------------------------------------------- select / deselect all
+    def set_all_checked(self, state: bool) -> int:
+        """Tick or untick every item; returns how many changed. / Снять|выделить все."""
+        target = Qt.Checked if state else Qt.Unchecked
+        changed = 0
+        self._list.blockSignals(True)
+        for index in range(self._list.count()):
+            item = self._list.item(index)
+            if item.checkState() != target:
+                item.setCheckState(target)
+                changed += 1
+        self._list.blockSignals(False)
+        self._persist()
+        self.changed.emit()
+        return changed
+
+    def remove_ids(self, ids: list[str]) -> int:
+        """Remove exactly the given shot ids (send flow). / Удалить ровно указанные."""
+        wanted = set(ids)
+        doomed = [self._list.item(i) for i in range(self._list.count())
+                  if self._list.item(i).data(Qt.UserRole) in wanted]
+        for item in doomed:
+            self._drop_item(item)
+        if doomed:
+            self._update_empty_state()
+            self._persist()
+            self.changed.emit()
+        return len(doomed)
+
+    def _show_context_menu(self, pos) -> None:
+        menu = QMenu(self._list)
+        menu.addAction(tr("queue.select_all"), lambda: self.set_all_checked(True))
+        menu.addAction(tr("queue.deselect_all"), lambda: self.set_all_checked(False))
+        menu.exec(self._list.mapToGlobal(pos))
 
     # ------------------------------------------------------ deletion helpers
     def checked_count(self) -> int:

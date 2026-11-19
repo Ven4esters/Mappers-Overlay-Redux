@@ -203,7 +203,7 @@ class BBCodeDialog(QDialog):
         self._upload_status.setText(tr("bb.uploading", total=len(pending)))
         self._upload_status.show()
         self._set_controls_enabled(False)
-        self._worker = CatboxUploadWorker(pending, parent=self)
+        self._worker = CatboxUploadWorker(pending, parent=self, userhash=self._store.settings.catbox_userhash)
         self._worker.progress.connect(lambda done, total: self._progress.setValue(done))
         self._worker.done.connect(self._on_uploads_done)
         self._worker.start()

@@ -47,6 +47,7 @@ class AppSettings:
     last_capture_mode: str = "fullscreen"  # fullscreen | window | region (PrintScreen overlay)
     capture_hotkey: str = "Print"          # global hotkey for the capture overlay (e.g. "Print", "F9")
     minimize_to_tray: bool = False           # close-to-tray instead of quitting
+    catbox_userhash: str = ""               # catbox.moe account hash (optional — /user/api.php reqtype=userfiles)
 
     @classmethod
     def from_dict(cls, raw: dict) -> "AppSettings":
