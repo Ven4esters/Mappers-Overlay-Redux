@@ -1,0 +1,22 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local user configuration (calibrated screen coordinates)
+user_config.json
+
+# Packaging / build artifacts
+build/
+dist/
+*.spec
+
+# Logs and launcher state
+logs/
+*.log

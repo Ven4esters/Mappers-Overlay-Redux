@@ -1,0 +1,4 @@
+# Зависимости времени выполнения LSP Mapper Assist
+# Устанавливаются автоматически при первом запуске run_mapper.bat
+PySide6-Essentials>=6.6.0
+pyperclip>=1.8.2

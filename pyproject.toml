@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lsp-mapper-assist"
+version = "1.0.0"
+description = "PySide6-оверлей и калькулятор локальной геометрии для маппинга в GTA V FiveM (Los Santos Project)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6-Essentials>=6.6.0",
+    "pyperclip>=1.8.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[project.gui-scripts]
+lsp-mapper-assist = "mapper_assist.app:main"
+
+[tool.setuptools.packages.find]
+include = ["mapper_assist*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
