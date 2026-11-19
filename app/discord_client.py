@@ -196,6 +196,12 @@ def build_embed(name: str, description: str, image_filename: Optional[str] = Non
     return embed
 
 
+def build_image_embed(image_filename: str, color: int = EMBED_ACCENT) -> dict:
+    """Image-only embed (attachment reference), used so every image renders inside the card.
+    Embed только с картинкой — чтобы ВСЕ изображения рендерились карточкой, а не вложениями."""
+    return {"color": color, "image": {"url": f"attachment://{image_filename}"}}
+
+
 # ------------------------------------------------------------------ client
 class DiscordClient:
     def __init__(self, webhook_url: str, *, timeout: float = DEFAULT_TIMEOUT,
@@ -326,7 +332,13 @@ class DiscordClient:
             caption_here = index == 0 or duplicate_caption
             if style == "embed":
                 content = None
-                embeds = [build_embed(name, section.description, chunk[0].filename)] if caption_here else None
+                if caption_here:
+                    embeds = [build_embed(name, section.description, chunk[0].filename)]
+                    # one embed per remaining image: an embed can carry exactly one image,
+                    # so a «card» gallery needs one embed per attachment (Discord allows 10)
+                    embeds.extend(build_image_embed(f.filename) for f in chunk[1:])
+                else:
+                    embeds = None
             else:
                 content = build_content(name, section.description) if caption_here else None
                 embeds = None

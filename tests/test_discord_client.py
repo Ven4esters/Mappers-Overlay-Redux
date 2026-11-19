@@ -11,7 +11,8 @@ import respx
 from app.discord_client import (
     DiscordClient, ForumError, PayloadTooLargeError, RateLimitedError, SectionInput,
     SectionSendError, UploadedFile, ValidationFailedError, WebhookDeadError,
-    build_content, build_embed, chunk_files, dedupe_filenames, sanitize_filename,
+    build_content, build_embed, build_image_embed, chunk_files, dedupe_filenames,
+    sanitize_filename,
 )
 
 WEBHOOK = "https://discord.com/api/webhooks/123456789012345678/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
@@ -67,6 +68,36 @@ def test_build_embed_contract() -> None:
     assert embed["image"]["url"] == "attachment://img.png"
     assert embed["color"] == 0x4F7DFF
 
+
+def test_build_image_embed_contract() -> None:
+    embed = build_image_embed("shot1.png")
+    assert embed["image"]["url"] == "attachment://shot1.png"
+    assert embed["color"] == 0x4F7DFF
+    assert "title" not in embed and "description" not in embed
+
+
+@respx.mock
+def test_send_section_embed_mode_embeds_every_image() -> None:
+    route = respx.post(url__regex=HOST_RE).mock(side_effect=[ok_message()])
+    client = make_client()
+    client.send_section(SectionInput("Коридор", make_files(4, "Коридор | "), "второй этаж"),
+                        style="embed", thread_id="800000000000000099")
+    body = route.calls[0].request.content.decode("utf-8", errors="ignore")
+    assert body.count("attachment://") == 4          # every image inside an embed, none left as plain attachments
+    assert '"title"' in body                          # caption embed first
+    assert body.count('"image"') == 4
+
+
+@respx.mock
+def test_send_section_embed_mode_full_chunk_caps_at_ten_embeds() -> None:
+    route = respx.post(url__regex=HOST_RE).mock(side_effect=[ok_message()])
+    client = make_client()
+    client.send_section(SectionInput("Дом", make_files(10, "Дом | "), ""),
+                        style="embed", thread_id="800000000000000099")
+    body = route.calls[0].request.content.decode("utf-8", errors="ignore")
+    # 1 caption embed (image 0) + 9 image-only embeds = Discord's 10-embed cap
+    assert body.count('"attachment://') == 10
+    assert body.count('"image"') == 10
 
 # ------------------------------------------------------------------ sends
 @respx.mock
