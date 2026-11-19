@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressBar,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressBar,
     QPushButton, QTextEdit, QVBoxLayout,
 )
 
 from app.i18n import tr
+from app.ui.widgets import SegmentedControl
 
 
 class SendPanel(QFrame):
@@ -51,18 +52,16 @@ class SendPanel(QFrame):
         layout.addWidget(self._description)
 
         layout.addWidget(self._section_label(tr("send.mode")))
-        self._mode = QComboBox(self)
-        self._mode.addItem(tr("send.mode_single"), "single")
-        self._mode.addItem(tr("send.mode_separate"), "separate")
+        self._mode = SegmentedControl(
+            [("single", tr("send.mode_single")), ("separate", tr("send.mode_separate"))], self)
         layout.addWidget(self._mode)
 
         self._duplicate = QCheckBox(tr("send.duplicate_caption"), self)
         layout.addWidget(self._duplicate)
 
         layout.addWidget(self._section_label(tr("send.style")))
-        self._style = QComboBox(self)
-        self._style.addItem(tr("send.style_text"), "text")
-        self._style.addItem(tr("send.style_embed"), "embed")
+        self._style = SegmentedControl(
+            [("text", tr("send.style_text_short")), ("embed", tr("send.style_embed_short"))], self)
         layout.addWidget(self._style)
 
         number_row = QHBoxLayout()
@@ -171,20 +170,16 @@ class SendPanel(QFrame):
         return self._description.toPlainText().strip()
 
     def send_mode(self) -> str:
-        return str(self._mode.currentData())
+        return self._mode.current()
 
     def set_send_mode(self, mode: str) -> None:
-        index = self._mode.findData(mode)
-        if index >= 0:
-            self._mode.setCurrentIndex(index)
+        self._mode.set_current(mode if mode in ("single", "separate") else "single")
 
     def style(self) -> str:
-        return str(self._style.currentData())
+        return self._style.current()
 
     def set_style(self, style: str) -> None:
-        index = self._style.findData(style)
-        if index >= 0:
-            self._style.setCurrentIndex(index)
+        self._style.set_current(style if style in ("text", "embed") else "text")
 
     def set_duplicate_caption(self, enabled: bool) -> None:
         self._duplicate.setChecked(enabled)

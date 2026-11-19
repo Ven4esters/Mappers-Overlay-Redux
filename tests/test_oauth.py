@@ -15,9 +15,9 @@ import respx
 import app.workers as workers_mod
 from app.oauth import (
     DEFAULT_CLIENT_ID, OAuthCallbackError, OAuthClientConfig,
-    OAuthTokenError, build_authorize_url, exchange_code, extract_webhook,
-    generate_pkce, generate_state, load_oauth_client, parse_callback_query,
-    wait_for_callback,
+    OAuthTokenError, build_authorize_url, delete_oauth_client, exchange_code,
+    extract_webhook, generate_pkce, generate_state, load_oauth_client,
+    oauth_status, parse_callback_query, save_oauth_client, wait_for_callback,
 )
 
 CONFIG = OAuthClientConfig(client_id=DEFAULT_CLIENT_ID, client_secret="secret-123")
@@ -226,3 +226,72 @@ def qapp():
     from PySide6.QtCore import QCoreApplication
     app = QCoreApplication.instance()
     return app or QCoreApplication([])
+
+
+# ------------------------------------------------- save/status/delete (in-app setup)
+def test_save_oauth_client_roundtrip(tmp_path) -> None:
+    path = tmp_path / "oauth.client.json"
+    ok, error = save_oauth_client("1572688177242574918", "real-secret-value", 8321, path)
+    assert ok and error == ""
+    config, error = load_oauth_client(path)
+    assert error == "" and config is not None
+    assert config.client_id == "1572688177242574918"
+    assert config.client_secret == "real-secret-value"
+    assert config.redirect_port == 8321
+    import stat
+    if hasattr(stat, "S_IMODE"):
+        import os
+        if os.name == "posix":
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_save_oauth_client_default_id_when_blank(tmp_path) -> None:
+    path = tmp_path / "oauth.client.json"
+    ok, error = save_oauth_client("  ", "real-secret-value", 8321, path)
+    assert ok and error == ""
+    config, _ = load_oauth_client(path)
+    assert config is not None and config.client_id == DEFAULT_CLIENT_ID
+
+
+def test_save_oauth_client_rejects_bad_input(tmp_path) -> None:
+    path = tmp_path / "oauth.client.json"
+    ok, _ = save_oauth_client("not-numeric!", "real-secret-value", 8321, path)
+    assert not ok
+    ok, _ = save_oauth_client("123", "short", 8321, path)
+    assert not ok
+    ok, _ = save_oauth_client("123", "real-secret-value", 0, path)
+    assert not ok
+    ok, _ = save_oauth_client("123", "real-secret-value", 70000, path)
+    assert not ok
+    assert not path.exists()
+
+
+def test_oauth_status_reports_flags(tmp_path, monkeypatch) -> None:
+    missing = tmp_path / "oauth.client.json"
+    status = oauth_status(missing)
+    assert status["configured"] is False
+    assert status["redirect_uri"].endswith(":8321/callback")
+    ok, _ = save_oauth_client("", "real-secret-value", 9999, missing)
+    assert ok
+    status = oauth_status(missing)
+    assert status["configured"] is True
+    assert status["redirect_uri"].endswith(":9999/callback")
+
+
+def test_delete_oauth_client(tmp_path) -> None:
+    path = tmp_path / "oauth.client.json"
+    assert delete_oauth_client(path) is False  # absent → False, no crash
+    ok, _ = save_oauth_client("", "real-secret-value", 8321, path)
+    assert ok and path.exists()
+    assert delete_oauth_client(path) is True
+    assert not path.exists()
+
+
+def test_oauth_status_uses_example_shape_consistent() -> None:
+    # the committed example must stay loadable-by-shape (placeholder secret aside)
+    import json as _json
+    import pathlib
+    example = pathlib.Path("oauth.client.example.json").read_text(encoding="utf-8")
+    data = _json.loads(example)
+    assert set(data) == {"client_id", "redirect_port", "client_secret"}
+    assert str(data["client_id"]).isdigit()

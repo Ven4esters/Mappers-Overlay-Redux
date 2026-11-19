@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets
 import threading
 import time
@@ -75,6 +76,66 @@ def load_oauth_client(path: Path | None = None) -> tuple[OAuthClientConfig | Non
         return None, "redirect_port must be 1..65535 / redirect_port: 1..65535"
     return OAuthClientConfig(client_id=client_id, client_secret=client_secret,
                              redirect_port=redirect_port), ""
+
+
+def oauth_status(path: Path | None = None) -> dict[str, object]:
+    """What the user needs to know about the local OAuth setup. / Состояние локального OAuth."""
+    config, error = load_oauth_client(path)
+    return {
+        "configured": config is not None,
+        "client_id": config.client_id if config else DEFAULT_CLIENT_ID,
+        "redirect_port": config.redirect_port if config else DEFAULT_REDIRECT_PORT,
+        "redirect_uri": f"http://localhost:{config.redirect_port if config else DEFAULT_REDIRECT_PORT}/callback",
+        "error": error,
+    }
+
+
+def save_oauth_client(client_id: str, client_secret: str, redirect_port: int = DEFAULT_REDIRECT_PORT,
+                      path: Path | None = None) -> tuple[bool, str]:
+    """Write oauth.client.json from the app's settings form. / Сохранить oauth.client.json из формы.
+
+    The app writes the file so the user never edits JSON by hand; it is created
+    next to the app (gitignored) with owner-only permissions.
+    Файл пишет само приложение: пользователь не редактирует JSON руками; файл
+    создаётся рядом с приложением (в .gitignore) с правами только для владельца.
+    """
+    client_id = (client_id or "").strip() or DEFAULT_CLIENT_ID
+    client_secret = (client_secret or "").strip()
+    if not client_id.isdigit():
+        return False, "client_id must be the numeric application ID / client_id — числовой ID приложения"
+    if len(client_secret) < 16:
+        return False, "client_secret looks too short / client_secret подозрительно короткий"
+    try:
+        redirect_port = int(redirect_port)
+        if not (1 <= redirect_port <= 65535):
+            raise ValueError
+    except (TypeError, ValueError):
+        return False, "redirect_port must be 1..65535 / redirect_port: 1..65535"
+    target = Path(path) if path else OAUTH_CLIENT_FILE
+    payload = {"client_id": client_id, "redirect_port": redirect_port,
+               "client_secret": client_secret}
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if os.name == "posix":
+            os.chmod(tmp, 0o600)
+        os.replace(tmp, target)
+    except OSError as exc:
+        return False, f"Could not write {target}: {exc}"
+    return True, ""
+
+
+def delete_oauth_client(path: Path | None = None) -> bool:
+    """Remove the local OAuth config. Returns True if something was removed.
+    Удалить локальный OAuth-конфиг. True, если файл был удалён."""
+    target = Path(path) if path else OAUTH_CLIENT_FILE
+    existed = target.exists()
+    try:
+        target.unlink(missing_ok=True)
+        return existed
+    except OSError:
+        return False
 
 
 # ------------------------------------------------------------------- pkce

@@ -143,7 +143,7 @@ class QueuePanel(QWidget):
         self._empty.setObjectName("Subtitle")
         self._empty.setAlignment(Qt.AlignCenter)
         self._empty.setWordWrap(True)
-        layout.addWidget(self._empty)
+        layout.addWidget(self._empty, stretch=1)
         self._update_empty_state()
 
     # ------------------------------------------------------------- content

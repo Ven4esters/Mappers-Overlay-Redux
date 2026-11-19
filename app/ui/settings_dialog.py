@@ -1,28 +1,39 @@
-"""Settings dialog: webhook profiles, sending defaults, app (cache/language/backup).
-Диалог настроек: профили вебхуков, параметры отправки, приложение (кэш/язык/бэкап)."""
+"""Settings dialog: webhook profiles, sending defaults, app (cache/language/backup/about).
+Диалог настроек: профили вебхуков, параметры отправки, приложение (кэш/язык/бэкап/о себе).
+
+The «Собственное приложение Discord» block lets the app write oauth.client.json
+itself (client id + client secret, owner-only file) so the user never edits JSON.
+Блок «Собственное приложение Discord» позволяет приложению самому записать
+oauth.client.json (id + секрет, файл только для владельца) — без ручной правки JSON.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMessageBox, QPushButton, QRadioButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
+from app import __version__
 from app import cache as cache_store
 from app import transfer
 from app.discord_client import DiscordClient, DiscordError
 from app.i18n import tr
-from app.oauth import load_oauth_client
+from app.oauth import delete_oauth_client, load_oauth_client, oauth_status, save_oauth_client
 from app.store import ConfigStore
-from app.webhook_url import is_webhook_url
+from app.webhook_url import is_webhook_url, parse_webhook_url
+from app.ui.widgets import SegmentedControl
 from app.workers import ConnectDiscordWorker
 
-_CHANNEL_TYPES = (("forum", "forum"), ("text", "text"))
+
+def _mask_webhook(url: str) -> str:
+    parsed = parse_webhook_url(url)
+    return f"…/{parsed[0]}/••••••••" if parsed else "…"
 
 
 def _friendly_error(code: str) -> str:
@@ -37,10 +48,10 @@ def _friendly_error(code: str) -> str:
 
 
 class SettingsDialog(QDialog):
-    """Modal settings. / Модальные настройки.
+    """Modal settings with a left navigation rail. / Модальные настройки с навигацией.
 
-    Signals: profilesChanged — the profile set/active changed (main window refreshes);
-    sendingDefaultsChanged — sending defaults changed (main window re-applies);
+    Signals: profilesChanged — profile set/active changed (main window refreshes);
+    sendingDefaultsChanged — sending defaults changed;
     configImported — everything was replaced from a backup bundle.
     """
 
@@ -51,61 +62,124 @@ class SettingsDialog(QDialog):
     def __init__(self, store: ConfigStore, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("settings.title"))
-        self.setMinimumSize(720, 560)
+        self.setMinimumSize(880, 620)
         self._store = store
         self._create_mode = False
         self._loading = False
         self._connect_worker: ConnectDiscordWorker | None = None
 
-        root = QVBoxLayout(self)
-        tabs = QTabWidget(self)
-        tabs.addTab(self._build_profiles_tab(), tr("settings.tab_profiles"))
-        tabs.addTab(self._build_sending_tab(), tr("settings.tab_sending"))
-        tabs.addTab(self._build_app_tab(), tr("settings.tab_app"))
-        root.addWidget(tabs, stretch=1)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Close, parent=self)
-        buttons.rejected.connect(self.accept)
-        root.addWidget(buttons)
+        root.addWidget(self._build_nav())
 
+        right = QWidget(self)
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(18, 16, 18, 14)
+        right_layout.setSpacing(12)
+        self._stack = QStackedWidget(right)
+        self._stack.addWidget(self._build_profiles_page())
+        self._stack.addWidget(self._build_sending_page())
+        self._stack.addWidget(self._build_app_page())
+        right_layout.addWidget(self._stack, stretch=1)
+
+        footer = QHBoxLayout()
+        self._saved_label = QLabel("", right)
+        self._saved_label.setObjectName("Dim")
+        footer.addWidget(self._saved_label)
+        footer.addStretch(1)
+        close_buttons = QDialogButtonBox(QDialogButtonBox.Close, parent=right)
+        close_buttons.rejected.connect(self.accept)
+        footer.addWidget(close_buttons)
+        right_layout.addLayout(footer)
+
+        root.addWidget(right, stretch=1)
+
+        self._nav_buttons[0].setChecked(True)
+        self._stack.setCurrentIndex(0)
         self._load_profiles()
         self._load_sending()
         self._refresh_cache_stats()
+        self._refresh_oauth_status()
 
-    # ---------------------------------------------------------- profiles tab
-    def _build_profiles_tab(self) -> QWidget:
+    # ---------------------------------------------------------------- nav
+    def _build_nav(self) -> QWidget:
+        rail = QWidget(self)
+        rail.setObjectName("Sidebar")
+        rail.setFixedWidth(196)
+        layout = QVBoxLayout(rail)
+        layout.setContentsMargins(14, 16, 14, 14)
+        layout.setSpacing(4)
+
+        title = QLabel(tr("settings.title"), rail)
+        title.setObjectName("SectionHeader")
+        layout.addWidget(title)
+        subtitle = QLabel(tr("settings.subtitle"), rail)
+        subtitle.setObjectName("Hint")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+        layout.addSpacing(10)
+
+        icons = ["👤", "✈", "⚙"]
+        labels = [tr("settings.tab_profiles"), tr("settings.tab_sending"), tr("settings.tab_app")]
+        self._nav_buttons: list[QPushButton] = []
+        for index, (icon, label) in enumerate(zip(icons, labels)):
+            button = QPushButton(f"{icon}   {label}", rail)
+            button.setObjectName("NavButton")
+            button.setCheckable(True)
+            button.clicked.connect(lambda _checked=False, row=index: self._nav_to(row))
+            self._nav_buttons.append(button)
+            layout.addWidget(button)
+        layout.addStretch(1)
+        return rail
+
+    def _nav_to(self, row: int) -> None:
+        for index, button in enumerate(self._nav_buttons):
+            button.setChecked(index == row)
+        self._stack.setCurrentIndex(row)
+
+    # --------------------------------------------------------- profiles page
+    def _build_profiles_page(self) -> QWidget:
         page = QWidget(self)
-        outer = QHBoxLayout(page)
-        outer.setContentsMargins(12, 12, 12, 12)
-        outer.setSpacing(12)
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        box = QGroupBox(tr("settings.profiles_group"), page)
+        row = QHBoxLayout(box)
+        row.setSpacing(12)
 
         left = QVBoxLayout()
         left.setSpacing(6)
-        self._profile_list = QListWidget(page)
+        self._profile_list = QListWidget(box)
+        self._profile_list.setMinimumWidth(188)
         self._profile_list.itemSelectionChanged.connect(self._on_profile_selected)
         left.addWidget(self._profile_list, stretch=1)
-        row = QHBoxLayout()
-        self._new_button = QPushButton(f"＋ {tr('settings.profile_new')}", page)
+        self._new_button = QPushButton(f"＋  {tr('settings.profile_new')}", box)
         self._new_button.clicked.connect(self._start_create)
-        row.addWidget(self._new_button)
-        self._connect_button = QPushButton(f"🔗 {tr('settings.connect_discord')}", page)
+        left.addWidget(self._new_button)
+        self._connect_button = QPushButton(f"🔗  {tr('settings.connect_discord')}", box)
         self._connect_button.setObjectName("Primary")
         self._connect_button.clicked.connect(self._connect_discord)
         left.addWidget(self._connect_button)
-        left.addWidget(self._hint_label(page))
-        self._remove_button = QPushButton(tr("settings.profile_remove"), page)
+        small_row = QHBoxLayout()
+        small_row.setSpacing(6)
+        self._activate_button = QPushButton(f"★ {tr('settings.profile_activate')}", box)
+        self._activate_button.setObjectName("Ghost")
+        self._activate_button.clicked.connect(self._activate_profile)
+        small_row.addWidget(self._activate_button, stretch=1)
+        self._remove_button = QPushButton(tr("settings.profile_remove"), box)
         self._remove_button.setObjectName("Danger")
         self._remove_button.clicked.connect(self._remove_profile)
-        row.addWidget(self._remove_button)
-        left.addLayout(row)
-        self._activate_button = QPushButton(f"★ {tr('settings.profile_activate')}", page)
-        self._activate_button.clicked.connect(self._activate_profile)
-        left.addWidget(self._activate_button)
-        outer.addLayout(left, stretch=2)
+        small_row.addWidget(self._remove_button, stretch=1)
+        left.addLayout(small_row)
+        row.addLayout(left, stretch=2)
 
-        form_host = QWidget(page)
+        form_host = QWidget(box)
         form = QFormLayout(form_host)
         form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(8)
         form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
         self._name = QLineEdit(form_host)
@@ -122,9 +196,9 @@ class SettingsDialog(QDialog):
         url_row.addWidget(self._show_url)
         form.addRow(tr("settings.profile_url"), url_row)
 
-        self._type = QComboBox(form_host)
-        for key, label_key in _CHANNEL_TYPES:
-            self._type.addItem(tr(f"settings.type_{label_key}"), key)
+        self._type = SegmentedControl(
+            [("forum", f"🏟  {tr('settings.type_forum')}"), ("text", f"💬  {tr('settings.type_text')}")],
+            form_host)
         form.addRow(tr("settings.profile_type"), self._type)
 
         self._username = QLineEdit(form_host)
@@ -135,13 +209,16 @@ class SettingsDialog(QDialog):
         self._avatar.setPlaceholderText("https://…/avatar.png")
         form.addRow(tr("settings.profile_avatar"), self._avatar)
 
-        self._test_button = QPushButton(tr("settings.test"), form_host)
+        test_row = QHBoxLayout()
+        self._test_button = QPushButton(f"⚡  {tr('settings.test')}", form_host)
+        self._test_button.setObjectName("Ghost")
         self._test_button.clicked.connect(self._test_webhook)
-        form.addRow("", self._test_button)
+        test_row.addWidget(self._test_button)
         self._test_result = QLabel("", form_host)
         self._test_result.setWordWrap(True)
         self._test_result.setObjectName("Dim")
-        form.addRow("", self._test_result)
+        test_row.addWidget(self._test_result, stretch=1)
+        form.addRow("", test_row)
 
         self._form_error = QLabel("", form_host)
         self._form_error.setWordWrap(True)
@@ -153,12 +230,72 @@ class SettingsDialog(QDialog):
         save_row.addStretch(1)
         self._save_button = QPushButton(tr("common.save"), form_host)
         self._save_button.setObjectName("Primary")
+        self._save_button.setMinimumWidth(140)
         self._save_button.clicked.connect(self._save_profile)
         save_row.addWidget(self._save_button)
         form.addRow("", save_row)
 
-        form.addRow("", QLabel(tr("settings.profile_hint"), form_host))
-        outer.addWidget(form_host, stretch=3)
+        row.addWidget(form_host, stretch=3)
+        layout.addWidget(box, stretch=1)
+
+        oauth_box = QGroupBox(tr("settings.oauth_group"), page)
+        oauth_layout = QVBoxLayout(oauth_box)
+        oauth_layout.setSpacing(6)
+
+        self._oauth_status = QLabel("", oauth_box)
+        self._oauth_status.setWordWrap(True)
+        oauth_layout.addWidget(self._oauth_status)
+
+        oauth_form_row = QHBoxLayout()
+        oauth_form_row.setSpacing(10)
+        self._client_id = QLineEdit(oauth_box)
+        self._client_id.setPlaceholderText("client_id")
+        id_col = QVBoxLayout()
+        id_col.addWidget(QLabel(tr("settings.client_id"), oauth_box))
+        id_col.addWidget(self._client_id)
+        oauth_form_row.addLayout(id_col, stretch=2)
+        self._client_secret = QLineEdit(oauth_box)
+        self._client_secret.setEchoMode(QLineEdit.Password)
+        self._client_secret.setPlaceholderText("client_secret")
+        secret_col = QVBoxLayout()
+        secret_col.addWidget(QLabel(tr("settings.client_secret"), oauth_box))
+        secret_col.addWidget(self._client_secret)
+        oauth_form_row.addLayout(secret_col, stretch=3)
+        self._show_secret = QCheckBox(tr("settings.show_secret"), oauth_box)
+        self._show_secret.toggled.connect(
+            lambda checked: self._client_secret.setEchoMode(
+                QLineEdit.Normal if checked else QLineEdit.Password))
+        show_col = QVBoxLayout()
+        show_col.addSpacing(26)
+        show_col.addWidget(self._show_secret)
+        oauth_form_row.addLayout(show_col)
+        oauth_layout.addLayout(oauth_form_row)
+
+        oauth_actions = QHBoxLayout()
+        self._save_oauth_button = QPushButton(tr("settings.oauth_save"), oauth_box)
+        self._save_oauth_button.setObjectName("Primary")
+        self._save_oauth_button.clicked.connect(self._save_oauth)
+        oauth_actions.addWidget(self._save_oauth_button)
+        self._clear_oauth_button = QPushButton(tr("settings.oauth_clear"), oauth_box)
+        self._clear_oauth_button.setObjectName("Danger")
+        self._clear_oauth_button.clicked.connect(self._clear_oauth)
+        oauth_actions.addWidget(self._clear_oauth_button)
+        copy_redirect = QPushButton(tr("settings.copy_redirect"), oauth_box)
+        copy_redirect.setObjectName("Ghost")
+        copy_redirect.clicked.connect(self._copy_redirect)
+        oauth_actions.addWidget(copy_redirect)
+        portal = QPushButton(tr("settings.portal_open"), oauth_box)
+        portal.setObjectName("Ghost")
+        portal.clicked.connect(self._open_portal)
+        oauth_actions.addWidget(portal)
+        oauth_actions.addStretch(1)
+        oauth_layout.addLayout(oauth_actions)
+
+        hint = QLabel(tr("settings.oauth_hint"), oauth_box)
+        hint.setObjectName("Hint")
+        hint.setWordWrap(True)
+        oauth_layout.addWidget(hint)
+        layout.addWidget(oauth_box)
         return page
 
     def _load_profiles(self, select_id: str = "") -> None:
@@ -171,7 +308,7 @@ class SettingsDialog(QDialog):
             icon = "🏟" if profile.is_forum else "💬"
             item = QListWidgetItem(f"{badge}{icon}  {profile.name}")
             item.setData(Qt.UserRole, profile.id)
-            item.setToolTip(profile.webhook_url if profile.webhook_url else tr("settings.profile_no_url"))
+            item.setToolTip(_mask_webhook(profile.webhook_url))
             self._profile_list.addItem(item)
         if current:
             for index in range(self._profile_list.count()):
@@ -183,13 +320,6 @@ class SettingsDialog(QDialog):
         self._loading = False
         self._on_profile_selected()
 
-    @staticmethod
-    def _hint_label(page: QWidget) -> QLabel:
-        hint = QLabel(tr("settings.connect_hint"), page)
-        hint.setObjectName("Dim")
-        hint.setWordWrap(True)
-        return hint
-
     def selected_profile_id(self) -> str:
         item = self._profile_list.currentItem()
         return str(item.data(Qt.UserRole)) if item else ""
@@ -197,11 +327,11 @@ class SettingsDialog(QDialog):
     def _on_profile_selected(self) -> None:
         if self._loading:
             return
-        if self._create_mode:
-            return
+        # clicking a profile always edits it (exits any half-finished "new profile" draft)
         profile = self._store.get_profile(self.selected_profile_id())
         if profile is None:
-            self._clear_form()
+            if not self._create_mode:
+                self._clear_form()
             return
         self._fill_form(profile)
         self._set_buttons_for_mode(create=False)
@@ -209,8 +339,7 @@ class SettingsDialog(QDialog):
     def _fill_form(self, profile) -> None:
         self._name.setText(profile.name)
         self._url.setText(profile.webhook_url)
-        index = self._type.findData(profile.channel_type)
-        self._type.setCurrentIndex(max(0, index))
+        self._type.set_current(profile.channel_type if profile.channel_type in ("forum", "text") else "forum")
         self._username.setText(profile.username_override)
         self._avatar.setText(profile.avatar_url)
         self._test_result.clear()
@@ -219,7 +348,7 @@ class SettingsDialog(QDialog):
     def _clear_form(self) -> None:
         self._name.clear()
         self._url.clear()
-        self._type.setCurrentIndex(0)
+        self._type.set_current("forum")
         self._username.clear()
         self._avatar.clear()
         self._test_result.clear()
@@ -248,7 +377,7 @@ class SettingsDialog(QDialog):
         if not is_webhook_url(url):
             self._show_form_error(tr("settings.err_url"))
             return
-        channel_type = str(self._type.currentData())
+        channel_type = self._type.current()
         username = self._username.text().strip()
         avatar = self._avatar.text().strip()
         try:
@@ -267,6 +396,7 @@ class SettingsDialog(QDialog):
             return
         self._set_buttons_for_mode(create=False)
         self._load_profiles(select_id=profile.id)
+        self._flash_saved()
         self.profilesChanged.emit()
 
     def _remove_profile(self) -> None:
@@ -292,6 +422,7 @@ class SettingsDialog(QDialog):
         self._store.settings.active_profile_id = profile_id
         self._store.save()
         self._load_profiles(select_id=profile_id)
+        self._flash_saved()
         self.profilesChanged.emit()
 
     def _test_webhook(self) -> None:
@@ -323,24 +454,73 @@ class SettingsDialog(QDialog):
         self._test_result.setText(f"✓ {tr('settings.test_ok')}: {detail}")
         self._test_result.setStyleSheet("color:#34D399;")
 
+    def _show_form_error(self, text: str) -> None:
+        self._form_error.setText(text)
+        self._form_error.show()
+
+    # ------------------------------------------------------ oauth (in-app)
+    def _refresh_oauth_status(self) -> None:
+        status = oauth_status()
+        self._client_id.setText(str(status["client_id"]))
+        self._client_secret.clear()
+        if status["configured"]:
+            self._client_secret.setPlaceholderText(tr("settings.secret_keep"))
+            self._oauth_status.setText(f"✓ {tr('settings.oauth_configured')}")
+            self._oauth_status.setStyleSheet("color:#34D399;")
+        else:
+            self._client_secret.setPlaceholderText(tr("settings.client_secret"))
+            self._oauth_status.setText(tr("settings.oauth_not_configured"))
+            self._oauth_status.setStyleSheet("color:#FBBF24;")
+
+    def _save_oauth(self) -> None:
+        secret = self._client_secret.text().strip()
+        if not secret:
+            # keep the stored secret if one exists
+            config, _error = load_oauth_client()
+            secret = config.client_secret if config else ""
+        ok, error = save_oauth_client(self._client_id.text(), secret)
+        if not ok:
+            QMessageBox.warning(self, tr("settings.oauth_group"), error)
+            return
+        self._refresh_oauth_status()
+        self._flash_saved()
+
+    def _clear_oauth(self) -> None:
+        answer = QMessageBox.question(
+            self, tr("settings.oauth_group"), tr("settings.oauth_clear_confirm"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
+        delete_oauth_client()
+        self._refresh_oauth_status()
+        self._flash_saved()
+
+    def _copy_redirect(self) -> None:
+        QApplication.clipboard().setText(str(oauth_status()["redirect_uri"]))
+        self._flash_saved()
+
+    def _open_portal(self) -> None:
+        QDesktopServices.openUrl(QUrl("https://discord.com/developers/applications"))
+
     def _connect_discord(self) -> None:
         config, error = load_oauth_client()
         if config is None:
             QMessageBox.information(self, tr("settings.connect_discord"),
-                                    f"{tr('settings.connect_setup')}\n\n{error}")
+                                    f"{tr('settings.connect_need_setup')}")
+            self._client_id.setFocus()
             return
         self._connect_button.setEnabled(False)
-        self._connect_button.setText(f"🔗 {tr('settings.connect_waiting')}")
+        self._connect_button.setText(f"🔗  {tr('settings.connect_waiting')}")
         worker = ConnectDiscordWorker(config, parent=self)
         worker.browserRequested.connect(lambda url: QDesktopServices.openUrl(QUrl(url)))
         worker.done.connect(self._on_connect_done)
-        worker.finished.connect(lambda: self._reset_connect_button())
+        worker.finished.connect(self._reset_connect_button)
         self._connect_worker = worker
         worker.start()
 
     def _reset_connect_button(self) -> None:
         self._connect_button.setEnabled(True)
-        self._connect_button.setText(f"🔗 {tr('settings.connect_discord')}")
+        self._connect_button.setText(f"🔗  {tr('settings.connect_discord')}")
         self._connect_worker = None
 
     def _on_connect_done(self, summary) -> None:
@@ -371,94 +551,91 @@ class SettingsDialog(QDialog):
             self._connect_worker = None
         super().done(result)
 
-    def _show_form_error(self, text: str) -> None:
-        self._form_error.setText(text)
-        self._form_error.show()
-
-    # --------------------------------------------------------- sending tab
-    def _build_sending_tab(self) -> QWidget:
+    # --------------------------------------------------------- sending page
+    def _build_sending_page(self) -> QWidget:
         page = QWidget(self)
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
-        box_mode = QGroupBox(tr("send.mode"), page)
-        mode_layout = QVBoxLayout(box_mode)
-        self._send_mode = QComboBox(box_mode)
-        self._send_mode.addItem(tr("settings.send_mode_ask"), "ask")
-        self._send_mode.addItem(tr("send.mode_single"), "single")
-        self._send_mode.addItem(tr("send.mode_separate"), "separate")
-        self._send_mode.currentIndexChanged.connect(self._on_sending_changed)
-        mode_layout.addWidget(self._send_mode)
-        hint = QLabel(tr("settings.ask_hint"), box_mode)
+        mode_box = QGroupBox(tr("send.mode"), page)
+        mode_layout = QVBoxLayout(mode_box)
+        self._mode_ask = QRadioButton(tr("settings.send_mode_ask"), mode_box)
+        self._mode_ask.setToolTip(tr("settings.ask_hint"))
+        self._mode_single = QRadioButton(tr("send.mode_single"), mode_box)
+        self._mode_separate = QRadioButton(tr("send.mode_separate"), mode_box)
+        for radio in (self._mode_ask, self._mode_single, self._mode_separate):
+            radio.toggled.connect(self._on_sending_changed)
+            mode_layout.addWidget(radio)
+        hint = QLabel(tr("settings.ask_hint"), mode_box)
+        hint.setObjectName("Hint")
         hint.setWordWrap(True)
-        hint.setObjectName("Dim")
         mode_layout.addWidget(hint)
-        layout.addWidget(box_mode)
+        layout.addWidget(mode_box)
 
-        box_style = QGroupBox(tr("send.style"), page)
-        style_layout = QVBoxLayout(box_style)
-        self._style = QComboBox(box_style)
-        self._style.addItem(tr("send.style_text"), "text")
-        self._style.addItem(tr("send.style_embed"), "embed")
-        self._style.currentIndexChanged.connect(self._on_sending_changed)
-        style_layout.addWidget(self._style)
-        layout.addWidget(box_style)
+        style_box = QGroupBox(tr("send.style"), page)
+        style_layout = QVBoxLayout(style_box)
+        self._style_text = QRadioButton(tr("send.style_text"), style_box)
+        self._style_embed = QRadioButton(tr("send.style_embed"), style_box)
+        for radio in (self._style_text, self._style_embed):
+            radio.toggled.connect(self._on_sending_changed)
+            style_layout.addWidget(radio)
+        layout.addWidget(style_box)
 
-        self._duplicate = QCheckBox(tr("send.duplicate_caption"), page)
+        options_box = QGroupBox(tr("settings.options_group"), page)
+        options_layout = QVBoxLayout(options_box)
+        self._duplicate = QCheckBox(tr("send.duplicate_caption"), options_box)
         self._duplicate.toggled.connect(self._on_sending_changed)
-        layout.addWidget(self._duplicate)
-
-        self._clear_fields = QCheckBox(tr("settings.clear_fields"), page)
+        options_layout.addWidget(self._duplicate)
+        self._clear_fields = QCheckBox(tr("settings.clear_fields"), options_box)
         self._clear_fields.toggled.connect(self._on_sending_changed)
-        layout.addWidget(self._clear_fields)
-
-        self._saved_label = QLabel("", page)
-        self._saved_label.setObjectName("Dim")
-        layout.addWidget(self._saved_label)
+        options_layout.addWidget(self._clear_fields)
+        layout.addWidget(options_box)
         layout.addStretch(1)
         return page
 
     def _load_sending(self) -> None:
+        # block toggled-handlers so opening the dialog doesn't re-save/re-emit
+        radios = [self._mode_ask, self._mode_single, self._mode_separate,
+                  self._style_text, self._style_embed, self._duplicate, self._clear_fields]
+        for widget in radios:
+            widget.blockSignals(True)
         settings = self._store.settings
-        self._set_combo(self._send_mode, settings.send_mode)
-        self._set_combo(self._style, settings.section_style)
+        self._mode_ask.setChecked(settings.send_mode == "ask")
+        self._mode_single.setChecked(settings.send_mode == "single")
+        self._mode_separate.setChecked(settings.send_mode == "separate")
+        self._style_text.setChecked(settings.section_style != "embed")
+        self._style_embed.setChecked(settings.section_style == "embed")
         self._duplicate.setChecked(settings.duplicate_caption)
         self._clear_fields.setChecked(settings.clear_fields_after_send)
+        for widget in radios:
+            widget.blockSignals(False)
 
     def _on_sending_changed(self, *_args) -> None:
         settings = self._store.settings
-        settings.send_mode = str(self._send_mode.currentData())
-        settings.section_style = str(self._style.currentData())
+        settings.send_mode = "ask" if self._mode_ask.isChecked() else "separate" if self._mode_separate.isChecked() else "single"
+        settings.section_style = "embed" if self._style_embed.isChecked() else "text"
         settings.duplicate_caption = self._duplicate.isChecked()
         settings.clear_fields_after_send = self._clear_fields.isChecked()
         self._store.save()
-        self._saved_label.setText(tr("settings.saved"))
+        self._flash_saved()
         self.sendingDefaultsChanged.emit()
 
-    @staticmethod
-    def _set_combo(combo: QComboBox, data: str) -> None:
-        index = combo.findData(data)
-        combo.setCurrentIndex(index if index >= 0 else 0)
-
-    # ------------------------------------------------------------ app tab
-    def _build_app_tab(self) -> QWidget:
+    # ------------------------------------------------------------ app page
+    def _build_app_page(self) -> QWidget:
         page = QWidget(self)
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
         lang_box = QGroupBox(tr("settings.language"), page)
         lang_layout = QVBoxLayout(lang_box)
-        self._language = QComboBox(lang_box)
-        self._language.addItem("Русский", "ru")
-        self._language.addItem("English", "en")
-        index = self._language.findData(self._store.settings.language)
-        self._language.setCurrentIndex(index if index >= 0 else 0)
-        self._language.currentIndexChanged.connect(self._on_language_changed)
+        self._language = SegmentedControl([("ru", "Русский"), ("en", "English")], lang_box)
+        self._language.set_current(self._store.settings.language)
+        self._language.currentChanged.connect(self._on_language_changed)
         lang_layout.addWidget(self._language)
         self._lang_note = QLabel(tr("settings.language_restart"), lang_box)
-        self._lang_note.setObjectName("Dim")
+        self._lang_note.setObjectName("Hint")
         self._lang_note.setWordWrap(True)
         self._lang_note.hide()
         lang_layout.addWidget(self._lang_note)
@@ -476,14 +653,14 @@ class SettingsDialog(QDialog):
         clear_button = QPushButton(tr("settings.cache_clear"), cache_box)
         clear_button.setObjectName("Danger")
         clear_button.clicked.connect(self._clear_cache)
-        cache_layout.addWidget(clear_button)
+        cache_layout.addWidget(clear_button, alignment=Qt.AlignLeft)
         layout.addWidget(cache_box)
 
         backup_box = QGroupBox(tr("settings.backup"), page)
         backup_layout = QVBoxLayout(backup_box)
         warning = QLabel(tr("settings.backup_warning"), backup_box)
+        warning.setObjectName("Hint")
         warning.setWordWrap(True)
-        warning.setObjectName("Dim")
         backup_layout.addWidget(warning)
         backup_row = QHBoxLayout()
         export_button = QPushButton(tr("settings.export"), backup_box)
@@ -495,11 +672,23 @@ class SettingsDialog(QDialog):
         backup_row.addStretch(1)
         backup_layout.addLayout(backup_row)
         layout.addWidget(backup_box)
+
+        about_box = QGroupBox(tr("settings.about_group"), page)
+        about_layout = QVBoxLayout(about_box)
+        about = QLabel(tr("settings.about_text", version=__version__), about_box)
+        about.setWordWrap(True)
+        about_layout.addWidget(about)
+        link_button = QPushButton(tr("settings.repo_open"), about_box)
+        link_button.setObjectName("Ghost")
+        link_button.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/Ven4esters/screensaver-into-discord")))
+        about_layout.addWidget(link_button, alignment=Qt.AlignLeft)
+        layout.addWidget(about_box)
         layout.addStretch(1)
         return page
 
-    def _on_language_changed(self, *_args) -> None:
-        self._store.settings.language = str(self._language.currentData())
+    def _on_language_changed(self, lang: str) -> None:
+        self._store.settings.language = lang
         self._store.save()
         self._lang_note.show()
 
@@ -521,7 +710,7 @@ class SettingsDialog(QDialog):
                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
-        removed, freed = cache_store.clear_cache()
+        removed, _freed = cache_store.clear_cache()
         self._refresh_cache_stats()
         QMessageBox.information(self, tr("settings.cache_clear"),
                                 tr("settings.cache_cleared", files=removed))
@@ -559,3 +748,6 @@ class SettingsDialog(QDialog):
             self, tr("settings.import"),
             tr("settings.import_done", path=str(result.backup_dir)))
         self.configImported.emit()
+
+    def _flash_saved(self) -> None:
+        self._saved_label.setText(tr("settings.saved"))

@@ -45,7 +45,7 @@ app/
   bbcode.py              # сборщик BB-кода XenForo (заголовок, секции, спойлеры)
   catbox.py              # анонимная загрузка на catbox.moe (постоянные ссылки)
 assets/i18n/             # языковые пакеты (RU+EN, ключи синхронны)
-tests/                   # pytest (101 тест: 100 ✓ + 1 GUI-skip, respx-моки)
+tests/                   # pytest (107 тестов: 106 ✓ + 1 GUI-skip, respx-моки)
 oauth.client.example.json  # шаблон oauth.client.json (сам файл НЕ коммитится)
 ```
 
@@ -69,21 +69,25 @@ oauth.client.example.json  # шаблон oauth.client.json (сам файл Н�
 
 The **“Connect Discord…”** button (Settings → Profiles) creates the webhook itself: you pick a server and channel in Discord's own UI, the app receives the webhook URL and offers to save it as a profile. The access token is never stored — only `webhook.url` is kept.
 
-**Одноразовая настройка (один раз на установку) / One-time setup (once per installation):**
+**Одноразовая настройка прямо в приложении (один раз на установку):**
 
-1. https://discord.com/developers/applications → **New Application**
-2. **OAuth2 → Redirects** → добавьте `http://localhost:8321/callback` (ровно так, порт = `redirect_port`)
-3. Скопируйте **Client ID** и **Client Secret**
-4. Создайте рядом с `main.py` файл `oauth.client.json` (шаблон: `oauth.client.example.json`):
-   ```json
-   { "client_id": "…", "redirect_port": 8321, "client_secret": "…" }
-   ```
-   `oauth.client.json` в `.gitignore` и никогда не коммитится.
-5. Нажмите «Подключить Discord» снова. Откроется браузер; после выбора канала вкладку можно закрыть.
+1. **Настройки → Профили → «Подключение Discord (OAuth2)»** → нажмите **«Открыть Developer Portal…»** и создайте приложение: https://discord.com/developers/applications → **New Application** → **OAuth2**.
+2. **OAuth2 → Redirects** → добавьте Redirect URI (кнопка **«Копировать Redirect URI»** даёт `http://localhost:8321/callback`).
+3. Скопируйте **Client ID** и **Client Secret** в поля ниже и нажмите **«Сохранить и записать oauth.client.json»** — приложение само создаст `oauth.client.json` рядом с `main.py` (права только для владельца, `chmod 600` на POSIX). Создавать или редактировать файлы руками **не нужно**.
+4. Нажмите **«🔗 Подключить Discord…»**: откроется браузер; после выбора сервера и канала вкладку можно закрыть — приложение получит webhook URL и само подставит его в новый профиль; останется указать имя и нажать «Добавить».
 
-Без этого файла кнопка покажет инструкцию, а отправка по обычному вебхуку (вставка URL вручную) работает как раньше. / Without the file, the button shows this help; manual webhook URLs keep working.
+`oauth.client.json` в `.gitignore` и никогда не коммитится; удалить его можно кнопкой **«Удалить ключи»**. Файл `oauth.client.example.json` — необязательный шаблон для ручной правки (в обычной настройке не нужен).
 
-Приложение проекта по умолчанию публичное (`client_id 1572688177242574918` в репозитории). Вы можете зарегистрировать **собственное** приложение Discord — тогда `client_id` в `oauth.client.json` переопределит встроенный.
+**One-time in-app setup (once per installation):**
+
+1. **Settings → Profiles → “Connect Discord (OAuth2)”** → press **“Open Developer Portal…”** and create an app: https://discord.com/developers/applications → **New Application** → **OAuth2**.
+2. **OAuth2 → Redirects** → add the Redirect URI (the **“Copy Redirect URI”** button provides `http://localhost:8321/callback`).
+3. Paste **Client ID** and **Client Secret** into the fields and press **“Save and write oauth.client.json”** — the app creates `oauth.client.json` next to `main.py` itself (owner-only permissions, `chmod 600` on POSIX). No hand-editing of files is needed.
+4. Press **“Connect Discord…”**: a browser opens; after you pick the server and channel the tab can be closed — the app receives the webhook URL and pre-fills a new profile; name it and press “Add”.
+
+`oauth.client.json` is `.gitignore`d and never committed; the **“Remove credentials”** button deletes it. `oauth.client.example.json` is an optional template for manual setup (not needed in the usual flow).
+
+Если вебхука у вас ещё нет — кнопка выше создаст его сама. Если вебхук уже есть, OAuth вообще не нужен: вставьте его URL в поле «URL вебхука» (глазик покажет/спрячет его) и нажмите «Проверить вебхук». / If you already have a webhook, no OAuth is needed at all: paste its URL (the eye toggle reveals/hides it) and press “Test webhook”. Without saved keys the button shows a hint; manual webhook URLs keep working regardless.
 
 ## BB-код для XenForo / BB-code export
 
@@ -119,7 +123,7 @@ All 10 modules are done and pushed: scaffold → config → capture → Discord 
 
 **Что нужно знать / Known limitations:**
 - GUI проверен автоматическими тестами логики (QT-free) и headless-компиляцией; первый живой прогон интерфейса — на Windows (Qt там работает из коробки, Linux нужны `libgl1`, `libegl1`, `libxkbcommon`). / GUI logic is covered by QT-free tests; the first live UI run happens on Windows (Linux needs the GL libs).
-- «Подключить Discord» требует одноразового `oauth.client.json` (см. раздел про OAuth2 выше); без него ручной вебхук работает как раньше. / The OAuth button needs a one-time `oauth.client.json` (see OAuth2 section); manual webhooks work regardless.
+- «Подключить Discord» требует одноразового ввода Client ID / Client Secret в настройках — приложение само запишет `oauth.client.json` (см. раздел про OAuth2 выше); без них ручной вебхук работает как раньше. / The Connect button needs a one-time entry of Client ID / Client Secret in the settings — the app writes `oauth.client.json` itself (see OAuth2 section); manual webhooks work regardless.
 - Ссылки Discord CDN живут ≈24 ч (ограничение Discord); для постоянных медиа-ссылок в BB-коде используйте источник catbox.moe. / Discord CDN links expire after ≈24 h; use catbox.moe for permanent BB-code media links.
 - URL вебхука = пароль на отправку в канал: храните `config.json` в секрете (он в `.gitignore`). / A webhook URL is a posting password: keep `config.json` secret (it is gitignored).
 

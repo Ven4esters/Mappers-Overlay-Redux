@@ -216,7 +216,11 @@ class MainWindow(QMainWindow):
     def _create_album(self) -> None:
         profile = self.store.active_profile()
         if profile is None:
-            QMessageBox.information(self, tr("nav.settings"), tr("common.module_pending"))
+            answer = QMessageBox.question(
+                self, tr("nav.settings"), tr("common.need_profile"),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if answer == QMessageBox.Yes:
+                self._open_settings()
             return
         name, ok = QInputDialog.getText(self, tr("album.create_title"), tr("album.create_label"),
                                          text="")

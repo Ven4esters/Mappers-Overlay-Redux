@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout,
+    QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
     QRadioButton, QVBoxLayout,
 )
@@ -22,6 +22,7 @@ from app.bbcode import BBSection, build_bbcode
 from app.i18n import tr
 from app.models import Attachment
 from app.store import ConfigStore, HistoryStore
+from app.ui.widgets import SegmentedControl
 from app.workers import CatboxUploadWorker
 
 _KEY_SEP = "::"
@@ -74,13 +75,9 @@ class BBCodeDialog(QDialog):
         tag_row = QHBoxLayout()
         tag_label = QLabel(tr("bb.media_tag"), self)
         tag_row.addWidget(tag_label)
-        self._tag = QComboBox(self)
-        self._tag.addItem("IMG", "IMG")
-        self._tag.addItem("MEDIA", "MEDIA")
-        self._tag.addItem("CUSTOM", "CUSTOM")
-        index = self._tag.findData(store.settings.bb_media_tag)
-        self._tag.setCurrentIndex(index if index >= 0 else 0)
-        self._tag.currentIndexChanged.connect(self._on_tag_changed)
+        self._tag = SegmentedControl([("IMG", "IMG"), ("MEDIA", "MEDIA"), ("CUSTOM", "CUSTOM")], self)
+        self._tag.set_current(store.settings.bb_media_tag if store.settings.bb_media_tag in ("IMG", "MEDIA", "CUSTOM") else "IMG")
+        self._tag.currentChanged.connect(self._on_tag_changed)
         tag_row.addWidget(self._tag)
         self._custom_tag = QLineEdit(self)
         self._custom_tag.setPlaceholderText("MYTAG")
@@ -184,7 +181,7 @@ class BBCodeDialog(QDialog):
         title = self._album.name
         text = build_bbcode(title, sections,
                             heading_template=self._store.settings.bb_heading_template,
-                            media_tag=str(self._tag.currentData()),
+                            media_tag=self._tag.current(),
                             custom_media_tag=self._custom_tag.text())
         if not sections:
             text = tr("bb.empty")
@@ -261,14 +258,14 @@ class BBCodeDialog(QDialog):
         self._regenerate()
 
     def _on_tag_changed(self, *_args) -> None:
-        self._store.settings.bb_media_tag = str(self._tag.currentData())
+        self._store.settings.bb_media_tag = self._tag.current()
         self._store.settings.bb_custom_media_tag = self._custom_tag.text().strip()
         self._store.save()
         self._sync_custom_tag_enabled()
         self._regenerate()
 
     def _sync_custom_tag_enabled(self) -> None:
-        custom = str(self._tag.currentData()) == "CUSTOM"
+        custom = self._tag.current() == "CUSTOM"
         self._custom_tag.setEnabled(custom)
 
     def _copy(self) -> None:
