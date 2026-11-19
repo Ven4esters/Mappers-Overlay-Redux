@@ -121,5 +121,13 @@
   "settings.export_done": "Копия сохранена:\n{path}",
   "settings.import_confirm": "Импорт заменит текущие настройки, профили, альбомы и историю содержимым файла. Текущие файлы будут сохранены в резервную копию. Продолжить?",
   "settings.import_done": "Импорт завершён. Резервная копия прежних данных:\n{path}",
-  "settings.import_reloaded": "Конфигурация перечитана из файла"
+  "settings.import_reloaded": "Конфигурация перечитана из файла",
+  "settings.connect_discord": "Подключить Discord…",
+  "settings.connect_hint": "Вебхук создастся сам: нужна одноразовая настройка «Подключить Discord» (oauth.client.json) — инструкция откроется по кнопке.",
+  "settings.connect_waiting": "Ожидание Discord…",
+  "settings.connect_setup": "«Подключить Discord» требует одноразовой настройки:\n\n1. Откройте discord.com/developers/applications → New Application\n2. OAuth2 → Redirects → добавьте http://localhost:8321/callback\n3. Скопируйте Client ID и Client Secret\n4. Создайте рядом с main.py файл oauth.client.json (шаблон: oauth.client.example.json):\n{\"client_id\": \"ваш ID\", \"redirect_port\": 8321, \"client_secret\": \"ваш секрет\"}\n5. Нажмите «Подключить Discord» снова\n\nАльтернатива: создайте вебхук вручную в настройках канала и вставьте его URL в поле выше.",
+  "settings.connect_timeout": "Discord не ответил вовремя (3 минуты).",
+  "settings.connect_cancelled": "Подключение отменено.",
+  "settings.connect_failed": "Не удалось подключить Discord.",
+  "settings.connect_prefill": "Вебхук получен ✓  Задайте имя и нажмите «Добавить»."
 }

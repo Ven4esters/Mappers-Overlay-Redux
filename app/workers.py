@@ -1,13 +1,13 @@
-"""Background send pipeline (QThread). / Фоновая отправка (QThread).
+"""Background pipelines (QThread). / Фоновые конвейеры (QThread).
 
-The worker never touches the store — it returns a plain ``SendSummary`` and the
-main thread applies registration/history. Uploads run strictly sequentially.
-Воркер не трогает стор: отдаёт ``SendSummary``, а главный поток обновляет
-реестр и историю. Загрузка строго последовательная (рейт-лимиты Discord).
+Workers never touch the store — they return a plain summary and the main
+thread applies registry/history updates.
+Воркеры не трогают стор: отдают summary, а главный поток обновляет реестр/историю.
 """
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QThread, Signal
@@ -16,6 +16,10 @@ from app.discord_client import (
     DiscordClient, DiscordError, SectionInput, SectionSendError, UploadedFile, chunk_files,
 )
 from app.models import Album
+from app.oauth import (
+    OAuthClientConfig, OAuthCallbackError, OAuthTokenError, build_authorize_url,
+    exchange_code, extract_webhook, generate_pkce, generate_state, wait_for_callback,
+)
 
 
 @dataclass
@@ -103,3 +107,67 @@ class SendWorker(QThread):
             message_url=next((r.message_url for r in delivered if r.message_url), ""),
             error_code=error_code, error_message=error_message, results=delivered)
         self.done.emit(summary)
+
+
+@dataclass
+class ConnectSummary:
+    """Outcome of the «Подключить Discord» flow. / Итог потока подключения."""
+
+    status: str                    # ok | failed | cancelled | timeout
+    webhook_url: str = ""          # never logged/stored by the worker
+    channel_id: str = ""
+    guild_id: str = ""
+    error_code: str = ""
+    error_message: str = ""
+
+
+class ConnectDiscordWorker(QThread):
+    """Runs the OAuth2 webhook.incoming flow without blocking the UI.
+    Поток OAuth2 webhook.incoming, не блокирующий UI.
+
+    Signals: browserRequested(url) — main thread must open the system browser;
+    done(ConnectSummary) — outcome (webhook URL lives only in memory).
+    """
+
+    browserRequested = Signal(str)
+    done = Signal(ConnectSummary)
+
+    def __init__(self, config: OAuthClientConfig, *, timeout: float = 180.0,
+                 parent=None) -> None:
+        super().__init__(parent)
+        self._config = config
+        self._timeout = timeout
+        self._abort = threading.Event()
+
+    def abort(self) -> None:
+        self._abort.set()
+
+    def run(self) -> None:
+        verifier, challenge = generate_pkce()
+        state = generate_state()
+        url = build_authorize_url(self._config, state=state, challenge=challenge)
+        self.browserRequested.emit(url)
+        try:
+            code = wait_for_callback(self._config, expected_state=state,
+                                     timeout=self._timeout, abort=self._abort)
+        except TimeoutError as exc:
+            self.done.emit(ConnectSummary(status="timeout", error_code="timeout",
+                                          error_message=str(exc)))
+            return
+        except OAuthCallbackError as exc:
+            code_ = str(exc)
+            status = "cancelled" if "Cancelled by user" in code_ else "failed"
+            self.done.emit(ConnectSummary(status=status, error_code="oauth_callback",
+                                          error_message=code_))
+            return
+        try:
+            token = exchange_code(self._config, code=code, verifier=verifier)
+            webhook = extract_webhook(token)
+        except OAuthTokenError as exc:
+            self.done.emit(ConnectSummary(status="failed", error_code="oauth_token",
+                                          error_message=str(exc)))
+            return
+        self.done.emit(ConnectSummary(status="ok",
+                                      webhook_url=webhook["webhook_url"],
+                                      channel_id=webhook["channel_id"],
+                                      guild_id=webhook["guild_id"]))

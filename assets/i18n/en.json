@@ -121,5 +121,13 @@
   "settings.export_done": "Backup saved:\n{path}",
   "settings.import_confirm": "Import replaces current settings, profiles, albums and history with the file's contents. The current files will be backed up first. Continue?",
   "settings.import_done": "Import complete. Backup of the previous data:\n{path}",
-  "settings.import_reloaded": "Configuration reloaded from the file"
+  "settings.import_reloaded": "Configuration reloaded from the file",
+  "settings.connect_discord": "Connect Discord…",
+  "settings.connect_hint": "The webhook creates itself: needs a one-time “Connect Discord” setup (oauth.client.json) — the instructions open on click.",
+  "settings.connect_waiting": "Waiting for Discord…",
+  "settings.connect_setup": "“Connect Discord” needs a one-time setup:\n\n1. Open discord.com/developers/applications → New Application\n2. OAuth2 → Redirects → add http://localhost:8321/callback\n3. Copy the Client ID and Client Secret\n4. Create oauth.client.json next to main.py (template: oauth.client.example.json):\n{\"client_id\": \"your id\", \"redirect_port\": 8321, \"client_secret\": \"your secret\"}\n5. Click “Connect Discord” again\n\nAlternative: create a webhook manually in the channel settings and paste its URL in the field above.",
+  "settings.connect_timeout": "Discord did not respond in time (3 minutes).",
+  "settings.connect_cancelled": "Connection cancelled.",
+  "settings.connect_failed": "Could not connect Discord.",
+  "settings.connect_prefill": "Webhook received ✓  Set a name and press “Add”."
 }

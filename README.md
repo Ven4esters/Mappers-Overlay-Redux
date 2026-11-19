@@ -38,8 +38,12 @@ app/
   ui/region_overlay.py   # оверлей выбора области
   discord_client.py      # вебхук: multipart, ретраи 429/5xx, маппинг кодов ошибок
   albums.py              # сервис альбомов: создание/привязка/имена файлов
+  oauth.py               # OAuth2 webhook.incoming: PKCE, локальный колбэк, обмен кода
+  transfer.py            # экспорт/импорт резервной копии (config+history)
+  workers.py             # QThread-конвейеры: отправка, подключение Discord
+  cache.py               # локальный кэш отправленных скриншотов (blake2b, дедуп)
 assets/i18n/             # языковые пакеты (RU+EN, ключи синхронны)
-tests/                   # pytest (62 теста, respx-моки для HTTP)
+tests/                   # pytest (80 тестов, respx-моки для HTTP)
 oauth.client.example.json  # шаблон oauth.client.json (сам файл НЕ коммитится)
 ```
 
@@ -53,9 +57,31 @@ oauth.client.example.json  # шаблон oauth.client.json (сам файл Н�
 | 5 | Альбомы: создание/привязка/сквозная нумерация имён | ✅ |
 | 6 | Главное окно: очередь, секции, отправка (QThread) | ✅ |
 | 7 | Настройки, профили, очистка кэша, экспорт/импорт | ✅ |
-| 8 | OAuth2 (PKCE) «Подключить Discord» | ⏳ |
+| 8 | OAuth2 (PKCE) «Подключить Discord» | ✅ |
 | 9 | BB-код публикации (XenForo) + кэш скриншотов + catbox | ⏳ |
 | 10 | start.bat, README-финализация, смоук-тесты | ⏳ |
+
+## Подключить Discord (OAuth2) / Connect Discord
+
+Кнопка **«🔗 Подключить Discord…»** (Настройки → Профили) создаёт вебхук сама: вы выбираете сервер и канал прямо в интерфейсе Discord, приложение получает URL вебхука и предлагает сохранить профиль. Токен доступа нигде не сохраняется — из ответа берётся только `webhook.url`.
+
+The **“Connect Discord…”** button (Settings → Profiles) creates the webhook itself: you pick a server and channel in Discord's own UI, the app receives the webhook URL and offers to save it as a profile. The access token is never stored — only `webhook.url` is kept.
+
+**Одноразовая настройка (один раз на установку) / One-time setup (once per installation):**
+
+1. https://discord.com/developers/applications → **New Application**
+2. **OAuth2 → Redirects** → добавьте `http://localhost:8321/callback` (ровно так, порт = `redirect_port`)
+3. Скопируйте **Client ID** и **Client Secret**
+4. Создайте рядом с `main.py` файл `oauth.client.json` (шаблон: `oauth.client.example.json`):
+   ```json
+   { "client_id": "…", "redirect_port": 8321, "client_secret": "…" }
+   ```
+   `oauth.client.json` в `.gitignore` и никогда не коммитится.
+5. Нажмите «Подключить Discord» снова. Откроется браузер; после выбора канала вкладку можно закрыть.
+
+Без этого файла кнопка покажет инструкцию, а отправка по обычному вебхуку (вставка URL вручную) работает как раньше. / Without the file, the button shows this help; manual webhook URLs keep working.
+
+Приложение проекта по умолчанию публичное (`client_id 1572688177242574918` в репозитории). Вы можете зарегистрировать **собственное** приложение Discord — тогда `client_id` в `oauth.client.json` переопределит встроенный.
 
 ## Безопасность / Security
 - `config.json` (URL вебхуков), `oauth.client.json` (client secret), `cache/` — в `.gitignore`.

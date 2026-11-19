@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
@@ -16,8 +17,10 @@ from app import cache as cache_store
 from app import transfer
 from app.discord_client import DiscordClient, DiscordError
 from app.i18n import tr
+from app.oauth import load_oauth_client
 from app.store import ConfigStore
 from app.webhook_url import is_webhook_url
+from app.workers import ConnectDiscordWorker
 
 _CHANNEL_TYPES = (("forum", "forum"), ("text", "text"))
 
@@ -52,6 +55,7 @@ class SettingsDialog(QDialog):
         self._store = store
         self._create_mode = False
         self._loading = False
+        self._connect_worker: ConnectDiscordWorker | None = None
 
         root = QVBoxLayout(self)
         tabs = QTabWidget(self)
@@ -84,6 +88,11 @@ class SettingsDialog(QDialog):
         self._new_button = QPushButton(f"＋ {tr('settings.profile_new')}", page)
         self._new_button.clicked.connect(self._start_create)
         row.addWidget(self._new_button)
+        self._connect_button = QPushButton(f"🔗 {tr('settings.connect_discord')}", page)
+        self._connect_button.setObjectName("Primary")
+        self._connect_button.clicked.connect(self._connect_discord)
+        left.addWidget(self._connect_button)
+        left.addWidget(self._hint_label(page))
         self._remove_button = QPushButton(tr("settings.profile_remove"), page)
         self._remove_button.setObjectName("Danger")
         self._remove_button.clicked.connect(self._remove_profile)
@@ -173,6 +182,13 @@ class SettingsDialog(QDialog):
             self._profile_list.setCurrentRow(0)
         self._loading = False
         self._on_profile_selected()
+
+    @staticmethod
+    def _hint_label(page: QWidget) -> QLabel:
+        hint = QLabel(tr("settings.connect_hint"), page)
+        hint.setObjectName("Dim")
+        hint.setWordWrap(True)
+        return hint
 
     def selected_profile_id(self) -> str:
         item = self._profile_list.currentItem()
@@ -306,6 +322,54 @@ class SettingsDialog(QDialog):
         detail = f"{name} · #{channel}" + (f" · guild {guild}" if guild else "")
         self._test_result.setText(f"✓ {tr('settings.test_ok')}: {detail}")
         self._test_result.setStyleSheet("color:#34D399;")
+
+    def _connect_discord(self) -> None:
+        config, error = load_oauth_client()
+        if config is None:
+            QMessageBox.information(self, tr("settings.connect_discord"),
+                                    f"{tr('settings.connect_setup')}\n\n{error}")
+            return
+        self._connect_button.setEnabled(False)
+        self._connect_button.setText(f"🔗 {tr('settings.connect_waiting')}")
+        worker = ConnectDiscordWorker(config, parent=self)
+        worker.browserRequested.connect(lambda url: QDesktopServices.openUrl(QUrl(url)))
+        worker.done.connect(self._on_connect_done)
+        worker.finished.connect(lambda: self._reset_connect_button())
+        self._connect_worker = worker
+        worker.start()
+
+    def _reset_connect_button(self) -> None:
+        self._connect_button.setEnabled(True)
+        self._connect_button.setText(f"🔗 {tr('settings.connect_discord')}")
+        self._connect_worker = None
+
+    def _on_connect_done(self, summary) -> None:
+        if summary.status == "ok":
+            self._start_create()
+            self._url.setText(summary.webhook_url)
+            self._name.setText(f"Discord · {summary.channel_id}" if summary.channel_id else "Discord")
+            self._name.selectAll()
+            self._name.setFocus()
+            self._test_result.setText(tr("settings.connect_prefill"))
+            self._test_result.setStyleSheet("color:#34D399;")
+            return
+        key = {"timeout": "settings.connect_timeout",
+               "cancelled": "settings.connect_cancelled"}.get(summary.status, "settings.connect_failed")
+        QMessageBox.warning(self, tr("settings.connect_discord"),
+                            f"{tr(key)}\n\n{summary.error_message}")
+
+    def done(self, result: int) -> None:
+        worker = self._connect_worker
+        if worker is not None:
+            try:
+                worker.finished.disconnect(self._reset_connect_button)
+                worker.done.disconnect(self._on_connect_done)
+            except (TypeError, RuntimeError):
+                pass
+            worker.abort()
+            worker.wait(1500)
+            self._connect_worker = None
+        super().done(result)
 
     def _show_form_error(self, text: str) -> None:
         self._form_error.setText(text)

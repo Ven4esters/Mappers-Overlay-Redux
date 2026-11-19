@@ -1,4 +1,5 @@
 {
   "client_id": "1572688177242574918",
+  "redirect_port": 8321,
   "client_secret": "PASTE_CLIENT_SECRET_HERE"
 }
