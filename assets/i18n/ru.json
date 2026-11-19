@@ -129,5 +129,21 @@
   "settings.connect_timeout": "Discord не ответил вовремя (3 минуты).",
   "settings.connect_cancelled": "Подключение отменено.",
   "settings.connect_failed": "Не удалось подключить Discord.",
-  "settings.connect_prefill": "Вебхук получен ✓  Задайте имя и нажмите «Добавить»."
+  "settings.connect_prefill": "Вебхук получен ✓  Задайте имя и нажмите «Добавить».",
+  "bb.title": "BB-код: {album}",
+  "bb.context_menu": "BB-код публикации…",
+  "bb.source": "Источник ссылок",
+  "bb.source_discord": "Discord CDN (≈24 часа) — по умолчанию",
+  "bb.source_catbox": "catbox.moe (постоянно)",
+  "bb.source_note": "Discord-ссылки протухают за сутки, но работают сразу. catbox.moe даёт постоянные прямые ссылки: файлы будут загружены из локального кэша один раз (идемпотентно, повторно не перезаливает).",
+  "bb.media_tag": "Медиа-тег:",
+  "bb.summary": "Альбом «{album}» · секций в истории: {sections} · изображений: {shots}",
+  "bb.empty": "В истории этого альбома нет успешных отправок — сначала отправьте пачку.",
+  "bb.missing_catbox": "Не найдено в кэше или без ссылки: {missing}. Отмеченные будут пропущены; отключите локальный кэш только если понимаете последствия.",
+  "bb.uploading": "Загрузка в catbox.moe: {total} файл(ов)…",
+  "bb.catbox_failed": "catbox.moe недоступен: {error}",
+  "bb.catbox_partial": "Загружено частично — ошибок: {errors}",
+  "bb.copy": "Копировать",
+  "bb.copied": "Скопировано ✓",
+  "bb.save": "Сохранить в файл…"
 }

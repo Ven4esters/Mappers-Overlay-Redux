@@ -129,5 +129,21 @@
   "settings.connect_timeout": "Discord did not respond in time (3 minutes).",
   "settings.connect_cancelled": "Connection cancelled.",
   "settings.connect_failed": "Could not connect Discord.",
-  "settings.connect_prefill": "Webhook received ✓  Set a name and press “Add”."
+  "settings.connect_prefill": "Webhook received ✓  Set a name and press “Add”.",
+  "bb.title": "BB code: {album}",
+  "bb.context_menu": "BB-code to publish…",
+  "bb.source": "Link source",
+  "bb.source_discord": "Discord CDN (≈24 hours) — default",
+  "bb.source_catbox": "catbox.moe (permanent)",
+  "bb.source_note": "Discord links expire within a day but work immediately. catbox.moe gives permanent direct links: files are uploaded from the local cache once (idempotent — re-exports never re-upload).",
+  "bb.media_tag": "Media tag:",
+  "bb.summary": "Album “{album}” · sections in history: {sections} · images: {shots}",
+  "bb.empty": "No successful sends in this album's history — send a batch first.",
+  "bb.missing_catbox": "Not found in cache or without a link: {missing}. Those are skipped; note the local cache must stay enabled.",
+  "bb.uploading": "Uploading to catbox.moe: {total} file(s)…",
+  "bb.catbox_failed": "catbox.moe is unavailable: {error}",
+  "bb.catbox_partial": "Partially uploaded — errors: {errors}",
+  "bb.copy": "Copy",
+  "bb.copied": "Copied ✓",
+  "bb.save": "Save to file…"
 }

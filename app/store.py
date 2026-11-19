@@ -219,5 +219,20 @@ class HistoryStore:
         _write_json_atomic(self._path, {"version": SCHEMA_VERSION,
                                         "items": [i.to_dict() for i in items[-HISTORY_LIMIT:]]})
 
+    def items_for_album(self, album_id: str, *, status: str = "ok") -> list[HistoryItem]:
+        return [i for i in self.all() if i.album_id == album_id and i.status == status]
+
+    def update_item(self, item_id: str, **changes) -> HistoryItem | None:
+        items = self.all()
+        target = next((i for i in items if i.id == item_id), None)
+        if target is None:
+            return None
+        for key, value in changes.items():
+            if hasattr(target, key):
+                setattr(target, key, value)
+        _write_json_atomic(self._path, {"version": SCHEMA_VERSION,
+                                        "items": [i.to_dict() for i in items[-HISTORY_LIMIT:]]})
+        return target
+
     def clear(self) -> None:
         _write_json_atomic(self._path, {"version": SCHEMA_VERSION, "items": []})

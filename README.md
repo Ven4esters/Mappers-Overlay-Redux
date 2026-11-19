@@ -42,8 +42,10 @@ app/
   transfer.py            # экспорт/импорт резервной копии (config+history)
   workers.py             # QThread-конвейеры: отправка, подключение Discord
   cache.py               # локальный кэш отправленных скриншотов (blake2b, дедуп)
+  bbcode.py              # сборщик BB-кода XenForo (заголовок, секции, спойлеры)
+  catbox.py              # анонимная загрузка на catbox.moe (постоянные ссылки)
 assets/i18n/             # языковые пакеты (RU+EN, ключи синхронны)
-tests/                   # pytest (80 тестов, respx-моки для HTTP)
+tests/                   # pytest (91 тест, respx-моки для HTTP)
 oauth.client.example.json  # шаблон oauth.client.json (сам файл НЕ коммитится)
 ```
 
@@ -58,7 +60,7 @@ oauth.client.example.json  # шаблон oauth.client.json (сам файл Н�
 | 6 | Главное окно: очередь, секции, отправка (QThread) | ✅ |
 | 7 | Настройки, профили, очистка кэша, экспорт/импорт | ✅ |
 | 8 | OAuth2 (PKCE) «Подключить Discord» | ✅ |
-| 9 | BB-код публикации (XenForo) + кэш скриншотов + catbox | ⏳ |
+| 9 | BB-код публикации (XenForo) + кэш скриншотов + catbox | ✅ |
 | 10 | start.bat, README-финализация, смоук-тесты | ⏳ |
 
 ## Подключить Discord (OAuth2) / Connect Discord
@@ -82,6 +84,32 @@ The **“Connect Discord…”** button (Settings → Profiles) creates the webh
 Без этого файла кнопка покажет инструкцию, а отправка по обычному вебхуку (вставка URL вручную) работает как раньше. / Without the file, the button shows this help; manual webhook URLs keep working.
 
 Приложение проекта по умолчанию публичное (`client_id 1572688177242574918` в репозитории). Вы можете зарегистрировать **собственное** приложение Discord — тогда `client_id` в `oauth.client.json` переопределит встроенный.
+
+## BB-код для XenForo / BB-code export
+
+В контекстном меню альбома — **«BB-код публикации…»**. Диалог собирает пост из истории отправок выбранного альбома:
+
+Right-click an album → **“BB-code to publish…”**. The dialog builds the post from the album's send history:
+
+```
+[B][SIZE=6][COLOR=#FFD34D]Название альбома[/COLOR][/SIZE][/B]
+
+[B]Название секции[/B]
+[spoiler]
+[IMG]https://…/1.png[/IMG]
+[IMG]https://…/2.png[/IMG]
+[/spoiler]
+```
+
+- **Источник ссылок**: Discord CDN (по умолчанию, ≈24 ч) или **catbox.moe** (постоянные; файлы загружаются из локального кэша один раз, повторный экспорт не перезаливает).
+- **Медиа-тег**: `IMG` (по умолчанию), `MEDIA` или собственный (`CUSTOM`).
+- Заголовок: жёлтый жирный шаблон `#FFD34D` (настраивается ключом `bb_heading_template` в config.json).
+- Локальный кэш скриншотов включён по умолчанию (нужен для catbox); «Настройки → Приложение → Очистить кэш» удаляет его содержимое.
+
+- **Link source**: Discord CDN (default, ≈24 h) or **catbox.moe** (permanent; files upload from the local cache once, re-exports never re-upload).
+- **Media tag**: `IMG` (default), `MEDIA` or a custom tag.
+- Heading: yellow bold template `#FFD34D` (configurable via `bb_heading_template` in config.json).
+- Local screenshot cache is on by default (needed for catbox); clear it in Settings → App → Clear cache.
 
 ## Безопасность / Security
 - `config.json` (URL вебхуков), `oauth.client.json` (client secret), `cache/` — в `.gitignore`.

@@ -8,6 +8,7 @@ thread applies registry/history updates.
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QThread, Signal
@@ -20,6 +21,7 @@ from app.oauth import (
     OAuthClientConfig, OAuthCallbackError, OAuthTokenError, build_authorize_url,
     exchange_code, extract_webhook, generate_pkce, generate_state, wait_for_callback,
 )
+from app.catbox import CatboxError, upload_file
 
 
 @dataclass
@@ -171,3 +173,63 @@ class ConnectDiscordWorker(QThread):
                                       webhook_url=webhook["webhook_url"],
                                       channel_id=webhook["channel_id"],
                                       guild_id=webhook["guild_id"]))
+
+
+@dataclass
+class CatboxSummary:
+    """Outcome of the catbox.moe upload batch. / Итог загрузки в catbox.moe."""
+
+    status: str                       # ok | partial | failed
+    urls: dict[str, str] = None       # key -> url (only successful uploads)
+    errors: dict[str, str] = None     # key -> error message
+
+    def __post_init__(self) -> None:
+        self.urls = self.urls or {}
+        self.errors = self.errors or {}
+
+
+class CatboxUploadWorker(QThread):
+    """Upload cached shots to catbox.moe without blocking the UI.
+    Загружает снимки из кэша на catbox.moe, не блокируя UI.
+
+    Signals: progress(done, total); done(CatboxSummary).
+    The key is opaque to the worker — callers use it to map back to attachments.
+    """
+
+    progress = Signal(int, int)
+    done = Signal(CatboxSummary)
+
+    def __init__(self, files: list[tuple[str, str, str]], *, parent=None) -> None:
+        """files: list of (key, filename, local_path). / (ключ, имя, путь)."""
+        super().__init__(parent)
+        self._files = list(files)
+        self._abort = threading.Event()
+
+    def abort(self) -> None:
+        self._abort.set()
+
+    def run(self) -> None:
+        urls: dict[str, str] = {}
+        errors: dict[str, str] = {}
+        total = len(self._files)
+        for index, (key, filename, local_path) in enumerate(self._files):
+            if self._abort.is_set():
+                break
+            try:
+                data = Path(local_path).read_bytes()
+            except OSError as exc:
+                errors[key] = str(exc)
+                self.progress.emit(index + 1, total)
+                continue
+            try:
+                urls[key] = upload_file(data, filename)
+            except CatboxError as exc:
+                errors[key] = str(exc)
+            self.progress.emit(index + 1, total)
+        if not errors:
+            status = "ok"
+        elif urls:
+            status = "partial"
+        else:
+            status = "failed"
+        self.done.emit(CatboxSummary(status=status, urls=urls, errors=errors))

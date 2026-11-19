@@ -144,6 +144,7 @@ class Attachment:
     filename: str
     url: str = ""
     local_path: str = ""
+    catbox_url: str = ""  # permanent link from catbox.moe (set on BB-code export)
 
     @classmethod
     def from_dict(cls, raw: dict) -> "Attachment":
@@ -151,6 +152,7 @@ class Attachment:
             filename=str(_pick(raw, "filename", "file.png")),
             url=str(_pick(raw, "url", "")),
             local_path=str(_pick(raw, "local_path", "")),
+            catbox_url=str(_pick(raw, "catbox_url", "")),
         )
 
     def to_dict(self) -> dict:

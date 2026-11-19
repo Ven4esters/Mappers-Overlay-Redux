@@ -25,6 +25,7 @@ from app.i18n import tr
 from app.models import Attachment, HistoryItem, utcnow_iso
 from app.store import ConfigStore, HistoryStore
 from app.ui.album_sidebar import AlbumSidebar
+from app.ui.bbcode_dialog import BBCodeDialog
 from app.ui.queue_panel import QueuePanel, ShotItem
 from app.ui.region_overlay import RegionOverlay
 from app.ui.send_panel import SendPanel
@@ -70,6 +71,7 @@ class MainWindow(QMainWindow):
         self.sidebar.openRequested.connect(self._open_album)
         self.sidebar.renameRequested.connect(self._rename_album)
         self.sidebar.forgetRequested.connect(self._forget_album)
+        self.sidebar.bbCodeRequested.connect(self._open_bbcode)
         self.sidebar.settingsRequested.connect(self._open_settings)
         self.sidebar.historyRequested.connect(self._history_stub)
         layout.addWidget(self.sidebar)
@@ -278,6 +280,13 @@ class MainWindow(QMainWindow):
             self.service.forget(album_id)
             self._reload_albums()
 
+    def _open_bbcode(self, album_id: str) -> None:
+        album = self.store.get_album(album_id)
+        if album is None:
+            return
+        dialog = BBCodeDialog(self.store, self.history, album, self)
+        dialog.exec()
+
     def _reset_counter(self) -> None:
         album = self._current_album()
         if album is not None:
@@ -315,12 +324,15 @@ class MainWindow(QMainWindow):
             UploadedFile(format_shot_filename(name, start + i, shot.ext), shot.data, shot.mime)
             for i, shot in enumerate(shots)
         ]
-        if settings.keep_local_cache:
-            for file in files:
+        self._pending_cache_paths = []
+        for file in files:
+            local_path = ""
+            if settings.keep_local_cache:
                 try:
-                    cache_store.save_shot(file.data, file.filename)
+                    local_path = str(cache_store.save_shot(file.data, file.filename))
                 except OSError:
-                    pass
+                    local_path = ""
+            self._pending_cache_paths.append(local_path)
 
         total = 1 + (len(files) - 1) if settings.send_mode == "separate" else -(-len(files) // 10)
         self._start_worker(album, profile, files, name, total)
@@ -357,7 +369,16 @@ class MainWindow(QMainWindow):
             self.store.save()
 
         if summary.status == "ok":
+            cache_paths = list(getattr(self, "_pending_cache_paths", []))
+            flat_index = 0
             for result in summary.results:
+                attachments = []
+                for a in result.attachments:
+                    local = cache_paths[flat_index] if flat_index < len(cache_paths) else ""
+                    attachments.append(Attachment(filename=a.get("filename", ""),
+                                                  url=a.get("url", ""),
+                                                  local_path=local))
+                    flat_index += 1
                 self.history.append(HistoryItem(
                     id=result.message_id or f"{utcnow_iso()}-{result.channel_id}",
                     album_id=album_id,
@@ -366,9 +387,9 @@ class MainWindow(QMainWindow):
                     description=self.panel.description(),
                     message_url=result.message_url,
                     status="ok",
-                    attachments=[Attachment(filename=a.get("filename", ""), url=a.get("url", ""))
-                                for a in result.attachments],
+                    attachments=attachments,
                 ))
+            self._pending_cache_paths = []
             self.queue.clear()
             if settings.clear_fields_after_send:
                 self.panel.clear_caption_fields()

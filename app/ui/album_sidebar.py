@@ -25,6 +25,7 @@ class AlbumSidebar(QFrame):
     openRequested = Signal(str)
     renameRequested = Signal(str)
     forgetRequested = Signal(str)
+    bbCodeRequested = Signal(str)
     settingsRequested = Signal()
     historyRequested = Signal()
 
@@ -145,6 +146,7 @@ class AlbumSidebar(QFrame):
         menu = QMenu(self)
         menu.addAction(QAction(tr("album.open"), menu, triggered=lambda: self.openRequested.emit(album_id)))
         menu.addAction(QAction(tr("album.rename"), menu, triggered=lambda: self.renameRequested.emit(album_id)))
+        menu.addAction(QAction(tr("bb.context_menu"), menu, triggered=lambda: self.bbCodeRequested.emit(album_id)))
         menu.addSeparator()
         menu.addAction(QAction(tr("album.forget"), menu, triggered=lambda: self.forgetRequested.emit(album_id)))
         menu.exec(self._list.mapToGlobal(pos))
