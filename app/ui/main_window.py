@@ -139,6 +139,18 @@ class MainWindow(QMainWindow):
             return
         self._capture_shortcut = QShortcut(sequence, self, activated=self._show_capture_overlay)
 
+    def _on_recorder_armed(self, armed: bool) -> None:
+        if armed:
+            self._hotkeys.suspend()
+        else:
+            self._resume_global_hotkeys()
+
+    def _resume_global_hotkeys(self) -> None:
+        refused = self._hotkeys.resume()
+        if refused:
+            self._status.showMessage(
+                tr("capture.hotkey_unavailable", combos=", ".join(refused)), 6000)
+
     def _on_capture_hotkey_changed(self, combo: str) -> None:
         ok = self._hotkeys.rebind_capture(combo)
         if ok:
@@ -526,7 +538,12 @@ class MainWindow(QMainWindow):
         dialog.sendingDefaultsChanged.connect(self._apply_sending_defaults)
         dialog.configImported.connect(self._on_config_imported)
         dialog.captureHotkeyChanged.connect(self._on_capture_hotkey_changed)
-        dialog.exec()
+        dialog.recorderArmed.connect(self._on_recorder_armed)
+        try:
+            dialog.exec()
+        finally:
+            # never leave hotkeys suspended if the dialog goes away mid-record
+            self._resume_global_hotkeys()
 
     def _on_config_imported(self) -> None:
         self.store.reload()

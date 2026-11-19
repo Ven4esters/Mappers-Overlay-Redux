@@ -45,6 +45,7 @@ class HotkeyRecorder(QPushButton):
 
     captureFinished = Signal(str)
     rejected = Signal()
+    armedChanged = Signal(bool)  # True while waiting for a key (for pausing global hotkeys)
 
     def __init__(self, hotkey: str, parent=None) -> None:
         super().__init__(parent)
@@ -70,14 +71,22 @@ class HotkeyRecorder(QPushButton):
         super().mousePressEvent(event)
 
     def _arm(self) -> None:
+        if self._armed:
+            return
         self._armed = True
         self.setText(tr("settings.hotkey_press"))
         self.setFocus(Qt.FocusReason.MouseFocusReason)
+        self.armedChanged.emit(True)
+
+    def _disarm(self) -> None:
+        if not self._armed:
+            return
+        self._armed = False
+        self._render()
+        self.armedChanged.emit(False)
 
     def focusOutEvent(self, event) -> None:  # noqa: N802
-        if self._armed:
-            self._armed = False
-            self._render()
+        self._disarm()
         super().focusOutEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
@@ -86,8 +95,7 @@ class HotkeyRecorder(QPushButton):
             return
         key = event.key()
         if key == Qt.Key.Key_Escape:
-            self._armed = False
-            self._render()
+            self._disarm()
             event.accept()
             return
         if key in _MODIFIER_KEYS:
@@ -96,6 +104,7 @@ class HotkeyRecorder(QPushButton):
         base = _KEY_TOKENS.get(key)
         event.accept()
         if base is None:
+            self._disarm()
             self.rejected.emit()
             return
         modifiers = event.modifiers()
@@ -103,11 +112,11 @@ class HotkeyRecorder(QPushButton):
         parts.append(base)
         combo = normalize_hotkey("+".join(parts))
         if combo is None or is_reserved(combo):
+            self._disarm()
             self.rejected.emit()
             return
-        self._armed = False
         self._hotkey = combo
-        self._render()
+        self._disarm()
         self.captureFinished.emit(combo)
 
 

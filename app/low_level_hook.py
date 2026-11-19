@@ -51,15 +51,27 @@ def match_combo(bindings, mods: int, vk: int) -> str | None:
     return None
 
 
+_mod_user32 = None
+
+
 def current_mod_mask() -> int:
     """Current Ctrl/Shift/Alt/Win state via GetAsyncKeyState (Windows only).
-    Текущие модификаторы — GetAsyncKeyState (только Windows)."""
+    Текущие модификаторы — GetAsyncKeyState (только Windows).
+
+    The DLL handle is cached — this runs for every key press.
+    DLL кэшируется — функция вызывается на каждое нажатие.
+    """
+    global _mod_user32
     import ctypes
 
-    user32 = ctypes.windll.user32
+    if _mod_user32 is None:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+        user32.GetAsyncKeyState.restype = ctypes.c_short
+        _mod_user32 = user32
 
     def down(vk: int) -> bool:
-        return bool(user32.GetAsyncKeyState(vk) & 0x8000)
+        return bool(_mod_user32.GetAsyncKeyState(vk) & 0x8000)
 
     mask = 0
     if down(0x11):  # VK_CONTROL
@@ -131,15 +143,35 @@ class LowLevelKeyboardHook:
                         ("flags", wintypes.DWORD), ("time", wintypes.DWORD),
                         ("dwExtraInfo", wintypes.WPARAM)]
 
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
+        # Explicit prototypes are mandatory on x64: ctypes defaults truncate
+        # pointers (HINSTANCE, HHOOK) to 32-bit, which is why SetWindowsHookExW
+        # used to fail silently. / Обязательные прототипы: без них ctypes режет
+        # указатели до 32 бит на 64-битной Windows — хук «не ставился».
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        user32.SetWindowsHookExW.argtypes = [ctypes.c_int, ctypes.c_void_p,
+                                             ctypes.c_void_p, wintypes.DWORD]
+        user32.SetWindowsHookExW.restype = ctypes.c_void_p
+        user32.UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
+        user32.UnhookWindowsHookEx.restype = wintypes.BOOL
+        user32.CallNextHookEx.argtypes = [ctypes.c_void_p, ctypes.c_int,
+                                          wintypes.WPARAM, wintypes.LPARAM]
+        user32.CallNextHookEx.restype = ctypes.c_ssize_t
+        user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+        user32.GetAsyncKeyState.restype = ctypes.c_short
+        kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        kernel32.GetModuleHandleW.restype = ctypes.c_void_p
+
         hook_proc = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int,
                                        wintypes.WPARAM, wintypes.LPARAM)(self._callback)
-        hook = user32.SetWindowsHookExW(WH_KEYBOARD_LL, hook_proc,
-                                        kernel32.GetModuleHandleW(None), 0)
+        hmod = kernel32.GetModuleHandleW(None)
+        hook = user32.SetWindowsHookExW(WH_KEYBOARD_LL,
+                                        ctypes.cast(hook_proc, ctypes.c_void_p),
+                                        hmod, 0)
         if not hook:
-            logger.error("SetWindowsHookExW(WH_KEYBOARD_LL) failed (error %d)",
-                         ctypes.get_last_error())
+            err = ctypes.get_last_error()
+            logger.error("SetWindowsHookExW(WH_KEYBOARD_LL) failed (error %d: %s)",
+                         err, ctypes.WinError(err))
             return False
         self._hook = hook
         self._proc = hook_proc

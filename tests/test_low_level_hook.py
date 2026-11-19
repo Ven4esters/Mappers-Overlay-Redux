@@ -71,3 +71,43 @@ def test_build_bindings_skips_and_dedupes() -> None:
     bindings = build_bindings("Ctrl+Shift+S")
     assert bindings[0].action == "fullscreen"
     assert bindings[-1].action == "fullscreen" or len(bindings) == 2
+
+
+class _FakeHook:
+    def __init__(self, bindings):
+        self.bindings = list(bindings)
+        self.installed = True
+
+    def set_bindings(self, bindings):
+        self.bindings = list(bindings)
+
+
+def test_suspend_and_resume_toggle_bindings_roundtrip() -> None:
+    from app.hotkeys import HotkeyManager, build_bindings
+
+    manager = HotkeyManager()
+    manager._capture_combo = "Print"
+    original = build_bindings("Print")
+    fake = _FakeHook(original)
+    manager._hook = fake  # inject — no Win32 in the sandbox
+
+    manager.suspend()
+    assert fake.bindings == []
+    assert manager.suspended is True
+    # idempotent — second call must not raise or double-unregister
+    manager.suspend()
+    assert manager.suspended is True
+
+    assert manager.resume() == []
+    assert [b.action for b in fake.bindings] == [b.action for b in original]
+    assert manager.suspended is False
+    # resuming twice is a no-op
+    assert manager.resume() == []
+
+
+def test_suspend_clears_match_output() -> None:
+    bindings = _bindings()
+    hook = LowLevelKeyboardHook(lambda a: None, bindings)
+    assert match_combo(hook.bindings, 0, 0x78) == "overlay"
+    hook.set_bindings([])
+    assert match_combo(hook.bindings, 0, 0x78) is None

@@ -73,6 +73,7 @@ class HotkeyManager(QObject):
         self._hook: LowLevelKeyboardHook | None = None
         self._filter: object | None = None
         self._capture_combo: str = DEFAULT_HOTKEY
+        self._suspended = False
 
     @staticmethod
     def supported() -> bool:
@@ -86,6 +87,10 @@ class HotkeyManager(QObject):
     @property
     def hook_active(self) -> bool:
         return self._hook is not None and self._hook.installed
+
+    @property
+    def suspended(self) -> bool:
+        return self._suspended
 
     # -------------------------------------------------------------- install
     def install(self, app, capture_hotkey: str = DEFAULT_HOTKEY) -> list[str]:
@@ -106,7 +111,12 @@ class HotkeyManager(QObject):
         import ctypes
 
         failed: list[str] = []
-        user32 = ctypes.windll.user32
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.RegisterHotKey.argtypes = [ctypes.c_void_p, ctypes.c_int,
+                                          ctypes.c_uint, ctypes.c_uint]
+        user32.RegisterHotKey.restype = ctypes.c_int
+        user32.UnregisterHotKey.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        user32.UnregisterHotKey.restype = ctypes.c_int
         # native event filter is needed only for the WM_HOTKEY fallback
         from app.hotkey_filter import HotkeyEventFilter
 
@@ -127,6 +137,61 @@ class HotkeyManager(QObject):
             logger.warning("RegisterHotKey fallback refused: %s", ", ".join(failed))
         else:
             logger.info("global hotkeys via RegisterHotKey fallback (capture: %s)", self._capture_combo)
+        return failed
+
+    # ------------------------------------------------------- suspend/resume
+    def suspend(self) -> None:
+        """Temporarily disable ALL global hotkeys (recorder in settings).
+        Временно отключить ВСЕ глобальные хоткеи (идёт запись клавиши).
+
+        Windows swallows a registered combo before Qt ever sees it, so a
+        "press a key to rebind" recorder would never receive the very combos
+        we own — and tapping one would fire a capture on top of the dialog,
+        which looks like a frozen app. Suspend is idempotent.
+        Windows съедает зарегистрированную комбинацию до Qt — рекордер в
+        настройках просто не получит клавишу, зато срабатывает снимок
+        прямо поверх диалога (выглядит как зависание). Идемпотентно.
+        """
+        if self._suspended:
+            return
+        self._suspended = True
+        if self._hook is not None:
+            self._hook.set_bindings([])
+            logger.info("global hotkeys suspended (recorder active)")
+            return
+        if not self.supported():
+            return
+        import ctypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        for hotkey_id in (FULLSCREEN_ID, REGION_ID, OVERLAY_ID):
+            user32.UnregisterHotKey(None, hotkey_id)
+        logger.info("global hotkeys suspended (register-path)")
+
+    def resume(self) -> list[str]:
+        """Re-enable global hotkeys; returns refused combos. / Включить обратно."""
+        if not self._suspended:
+            return []
+        self._suspended = False
+        if self._hook is not None:
+            self._hook.set_bindings(build_bindings(self._capture_combo))
+            logger.info("global hotkeys resumed (hook)")
+            return []
+        if not self.supported():
+            return []
+        import ctypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        failed: list[str] = []
+        if not bool(user32.RegisterHotKey(None, FULLSCREEN_ID, MOD_CONTROL | MOD_SHIFT, VK_S)):
+            failed.append("Ctrl+Shift+S")
+        if not bool(user32.RegisterHotKey(None, REGION_ID, MOD_CONTROL | MOD_SHIFT, VK_R)):
+            failed.append("Ctrl+Shift+R")
+        parsed = to_windows(self._capture_combo)
+        if parsed is None or not bool(user32.RegisterHotKey(None, OVERLAY_ID, *parsed)):
+            failed.append(self._capture_combo)
+        logger.info("global hotkeys resumed (register-path)%s",
+                    f"; refused: {', '.join(failed)}" if failed else "")
         return failed
 
     def rebind_capture(self, combo: str) -> bool:

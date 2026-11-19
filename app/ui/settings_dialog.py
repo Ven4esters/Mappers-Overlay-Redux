@@ -67,6 +67,9 @@ class SettingsDialog(QDialog):
     sendingDefaultsChanged = Signal()
     configImported = Signal()
     captureHotkeyChanged = Signal(str)
+    # True while the capture-hotkey recorder is armed — main window suspends
+    # global hotkeys so the pressed key reaches the recorder, not the app.
+    recorderArmed = Signal(bool)
 
     def __init__(self, store: ConfigStore, parent=None) -> None:
         super().__init__(parent)
@@ -537,6 +540,7 @@ class SettingsDialog(QDialog):
         self._hotkey_recorder = HotkeyRecorder(self._store.settings.capture_hotkey, hotkeys_box)
         self._hotkey_recorder.captureFinished.connect(self._on_capture_hotkey)
         self._hotkey_recorder.rejected.connect(self._on_capture_hotkey_rejected)
+        self._hotkey_recorder.armedChanged.connect(self.recorderArmed)
         capture_row.addWidget(self._hotkey_recorder)
         reset_button = QPushButton(tr("settings.hotkey_reset"), hotkeys_box)
         reset_button.setObjectName("Ghost")
