@@ -24,7 +24,10 @@ from app import cache as cache_store
 from app import transfer
 from app.discord_client import DiscordClient, DiscordError
 from app.i18n import tr
-from app.oauth import delete_oauth_client, load_oauth_client, oauth_status, save_oauth_client
+from app.oauth import (
+    DEFAULT_CLIENT_ID, delete_oauth_client, load_oauth_client, oauth_status,
+    save_oauth_client,
+)
 from app.store import ConfigStore
 from app.webhook_url import is_webhook_url, parse_webhook_url
 from app.ui.widgets import SegmentedControl
@@ -291,10 +294,10 @@ class SettingsDialog(QDialog):
         oauth_actions.addStretch(1)
         oauth_layout.addLayout(oauth_actions)
 
-        hint = QLabel(tr("settings.oauth_hint"), oauth_box)
-        hint.setObjectName("Hint")
-        hint.setWordWrap(True)
-        oauth_layout.addWidget(hint)
+        self._oauth_hint_label = QLabel("", oauth_box)
+        self._oauth_hint_label.setObjectName("Hint")
+        self._oauth_hint_label.setWordWrap(True)
+        oauth_layout.addWidget(self._oauth_hint_label)
         layout.addWidget(oauth_box)
         return page
 
@@ -461,8 +464,17 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------ oauth (in-app)
     def _refresh_oauth_status(self) -> None:
         status = oauth_status()
-        self._client_id.setText(str(status["client_id"]))
+        current_id = str(status["client_id"])
+        uri = str(status["redirect_uri"])
+        self._client_id.setText(current_id)
         self._client_secret.clear()
+        if str(current_id) == DEFAULT_CLIENT_ID:
+            # built-in public ID: works only with the project owner's secret
+            self._oauth_hint_label.setText(tr("settings.oauth_builtin_warn", uri=uri))
+            self._oauth_hint_label.setStyleSheet("color:#FBBF24;")
+        else:
+            self._oauth_hint_label.setText(tr("settings.oauth_pair_hint", uri=uri))
+            self._oauth_hint_label.setStyleSheet("")
         if status["configured"]:
             self._client_secret.setPlaceholderText(tr("settings.secret_keep"))
             self._oauth_status.setText(f"✓ {tr('settings.oauth_configured')}")

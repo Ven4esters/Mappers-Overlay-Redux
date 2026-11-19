@@ -144,7 +144,6 @@
   "settings.oauth_clear_confirm": "Удалить сохранённые ключи (oauth.client.json) с диска?",
   "settings.oauth_configured": "Ключи сохранены — кнопка «Подключить Discord» готова к работе.",
   "settings.oauth_not_configured": "Ключи не заданы. Заполните поля ниже — приложение само создаст oauth.client.json.",
-  "settings.oauth_hint": "Один раз на установку: discord.com/developers/applications → New Application → OAuth2 → Redirects → добавьте Redirect URI (кнопка «Копировать Redirect URI»). Вставьте Client ID и Client Secret сюда и нажмите «Сохранить» — файл oauth.client.json приложение создаст само.",
   "settings.copy_redirect": "Копировать Redirect URI",
   "settings.portal_open": "Открыть Developer Portal…",
   "settings.connect_need_setup": "Сначала сохраните Client ID и Client Secret выше — приложение само создаст oauth.client.json.",
@@ -154,5 +153,7 @@
   "settings.repo_open": "Открыть на GitHub…",
   "common.need_profile": "Сначала добавьте профиль вебхука (Настройки → Профили). Открыть настройки?",
   "send.style_text_short": "Текст",
-  "send.style_embed_short": "Embed"
+  "send.style_embed_short": "Embed",
+  "settings.oauth_builtin_warn": "В поле Client ID — встроенный ID проекта. Он заработает только с секретом этого же приложения (он есть только у автора). Если вы не автор: создайте своё приложение на discord.com/developers/applications и впишите ЕГО Client ID и Client Secret. На нём же в OAuth2 → Redirects должен быть добавлен Redirect URI: {uri}",
+  "settings.oauth_pair_hint": "Client ID и Client Secret должны быть от одного и того же приложения на discord.com/developers/applications, и именно на нём в OAuth2 → Redirects добавлен Redirect URI: {uri} (точно так, включая http, localhost, порт и путь)."
 }
