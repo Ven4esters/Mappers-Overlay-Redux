@@ -53,7 +53,8 @@ def test_version_is_semver() -> None:
 def test_qtfree_modules_import() -> None:
     for name in ("app.paths", "app.i18n", "app.models", "app.store", "app.webhook_url",
                  "app.discord_client", "app.albums", "app.transfer",
-                 "app.bbcode", "app.catbox", "app.cache", "app.capture"):
+                 "app.bbcode", "app.catbox", "app.cache", "app.capture",
+                 "app.hotkey_parse", "app.low_level_hook"):
         importlib.import_module(name)
 
 
@@ -64,7 +65,10 @@ def test_qt_modules_import_when_qt_available() -> None:
         pytest.skip(f"Qt system libraries unavailable here: {exc}")
     for name in ("app.workers", "app.ui.queue_panel", "app.ui.album_sidebar",
                  "app.ui.send_panel", "app.ui.settings_dialog", "app.ui.bbcode_dialog",
-                 "app.ui.main_window", "app.ui.region_overlay", "app.hotkeys", "app.theme"):
+                 "app.ui.main_window", "app.ui.region_overlay", "app.hotkeys", "app.theme",
+                 "app.ui.hotkey_qt", "app.ui.capture_overlay",
+                 "app.ui.import_threads_dialog", "app.ui.widgets",
+                 "app.hotkey_filter", "app.logging_setup"):
         importlib.import_module(name)
 
 

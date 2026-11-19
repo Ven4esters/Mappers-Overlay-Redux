@@ -171,7 +171,7 @@
   "import.resolved_suffix": "(names recovered for {resolved} of {total} — the rest are “Thread <id>”).",
   "settings.hotkeys_group": "Hotkeys",
   "settings.hotkey_capture_label": "Screenshot (mode picker)",
-  "settings.hotkey_hint": "PrintScreen is the default, but Windows usually claims it (“Snipping Tool”) — the app then never receives the key and the overlay does not open. Click the field and press your own combo, e.g. F9 or Ctrl+Shift+Q.",
+  "settings.hotkey_hint": "PrintScreen is the default, but Windows usually claims it (“Snipping Tool”) — the app then never receives the key and the overlay does not open. Click the field and press your own combo, e.g. F9 or Ctrl+Shift+Q. Works on top of fullscreen games (low-level hook). If the game runs as Administrator, run the app the same way — and pick a key the game does not use, as it will be swallowed globally.",
   "settings.hotkey_press": "Press your shortcut…",
   "settings.hotkey_reset": "Reset (PrtSc)",
   "settings.hotkey_rejected": "That combo is reserved (Ctrl+Shift+S / Ctrl+Shift+R are built in) or unsupported. Try another one, e.g. F9.",
