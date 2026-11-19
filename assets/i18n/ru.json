@@ -177,5 +177,6 @@
   "settings.hotkey_rejected": "Такая комбинация занята (Ctrl+Shift+S / Ctrl+Shift+R — встроенные) или не поддерживается. Попробуйте другую, например F9.",
   "settings.hotkey_applied": "Готово: {combo}",
   "settings.hotkey_rebind_failed": "Windows не отдала приложению {combo} — «Ножницы» или другая программа заняла её раньше. Попробуйте другую комбинацию.",
-  "settings.about_log_path": "Журнал работы: {path}"
+  "settings.about_log_path": "Журнал работы: {path}",
+  "settings.cache_open": "Открыть папку с локальными снимками"
 }

@@ -177,5 +177,6 @@
   "settings.hotkey_rejected": "That combo is reserved (Ctrl+Shift+S / Ctrl+Shift+R are built in) or unsupported. Try another one, e.g. F9.",
   "settings.hotkey_applied": "Done: {combo}",
   "settings.hotkey_rebind_failed": "Windows refused {combo} — the Snipping Tool or another app grabbed it first. Try a different combo.",
-  "settings.about_log_path": "Log file: {path}"
+  "settings.about_log_path": "Log file: {path}",
+  "settings.cache_open": "Open folder with local screenshots"
 }

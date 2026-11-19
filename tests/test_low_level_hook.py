@@ -111,3 +111,25 @@ def test_suspend_clears_match_output() -> None:
     assert match_combo(hook.bindings, 0, 0x78) == "overlay"
     hook.set_bindings([])
     assert match_combo(hook.bindings, 0, 0x78) is None
+
+
+def test_overlay_keys_pass_through_while_active() -> None:
+    from app.low_level_hook import LowLevelKeyboardHook
+
+    fired: list[str] = []
+    hook = LowLevelKeyboardHook(fired.append, _bindings())
+    assert hook.handle_key_event(0x0D, 0) is False  # Enter passes through when overlay is off
+
+    hook.set_overlay_active(True)
+    assert hook.handle_key_event(0x0D, 0) is True   # Enter
+    assert hook.handle_key_event(0x1B, 0) is True   # Escape
+    assert hook.handle_key_event(0x32, 0) is True   # '2'
+    assert hook.handle_key_event(0x62, 0) is True   # Numpad2
+    assert hook.handle_key_event(0x39, 0) is False  # '9' is not an overlay key
+    assert hook.handle_key_event(0x0D, 0, injected=True) is False  # injected stays untouched
+    # built-in combos still resolve alongside overlay keys
+    assert hook.handle_key_event(0x2C, 0) is True   # PrtSc -> overlay action
+    hook.set_overlay_active(False)
+    assert hook.handle_key_event(0x0D, 0) is False
+
+    assert fired == ["overlay:enter", "overlay:escape", "overlay:2", "overlay:2", "overlay"]

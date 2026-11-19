@@ -562,10 +562,18 @@ class SettingsDialog(QDialog):
         self._cache_stats = QLabel("", cache_box)
         self._cache_stats.setObjectName("Dim")
         cache_layout.addWidget(self._cache_stats)
+        cache_buttons = QHBoxLayout()
+        cache_buttons.setSpacing(8)
         clear_button = QPushButton(tr("settings.cache_clear"), cache_box)
         clear_button.setObjectName("Danger")
         clear_button.clicked.connect(self._clear_cache)
-        cache_layout.addWidget(clear_button, alignment=Qt.AlignLeft)
+        cache_buttons.addWidget(clear_button)
+        open_button = QPushButton(tr("settings.cache_open"), cache_box)
+        open_button.setObjectName("Ghost")
+        open_button.clicked.connect(self._open_cache_folder)
+        cache_buttons.addWidget(open_button)
+        cache_buttons.addStretch(1)
+        cache_layout.addLayout(cache_buttons)
         layout.addWidget(cache_box)
 
         backup_box = QGroupBox(tr("settings.backup"), page)
@@ -630,6 +638,13 @@ class SettingsDialog(QDialog):
     def _reset_capture_hotkey(self) -> None:
         self._hotkey_recorder.set_hotkey(DEFAULT_HOTKEY)
         self._on_capture_hotkey(DEFAULT_HOTKEY)
+
+    def _open_cache_folder(self) -> None:
+        try:
+            cache_store.cache_root().mkdir(parents=True, exist_ok=True)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(cache_store.cache_root())))
+        except OSError:
+            logger.exception("could not open the cache folder")
 
     def _refresh_cache_stats(self) -> None:
         files, size = cache_store.cache_stats()

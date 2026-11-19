@@ -107,6 +107,31 @@ class CaptureOverlay(QWidget):
             button.style().polish(button)
         self._last_hint.setText(tr("capture.overlay_last", mode=self._mode_label(self._current)))
 
+    # ---------------------------------------------------- keyboard entry
+    def handle_command(self, command: str) -> None:
+        """One-line keyboard command: escape | enter | 1 | 2 | 3.
+        Одно командное слово с клавиатуры: escape | enter | 1 | 2 | 3.
+
+        Called both from keyPressEvent (window has focus) and from the global
+        low-level hook in the main window (game holds the foreground window).
+        Вызывается и из keyPressEvent (окно в фокусе), и из глобального хука в
+        главном окне (фокус у полноэкранной игры).
+        """
+        if self._done:
+            return
+        command = (command or "").lower()
+        if command == "escape":
+            self._done = True
+            self.cancelled.emit()
+            self.close()
+            return
+        if command == "enter":
+            self._choose(self._current)
+            return
+        index = {"1": 0, "2": 1, "3": 2}.get(command)
+        if index is not None:
+            self._choose(_MODES[index][0])
+
     def _place_on_screen(self) -> None:
         screen = QGuiApplication.primaryScreen()
         if screen is None:
@@ -119,6 +144,11 @@ class CaptureOverlay(QWidget):
         super().showEvent(event)
         self._place_on_screen()
         self._sync_current()
+        self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+        try:
+            self.grabKeyboard()  # keys reach us even if focus lands elsewhere
+        except RuntimeError:    # never let grab failures kill the overlay
+            pass
         QTimer.singleShot(0, self.activateWindow)
 
     def windowDeactivateEvent(self, event) -> None:  # noqa: N802
@@ -131,23 +161,25 @@ class CaptureOverlay(QWidget):
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         key = event.key()
+        command = None
         if key == Qt.Key_Escape:
+            command = "escape"
+        elif key in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            command = "enter"
+        elif key in (Qt.Key_1, Qt.Key_2, Qt.Key_3):
+            command = {Qt.Key_1: "1", Qt.Key_2: "2", Qt.Key_3: "3"}[key]
+        if command is not None:
             event.accept()
-            if not self._done:
-                self._done = True
-                self.cancelled.emit()
-            self.close()
-            return
-        if key in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
-            event.accept()
-            self._choose(self._current)
-            return
-        index = {Qt.Key_1: 0, Qt.Key_2: 1, Qt.Key_3: 2}.get(key)
-        if index is not None:
-            event.accept()
-            self._choose(_MODES[index][0])
+            self.handle_command(command)
             return
         super().keyPressEvent(event)
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        try:
+            self.releaseKeyboard()
+        except RuntimeError:
+            pass
+        super().closeEvent(event)
 
     def _choose(self, mode: str) -> None:
         if self._done:
@@ -155,5 +187,10 @@ class CaptureOverlay(QWidget):
         self._done = True
         if mode in ("fullscreen", "window", "region"):
             self._current = mode
+            self.close()
+            # hide before the grab runs — our own picker must never make it
+            # into the screenshot / спрятать до захвата пикселей
+            QGuiApplication.processEvents()
             self.modeChosen.emit(mode)
+            return
         self.close()

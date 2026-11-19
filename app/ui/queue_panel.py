@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon, QImage, QPixmap
+from PySide6.QtGui import QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QLabel, QListView, QListWidget, QListWidgetItem,
     QMenu, QPushButton, QVBoxLayout, QWidget,
@@ -152,8 +152,17 @@ class QueuePanel(QWidget):
             image = QImage.fromData(shot.data)
             if image.isNull():
                 continue
-            pixmap = QPixmap.fromImage(image).scaled(
+            scaled = QPixmap.fromImage(image).scaled(
                 150, 110, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            # reserve a left gutter for the check indicator so its box never
+            # sits on top of the photo (Qt paints the indicator at the icon's
+            # top-left corner) / слот слева под чекбокс — он больше не на фото
+            pixmap = QPixmap(150, 110)
+            pixmap.fill(Qt.transparent)
+            painter = QPainter(pixmap)
+            painter.drawPixmap(
+                26 + (124 - scaled.width()) // 2, (110 - scaled.height()) // 2, scaled)
+            painter.end()
             item = QListWidgetItem(QIcon(pixmap), shot.filename)
             item.setData(Qt.UserRole, shot.id)
             item.setToolTip(f"{shot.filename}\n{image.width()}×{image.height()} · {shot.size_label}")

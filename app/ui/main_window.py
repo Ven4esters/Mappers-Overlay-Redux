@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QThread, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QHBoxLayout, QInputDialog, QMainWindow, QMessageBox,
@@ -160,6 +160,11 @@ class MainWindow(QMainWindow):
             self._status.showMessage(tr("settings.hotkey_rebind_failed", combo=combo), 6000)
 
     def _on_hotkey(self, which: str) -> None:
+        if which.startswith("overlay:"):
+            overlay = getattr(self, "_capture_overlay", None)
+            if overlay is not None:
+                overlay.handle_command(which.split(":", 1)[1])
+            return
         if which == "overlay":
             self._show_capture_overlay()
             return
@@ -170,14 +175,24 @@ class MainWindow(QMainWindow):
         last = self.store.settings.last_capture_mode
         overlay = CaptureOverlay(last, self)
         overlay.modeChosen.connect(self._on_overlay_mode)
-        overlay.cancelled.connect(lambda: self._status.showMessage(tr("capture.cancelled"), 2000))
-        overlay.destroyed.connect(lambda: setattr(self, "_capture_overlay", None))
+        overlay.cancelled.connect(self._on_capture_overlay_done)
+        overlay.destroyed.connect(self._on_overlay_destroyed)
         self._capture_overlay = overlay
         overlay.show()
         overlay.raise_()
         overlay.activateWindow()
+        self._hotkeys.set_overlay_active(True)
+
+    def _on_overlay_destroyed(self) -> None:
+        self._hotkeys.set_overlay_active(False)
+        self._capture_overlay = None
+
+    def _on_capture_overlay_done(self) -> None:
+        self._hotkeys.set_overlay_active(False)
+        self._status.showMessage(tr("capture.cancelled"), 2000)
 
     def _on_overlay_mode(self, mode: str) -> None:
+        self._hotkeys.set_overlay_active(False)
         self.store.settings.last_capture_mode = mode
         self.store.save()
         self._capture(mode)
@@ -232,15 +247,56 @@ class MainWindow(QMainWindow):
         self.panel.set_can_send(can)
 
     # ------------------------------------------------------------- capture
+    # our own windows must never end up on the shot: hide them first, grab,
+    # then restore exactly as they were. / собственные окна прячем на время grab
+    def _begin_capture_hide(self):
+        hidden = []
+        for obj in (getattr(self, "_capture_overlay", None),
+                    getattr(self, "_overlay", None)):
+            if obj is not None and obj.isVisible():
+                obj.hide()
+                hidden.append(obj)
+        was_visible = self.isVisible()
+        was_active = self.isActiveWindow()
+        if was_visible:
+            self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+            self.hide()
+        QGuiApplication.processEvents()
+        # give the compositor a beat so nothing of ours lingers in the grab
+        QThread.msleep(60)
+        QGuiApplication.processEvents()
+        return was_visible, was_active
+
+    def _end_capture_hide(self, stash) -> None:
+        was_visible, was_active = stash
+        if was_visible:
+            self.show()
+            if was_active:
+                self.raise_()
+                self.activateWindow()
+            # plain show() would pop the app over the game; keep it passive instead
+            self.setAttribute(Qt.WA_ShowWithoutActivating, False)
+        QGuiApplication.processEvents()
+
     def _capture(self, which: str) -> None:
         if which in ("fullscreen", "window", "region") and self.store.settings.last_capture_mode != which:
             self.store.settings.last_capture_mode = which
             self.store.save()
         try:
             if which == "fullscreen":
-                self._add_image(capture_fullscreen())
+                stash = self._begin_capture_hide()
+                try:
+                    image = capture_fullscreen()
+                finally:
+                    self._end_capture_hide(stash)
+                self._add_image(image)
             elif which == "window":
-                self._add_image(capture_active_window())
+                stash = self._begin_capture_hide()
+                try:
+                    image = capture_active_window()
+                finally:
+                    self._end_capture_hide(stash)
+                self._add_image(image)
             elif which == "region":
                 self._overlay = RegionOverlay()
                 self._overlay.regionSelected.connect(self._region_captured)
@@ -251,12 +307,15 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, tr("app.window_title"), str(exc))
 
     def _region_captured(self, rect) -> None:
+        stash = self._begin_capture_hide()  # the transparent dim overlay must vanish too
         dpr = QGuiApplication.primaryScreen().devicePixelRatio() if QGuiApplication.primaryScreen() else 1.0
         try:
             image = capture_region(Region(rect.x(), rect.y(), rect.width(), rect.height()), dpr=dpr)
         except CaptureError as exc:
+            self._end_capture_hide(stash)
             QMessageBox.critical(self, tr("app.window_title"), str(exc))
             return
+        self._end_capture_hide(stash)
         self._add_image(image)
 
     def _region_cancelled(self) -> None:

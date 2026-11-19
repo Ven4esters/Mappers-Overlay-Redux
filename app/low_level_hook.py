@@ -33,6 +33,17 @@ LLKHF_INJECTED = 0x00000010
 HC_ACTION = 0
 WH_KEYBOARD_LL = 13
 
+# plain keys the capture overlay understands (no modifier needed) — routed
+# here before combo matching so they work even while the fullscreen game
+# holds the OS foreground window. / клавиши оверлея: ловим до совпадения комбо
+_OVERLAY_KEYS = {
+    0x1B: "escape",   # VK_ESCAPE
+    0x0D: "enter",    # VK_RETURN (both Return/Enter)
+    0x20: "enter",    # VK_SPACE confirms the highlighted mode
+    0x31: "1", 0x32: "2", 0x33: "3",        # VK_1..VK_3
+    0x61: "1", 0x62: "2", 0x63: "3",        # VK_NUMPAD1..VK_NUMPAD3
+}
+
 
 @dataclass(frozen=True)
 class ComboBinding:
@@ -100,6 +111,7 @@ class LowLevelKeyboardHook:
         self._proc = None
         self._user32 = None
         self._struct = None
+        self._overlay_active = False
 
     @staticmethod
     def supported() -> bool:
@@ -107,6 +119,12 @@ class LowLevelKeyboardHook:
 
     def set_bindings(self, bindings) -> None:
         self._bindings = list(bindings)
+
+    def set_overlay_active(self, active: bool) -> None:
+        """While True, capture Escape/Enter/1-3 for the overlay (swallow them).
+        Пока True, Esc/Enter/1-3 «съедаются» для оверлея выбора режима."""
+        self._overlay_active = bool(active)
+        logger.info("overlay key pass-through %s", "enabled" if active else "disabled")
 
     @property
     def bindings(self) -> list[ComboBinding]:
@@ -121,6 +139,15 @@ class LowLevelKeyboardHook:
         """True → swallow the combo. / True — съесть комбинацию."""
         if injected:
             return False
+        if self._overlay_active:
+            overlay_key = _OVERLAY_KEYS.get(vk)
+            if overlay_key is not None:
+                logger.info("overlay key: %s", overlay_key)
+                try:
+                    self._handler(f"overlay:{overlay_key}")
+                except Exception:  # noqa: BLE001 — a broken handler must not kill the hook
+                    logger.exception("overlay command %r raised", overlay_key)
+                return True
         action = match_combo(self._bindings, mods, vk)
         if action is None:
             return False

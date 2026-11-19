@@ -92,6 +92,19 @@ class HotkeyManager(QObject):
     def suspended(self) -> bool:
         return self._suspended
 
+    def set_overlay_active(self, active: bool) -> bool:
+        """Route Esc/Enter/1-3 to the capture overlay via the low-level hook.
+        Esc/Enter/1-3 для оверлея через low-level hook.
+
+        Returns True when active (hook mode). In the RegisterHotKey fallback
+        there is no raw-key path — keys work only while our window has focus,
+        exactly as before. / В режиме fallback сырые клавиши недоступны.
+        """
+        if self._hook is None:
+            return False
+        self._hook.set_overlay_active(active)
+        return True
+
     # -------------------------------------------------------------- install
     def install(self, app, capture_hotkey: str = DEFAULT_HOTKEY) -> list[str]:
         """Register everything; returns combos Windows refused (empty on success).
