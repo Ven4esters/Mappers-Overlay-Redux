@@ -90,7 +90,7 @@
   "settings.test_ok": "Webhook responds",
   "settings.err_name": "Enter a profile name",
   "settings.err_url": "Enter a valid webhook URL (https://discord.com/api/webhooks/id/token)",
-  "settings.err_missing": "Profile not found — refresh the list",
+  "settings.err_missing": "Profile not found — it may have been deleted or the list is stale. Reopen settings or create a new profile.",
   "settings.send_mode_ask": "Ask / remember my choice",
   "settings.ask_hint": "“Ask” uses the mode chosen in the main window — the choice is remembered after each send.",
   "settings.clear_fields": "Clear the caption fields after sending",

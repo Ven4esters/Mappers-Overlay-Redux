@@ -326,6 +326,9 @@ class SettingsDialog(QDialog):
             self._profile_list.setCurrentRow(0)
         self._loading = False
         self._on_profile_selected()
+        if not self._profile_list.count():
+            # nothing to select (no profiles yet) — start in "new profile" mode
+            self._start_create()
 
     def selected_profile_id(self) -> str:
         item = self._profile_list.currentItem()
@@ -337,8 +340,9 @@ class SettingsDialog(QDialog):
         # clicking a profile always edits it (exits any half-finished "new profile" draft)
         profile = self._store.get_profile(self.selected_profile_id())
         if profile is None:
-            if not self._create_mode:
-                self._clear_form()
+            # no selection = new-profile mode (Save must not fail with "not found")
+            self._clear_form()
+            self._set_buttons_for_mode(create=True)
             return
         self._fill_form(profile)
         self._set_buttons_for_mode(create=False)
@@ -387,8 +391,10 @@ class SettingsDialog(QDialog):
         channel_type = self._type.current()
         username = self._username.text().strip()
         avatar = self._avatar.text().strip()
+        # empty selection ⇒ treat as a new profile (add_profile), never as a broken update
+        create = self._create_mode or not self.selected_profile_id()
         try:
-            if self._create_mode:
+            if create:
                 profile = self._store.add_profile(name, url, channel_type=channel_type,
                                                   username_override=username, avatar_url=avatar)
             else:
