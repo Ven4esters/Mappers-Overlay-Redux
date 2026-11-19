@@ -8,8 +8,10 @@ message's ``channel_id`` (``?wait=true``).
 стартовое сообщение несёт ``thread_name``, Discord создаёт пост, а id темы
 приходит в ``channel_id`` ответа.
 
-Listing is impossible without a bot — the registry lives in config.json.
-Перечисление тем без бота невозможно — реестр локальный.
+Listing threads is impossible through a webhook — the local registry plus
+paste-a-link import is the API-compliant path.
+Перечислять темы через вебхук нельзя — локальный реестр и импорт по ссылкам
+это API-соблюдающий путь.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ THREAD_LINK_RE = re.compile(
 )
 SNOWFLAKE_RE = re.compile(r"^\d{17,22}$")
 MAX_THREAD_NAME = 100
+STARTER_NAME_RE = re.compile(r"Альбом \«(.+?)\»")
 
 
 class AlbumError(RuntimeError):
@@ -79,6 +82,39 @@ def parse_thread_link(text: str) -> Optional[ThreadRef]:
     if SNOWFLAKE_RE.fullmatch(text):
         return ThreadRef(thread_id=text)
     return None
+
+
+def parse_starter_name(content: str) -> str:
+    """Extract the album name from a starter card this app created.
+    Вычленить имя альбома из стартовой карточки, созданной приложением.
+
+    Returns "" when the content is not a recognizable starter card.
+    """
+    match = STARTER_NAME_RE.search(content or "")
+    return match.group(1).strip() if match else ""
+
+
+def parse_import_lines(text: str) -> tuple[list["ThreadRef"], list[str]]:
+    """Parse pasted lines (jump links / bare IDs), de-duplicated by thread.
+    Разобрать вставленные строки (jump-ссылки / голые ID), без дублей тем.
+
+    Returns (valid refs, invalid raw lines). / (валидные ссылки, битые строки)."""
+    refs: list[ThreadRef] = []
+    invalid: list[str] = []
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        ref = parse_thread_link(line)
+        if ref is None:
+            invalid.append(line)
+            continue
+        if ref.thread_id in seen:
+            continue
+        seen.add(ref.thread_id)
+        refs.append(ref)
+    return refs, invalid
 
 
 def album_starter_content(name: str) -> str:

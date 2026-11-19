@@ -244,6 +244,35 @@ class DiscordClient:
         self._raise_for_client_error(response)
         raise TransientDiscordError(f"Unexpected HTTP {code} / Неожиданный ответ {code}")
 
+    def get_webhook_message(self, message_id: str, thread_id: str = "") -> dict:
+        """GET a message this webhook sent earlier (single attempt, no retries).
+        Прочитать сообщение, отправленное этим вебхуком (один запрос).
+
+        Discord only lets a webhook read its *own* messages; used to recover the
+        album name from the starter card of posts created by this app.
+        Discord позволяет вебхуку читать только собств*енные* сообщения —
+        используется для восстановления имени альбома из стартовой карточки."""
+        url = f"{self.webhook_url.rstrip('/')}/messages/{message_id.strip()}"
+        params = {"thread_id": thread_id.strip()} if thread_id.strip() else None
+        try:
+            response = self._http.get(url, params=params)
+        except httpx.HTTPError as exc:
+            raise TransientDiscordError(f"Network error / Сетевая ошибка: {exc}") from exc
+        code = response.status_code
+        if code == 200:
+            try:
+                data = response.json()
+            except ValueError as exc:
+                raise TransientDiscordError("Bad response / Некорректный ответ Discord") from exc
+            if not isinstance(data, dict):
+                raise TransientDiscordError("Bad response / Некорректный ответ Discord")
+            return data
+        if code == 429:
+            raise RateLimitedError("Rate limited / Превышен лимит запросов",
+                                   retry_after=self._retry_after(response))
+        raise DiscordError(f"Webhook cannot read message {message_id} (HTTP {code}) / "
+                           f"Вебхук не может прочитать сообщение (HTTP {code})")
+
     # ------------------------------------------------------- single message
     def execute(self, *, content: Optional[str] = None, embeds: Optional[list[dict]] = None,
                 files: Optional[list[UploadedFile]] = None,

@@ -27,7 +27,7 @@ from app.store import ConfigStore, HistoryStore
 from app.ui.album_sidebar import AlbumSidebar
 from app.ui.bbcode_dialog import BBCodeDialog
 from app.ui.capture_overlay import CaptureOverlay
-from app.ui.forum_discover_dialog import ForumDiscoveryDialog
+from app.ui.import_threads_dialog import ImportThreadsDialog
 from app.ui.queue_panel import QueuePanel, ShotItem
 from app.ui.region_overlay import RegionOverlay
 from app.ui.send_panel import SendPanel
@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
         self.sidebar.albumSelected.connect(self._on_album_selected)
         self.sidebar.createRequested.connect(self._create_album)
         self.sidebar.attachRequested.connect(self._attach_album)
-        self.sidebar.discoverRequested.connect(self._discover_albums)
+        self.sidebar.importRequested.connect(self._import_albums)
         self.sidebar.openRequested.connect(self._open_album)
         self.sidebar.renameRequested.connect(self._rename_album)
         self.sidebar.forgetRequested.connect(self._forget_album)
@@ -272,31 +272,30 @@ class MainWindow(QMainWindow):
         self._status.showMessage(tr("album.created", name=album.name), 4000)
         self._reload_albums(select_id=album.id)
 
-    def _discover_albums(self) -> None:
+    def _import_albums(self) -> None:
         profile = self.store.active_profile()
         if profile is None:
             QMessageBox.information(self, tr("settings.title"), tr("settings.no_profiles"))
             return
-        if not profile.is_forum:
-            QMessageBox.information(self, tr("discover.title"), tr("discover.forum_required"))
-            return
-        dialog = ForumDiscoveryDialog(webhook_url=profile.webhook_url, parent=self)
-        dialog.imported.connect(self._import_discovered)
+        dialog = ImportThreadsDialog(webhook_url=profile.webhook_url, parent=self)
+        dialog.imported.connect(self._import_links)
         dialog.exec()
         self._reload_albums()
 
-    def _import_discovered(self, items: list) -> None:
+    def _import_links(self, items: list, resolved: int, total: int) -> None:
         profile = self.store.active_profile()
         if profile is None:
             return
         created, skipped = self.service.import_threads(profile, items)
         if not created:
-            QMessageBox.information(self, tr("discover.title"), tr("discover.all_skipped"))
+            QMessageBox.information(self, tr("import.title"), tr("import.all_skipped"))
             return
-        text = tr("discover.imported", count=len(created))
+        text = tr("import.imported", count=len(created))
         if skipped:
-            text += " " + tr("discover.skipped_suffix", count=skipped)
-        QMessageBox.information(self, tr("discover.title"), text)
+            text += " " + tr("import.skipped_suffix", count=skipped)
+        if total:
+            text += " " + tr("import.resolved_suffix", resolved=resolved, total=total)
+        QMessageBox.information(self, tr("import.title"), text)
         self._reload_albums(select_id=created[0].id)
 
     def _attach_album(self) -> None:

@@ -177,3 +177,25 @@ def test_import_threads_accepts_unknown_count(tmp_path) -> None:
     created, skipped = service.import_threads(profile, [ThreadImport(thread_id="444444444444444444", name="Без номера")])
     assert len(created) == 1 and skipped == 0
     assert created[0].next_number == 1
+
+
+def test_parse_starter_name() -> None:
+    from app.albums import parse_starter_name
+    assert parse_starter_name("🖼️  Альбом «Кухня дома»\nсоздан через Screensaver → Discord") == "Кухня дома"
+    assert parse_starter_name("**Заголовок** секции") == ""
+    assert parse_starter_name("") == ""
+
+
+def test_parse_import_lines_dedupes_and_collects_invalid() -> None:
+    from app.albums import parse_import_lines
+    text = (
+        "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333\n"
+        "\n"
+        "https://discord.com/channels/111111111111111111/222222222222222222/444444444444444444\n"  # same thread → dupe
+        "333333333333333333\n"   # same id via bare snowflake? different id, kept
+        "not a link\n"
+    )
+    refs, invalid = parse_import_lines(text)
+    assert [r.thread_id for r in refs] == ["222222222222222222", "333333333333333333"]
+    assert refs[0].message_id == "333333333333333333" and refs[0].guild_id == "111111111111111111"
+    assert invalid == ["not a link"]

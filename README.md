@@ -1,8 +1,8 @@
 # Screensaver into Discord / Скриншот → Discord
 
-> **RU.** Десктоп-приложение (Python 3.12 + PySide6): снимает экран/окно/область (есть глобальный хоткей PrintScreen с оверлеем выбора режима, как в Windows) и публикует скриншоты в темы Discord-форума («Альбомы») через **вебхуки** — без отдельного сервера-посредника и без хостинга. Авторизация только через вебхук по URL: приложение не хранит и не запрашивает у Discord никаких токенов. Двуязычный интерфейс RU/EN. Поддержка «Название | N.ext»-именования, секций (`**Заголовок**` + скриншоты одним сообщением), поиска уже существующих публикаций на форуме (нужен токен бота, не сохраняется) и BB-кода публикации для XenForo-форумов (спойлеры + медиа-ссылки).
+> **RU.** Десктоп-приложение (Python 3.12 + PySide6): снимает экран/окно/область (есть глобальный хоткей PrintScreen с оверлеем выбора режима, как в Windows) и публикует скриншоты в темы Discord-форума («Альбомы») через **вебхуки** — без отдельного сервера-посредника и без хостинга. Авторизация только через вебхук по URL: приложение не хранит и не запрашивает у Discord никаких токенов. Двуязычный интерфейс RU/EN. Поддержка «Название | N.ext»-именования, секций (`**Заголовок**` + скриншоты одним сообщением), импорта существующих публикаций форума по ссылкам (без бота) и BB-кода публикации для XenForo-форумов (спойлеры + медиа-ссылки).
 >
-> **EN.** Desktop app (Python 3.12 + PySide6): capture full screen / active window / region (global PrintScreen hotkey with a mode picker overlay, like the built-in Windows experience) and post screenshots into Discord forum threads ("Albums") via **webhooks** — no middleman server, no hosting. Webhooks are the only auth path: the app stores and requests no Discord tokens. Bilingual RU/EN UI. Supports `Name | N.ext` file naming, sections (`**Heading**` + shots in one message), discovery of existing forum posts (needs a bot token, never stored), and XenForo BB-code export for forum publishing (spoilers + media links).
+> **EN.** Desktop app (Python 3.12 + PySide6): capture full screen / active window / region (global PrintScreen hotkey with a mode picker overlay, like the built-in Windows experience) and post screenshots into Discord forum threads ("Albums") via **webhooks** — no middleman server, no hosting. Webhooks are the only auth path: the app stores and requests no Discord tokens. Bilingual RU/EN UI. Supports `Name | N.ext` file naming, sections (`**Heading**` + shots in one message), import of existing forum posts via links (no bot needed), and XenForo BB-code export for forum publishing (spoilers + media links).
 
 ## Быстрый старт / Quick start
 
@@ -36,11 +36,10 @@ app/
   hotkeys.py             # глобальные хоткеи Windows (PrintScreen, Ctrl+Shift+S/R)
   ui/main_window.py      # главное окно (очередь, секции, отправка)
   ui/capture_overlay.py  # PrtSc-оверлей выбора режима захвата
-  ui/forum_discover_dialog.py  # поиск существующих публикаций на форуме
+  ui/import_threads_dialog.py  # импорт существующих публикаций по ссылкам
   ui/region_overlay.py   # оверлей выбора области
   discord_client.py      # вебхук: multipart, ретраи 429/5xx, маппинг кодов ошибок
   albums.py              # сервис альбомов: создание/привязка/импорт/имена файлов
-  forum_discovery.py     # REST-поиск тем форума (бот, токен не сохраняется)
   transfer.py            # экспорт/импорт резервной копии (config+history)
   workers.py             # QThread-конвейеры: отправка batch'ей
   cache.py               # локальный кэш отправленных скриншотов (blake2b, дедуп)
@@ -61,7 +60,7 @@ tests/                   # pytest (respx-моки, QT-free)
 | 6 | Главное окно: очередь, секции, отправка (QThread) | ✅ |
 | 7 | Настройки, профили, очистка кэша, экспорт/импорт | ✅ |
 | 8 | BB-код публикации (XenForo) + кэш скриншотов + catbox | ✅ |
-| 9 | Принтскрин-оверлей, поиск существующих публикаций форума | ✅ |
+| 9 | Принтскрин-оверлей, импорт существующих публикаций по ссылкам | ✅ |
 | 10 | start.bat, README-финализация, смоук-тесты | ✅ |
 
 ## Вебхук: как получить URL / Webhook: how to get the URL
@@ -84,13 +83,15 @@ The app uses a webhook URL as its only delivery channel. Creating one takes abou
 4. For album posts in a forum, create the webhook **inside the forum channel** — all of the forum's threads are posted through it.
 5. A webhook URL is a posting password: keep `config.json` secret (it is gitignored).
 
-## Поиск существующих публикаций / Finding existing forum posts
+## Импорт существующих публикаций / Importing existing posts
 
-**RU.** В сайдбаре есть кнопка **«🔍 Найти на форуме»**. Вебхук принципиально не умеет перечислять темы форума (это ограничение REST API Discord), поэтому для поиска используется **бот**: добавьте на сервер бота с правом `VIEW_CHANNEL` на форум-канал и вставьте его токен. Токен вводится на время операции и нигде не сохраняется. Активные и архивные публичные темы объединяются в один список; отмечаем нужные — приложение регистрирует их как локальные альбомы и, если возможно, вычисляет следующий номер файлов по последним сообщениям темы.
+**Дисклеймер.** Вебхук Discord принципиально не умеет перечислять темы форума — это ограничение REST API. Поэтому «волшебной кнопки поиска» без бота не существует: существующие публикации подключаются **по ссылкам**.
 
-**EN.** The sidebar has a **“Find on forum”** button. Webhooks fundamentally cannot list forum threads (a Discord REST API limitation), so discovery uses a **bot**: add a bot with `VIEW_CHANNEL` on the forum channel and paste its token. The token is used for the operation and is never stored. Active and archived public threads are merged into one list; selected posts are registered as local albums, and the next file number is inferred from recent thread messages when possible.
+**RU.** В сайдбаре есть **«📥 Импорт по ссылкам»**. Как получить ссылки: в Discord ПКМ по посту → «Копировать ссылку»; вставьте их в диалог по одной на строку. Приложение зарегистрирует каждую как альбом. Если пост создан через это приложение, название восстановится само из стартовой карточки (вебхук может читать собственные сообщения — больше ничего недоступно). Если пост создан вручную, он получит имя «Thread &lt;id&gt;» — поправьте через ПКМ по альбому → «Переименовать…». Дуббликаты пропускаются, счётчик «Начать нумерацию с» можно задать общий.
 
-> **Важно / Important.** Бот нужен только для *поиска*. Отправка скриншотов, как и раньше, идёт через вебхук. / The bot is only needed for *discovery* — posting screenshots still goes through the webhook.
+**EN.** The sidebar has **“Import via links”**. In Discord, right-click a post → “Copy Link”, then paste the links into the dialog, one per line. Each becomes an album. Posts created by this app recover their name from the starter card (a webhook can only read its own messages — nothing more is available). Manually-created posts get the placeholder “Thread &lt;id&gt;” — fix it via right-click → “Rename…”. Duplicates are skipped, and a shared “start numbering at” counter can be set.
+
+**Почему без бота.** Полноценное обнаружение (список активных/архивных тем) требует бота как единственный способ в REST API — приложение его не запрашивает и не хранит. / **Why no bot.** Full discovery (listing active/archived threads) is only possible via a bot in the Discord REST API; the app does not request and never stores one.
 
 ## BB-код для XenForo / BB-code export
 
@@ -126,13 +127,12 @@ Launch by double-clicking `start.bat` (it self-provisions `.venv` + deps) or `py
 
 **Что нужно знать / Known limitations:**
 - GUI проверен автоматическими тестами логики (QT-free) и headless-компиляцией; первый живой прогон интерфейса — на Windows (Qt там работает из коробки, Linux нужны `libgl1`, `libegl1`, `libxkbcommon`). / GUI logic is covered by QT-free tests; the first live UI run happens on Windows (Linux needs the GL libs).
-- Поиск существующих публикаций на форуме требует бота — вебхук такой API не предоставляет (ограничение Discord, а не приложения). / Finding existing forum posts requires a bot — the webhook API does not provide it (a Discord limitation, not the app's).
+- Импорт существующих публикаций работает только по ссылкам (вебхук не перечисляет темы); имена восстанавливаются лишь для постов, созданных этим приложением. / Importing existing posts works by links only (webhooks cannot list threads); names are recovered only for posts created by this app.
 - Ссылки Discord CDN живут ≈24 ч (ограничение Discord); для постоянных медиа-ссылок в BB-коде используйте источник catbox.moe. / Discord CDN links expire after ≈24 h; use catbox.moe for permanent BB-code media links.
 - URL вебхука = пароль на отправку в канал: храните `config.json` в секрете (он в `.gitignore`). / A webhook URL is a posting password: keep `config.json` secret (it is gitignored).
 
 ## Безопасность / Security
 - `config.json` (URL вебхуков), `cache/` — в `.gitignore`.
-- Токен бота для поиска на форуме нигде не сохраняется; из сети сохраняются только ID/названия найденных тем. / The bot token used for forum discovery is never stored; only thread IDs and names are kept.
 - Webhook URL — фактически пароль на отправку в канал: храните `config.json` как секрет.
 
 ## Лицензия / License

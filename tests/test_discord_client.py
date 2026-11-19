@@ -9,8 +9,8 @@ import pytest
 import respx
 
 from app.discord_client import (
-    DiscordClient, ForumError, PayloadTooLargeError, RateLimitedError, SectionInput,
-    SectionSendError, UploadedFile, ValidationFailedError, WebhookDeadError,
+    DiscordClient, DiscordError, ForumError, PayloadTooLargeError, RateLimitedError,
+    SectionInput, SectionSendError, UploadedFile, ValidationFailedError, WebhookDeadError,
     build_content, build_embed, build_image_embed, chunk_files, dedupe_filenames,
     sanitize_filename,
 )
@@ -224,3 +224,24 @@ def test_section_requires_name_and_files() -> None:
     with pytest.raises(ValidationFailedError):
         client.send_section(SectionInput("S", []))
     client.close()
+
+
+@respx.mock
+def test_get_webhook_message_reads_own_message() -> None:
+    client = DiscordClient(WEBHOOK)
+    payload = {"id": "345678901234567890", "channel_id": "234567890123456789",
+               "content": "🖼️  Альбом «Кухня»\nсоздан через Screensaver → Discord"}
+    respx.get(url__regex=r"https://discord\.com/api/webhooks/\d+/\w+/messages/\d+.*").mock(
+        return_value=httpx.Response(200, json=payload))
+    message = client.get_webhook_message("345678901234567890", thread_id="234567890123456789")
+    assert message["channel_id"] == "234567890123456789"
+
+
+@respx.mock
+def test_get_webhook_message_failure_maps_to_discord_error() -> None:
+    client = DiscordClient(WEBHOOK)
+    respx.get(url__regex=r"https://discord\.com/api/webhooks/\d+/\w+/messages/\d+.*").mock(
+        return_value=httpx.Response(404, json={"message": "Unknown Message"}))
+    with pytest.raises(DiscordError) as excinfo:
+        client.get_webhook_message("345678901234567890")
+    assert excinfo.value.code == "unknown"  # base class; callers only need "unreadable"
