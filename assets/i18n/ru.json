@@ -155,5 +155,6 @@
   "send.style_text_short": "Текст",
   "send.style_embed_short": "Embed",
   "settings.oauth_builtin_warn": "В поле Client ID — встроенный ID проекта. Он заработает только с секретом этого же приложения (он есть только у автора). Если вы не автор: создайте своё приложение на discord.com/developers/applications и впишите ЕГО Client ID и Client Secret. На нём же в OAuth2 → Redirects должен быть добавлен Redirect URI: {uri}",
-  "settings.oauth_pair_hint": "Client ID и Client Secret должны быть от одного и того же приложения на discord.com/developers/applications, и именно на нём в OAuth2 → Redirects добавлен Redirect URI: {uri} (точно так, включая http, localhost, порт и путь)."
+  "settings.oauth_pair_hint": "Client ID и Client Secret должны быть от одного и того же приложения на discord.com/developers/applications, и именно на нём в OAuth2 → Redirects добавлен Redirect URI: {uri} (точно так, включая http, localhost, порт и путь).",
+  "settings.oauth_forum_note": "Если цель — форум с альбомами: Discord не показывает форумы в окне «Подключить» (ограничение scope webhook.incoming). Создайте вебхук вручную в самом форум-канале: правый клик по каналу → Настройки → Интеграции → Вебхуки → Новый вебхук → Копировать URL и вставьте его в поле «URL вебхука» выше. Для текстовых каналов кнопка «Подключить Discord…» подходит."
 }

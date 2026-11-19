@@ -298,6 +298,10 @@ class SettingsDialog(QDialog):
         self._oauth_hint_label.setObjectName("Hint")
         self._oauth_hint_label.setWordWrap(True)
         oauth_layout.addWidget(self._oauth_hint_label)
+        forum_note = QLabel(tr("settings.oauth_forum_note"), oauth_box)
+        forum_note.setObjectName("Hint")
+        forum_note.setWordWrap(True)
+        oauth_layout.addWidget(forum_note)
         layout.addWidget(oauth_box)
         return page
 

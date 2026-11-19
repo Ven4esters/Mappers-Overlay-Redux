@@ -155,5 +155,6 @@
   "send.style_text_short": "Text",
   "send.style_embed_short": "Embed",
   "settings.oauth_builtin_warn": "The Client ID field holds the project's built-in ID. It only works with the secret of that same app (owner-only). If you are not the author: create your own app at discord.com/developers/applications and enter ITS Client ID and Client Secret. The same app must have this Redirect URI registered (OAuth2 → Redirects): {uri}",
-  "settings.oauth_pair_hint": "Client ID and Client Secret must come from the same app at discord.com/developers/applications, and that exact app must have this Redirect URI registered (OAuth2 → Redirects): {uri} (exactly, including http, localhost, port and path)."
+  "settings.oauth_pair_hint": "Client ID and Client Secret must come from the same app at discord.com/developers/applications, and that exact app must have this Redirect URI registered (OAuth2 → Redirects): {uri} (exactly, including http, localhost, port and path).",
+  "settings.oauth_forum_note": "If your target is a forum with albums: Discord does not list forum channels in the “Connect” dialog (webhook.incoming scope limitation). Create the webhook inside the forum channel itself: right-click the channel → Settings → Integrations → Webhooks → New Webhook → Copy URL and paste it into the “Webhook URL” field above. For text channels the “Connect Discord…” button is fine."
 }

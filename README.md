@@ -80,6 +80,8 @@ The **“Connect Discord…”** button (Settings → Profiles) creates the webh
 
 > **Важно.** Client ID и Client Secret должны быть от **одного и того же** приложения, и именно на нём в **OAuth2 → Redirects** должен быть зарегистрирован Redirect URI — точное совпадение, включая `http`, `localhost`, порт и путь (`/callback`). Если Discord отвечает «Некорректный OAuth2 redirect_uri»: (а) убедитесь, что в поле Client ID вписан ID именно того приложения, где вы добавили Redirect (встроенный Client ID из репозитория принадлежит приложению автора и заработает только с его секретом); (б) проверьте, что URI зарегистрирован **до** первого «Подключить» и совпадает символ в символ; (в) если меняли порт — зарегистрируйте `http://localhost:ВАШ_ПОРТ/callback`.
 
+> **Важно про форумы.** В окне OAuth2 (scope `webhook.incoming`) Discord **не показывает форум-каналы** — можно выбрать только текстовые/объявления/голосовые. Это ограничение Discord, а не приложения. Для альбомов в форуме создайте вебхук вручную внутри форум-канала (правый клик по каналу → Настройки → Интеграции → Вебхуки → Новый вебхук → Копировать URL) и вставьте его в «URL вебхука»; OAuth для форума не нужен. Кнопка «Подключить Discord…» подходит, когда хотите отправлять обычными сообщениями в текстовый канал.
+
 **One-time in-app setup (once per installation):**
 
 1. **Settings → Profiles → “Connect Discord (OAuth2)”** → press **“Open Developer Portal…”** and create an app: https://discord.com/developers/applications → **New Application** → **OAuth2**.
@@ -90,6 +92,8 @@ The **“Connect Discord…”** button (Settings → Profiles) creates the webh
 `oauth.client.json` is `.gitignore`d and never committed; the **“Remove credentials”** button deletes it. `oauth.client.example.json` is an optional template for manual setup (not needed in the usual flow).
 
 > **Important.** Client ID and Client Secret must come from the **same** app, and that exact app must have the Redirect URI registered (**OAuth2 → Redirects**) — exact match, including `http`, `localhost`, port and path (`/callback`). If Discord answers “Invalid OAuth2 redirect_uri”: (a) make sure the Client ID field holds the ID of the app where you registered the URI (the built-in Client ID in the repo belongs to the author's app and only works with its secret); (b) register the URI **before** pressing Connect, exactly as shown; (c) if you changed the port, register `http://localhost:YOUR_PORT/callback`.
+
+> **About forums.** In the OAuth2 dialog (scope `webhook.incoming`) Discord **does not list forum channels** — only text/announcement/voice channels can be picked. That is a Discord limitation, not the app's. For album threads in a forum, create the webhook inside the forum channel itself (right-click the channel → Settings → Integrations → Webhooks → New Webhook → Copy URL) and paste it into “Webhook URL” — no OAuth needed for forums. The “Connect Discord…” button is the right path when you want plain messages in a text channel.
 
 Если вебхука у вас ещё нет — кнопка выше создаст его сама. Если вебхук уже есть, OAuth вообще не нужен: вставьте его URL в поле «URL вебхука» (глазик покажет/спрячет его) и нажмите «Проверить вебхук». / If you already have a webhook, no OAuth is needed at all: paste its URL (the eye toggle reveals/hides it) and press “Test webhook”. Without saved keys the button shows a hint; manual webhook URLs keep working regardless.
 
