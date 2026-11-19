@@ -1,8 +1,8 @@
 # Screensaver into Discord / Скриншот → Discord
 
-> **RU.** Десктоп-приложение (Python 3.12 + PySide6): снимает экран/окно/область (есть глобальный хоткей PrintScreen с оверлеем выбора режима, как в Windows) и публикует скриншоты в темы Discord-форума («Альбомы») через **вебхуки** — без отдельного сервера-посредника и без хостинга. Авторизация только через вебхук по URL: приложение не хранит и не запрашивает у Discord никаких токенов. Двуязычный интерфейс RU/EN. Поддержка «Название | N.ext»-именования, секций (`**Заголовок**` + скриншоты одним сообщением), импорта существующих публикаций форума по ссылкам (без бота) и BB-кода публикации для XenForo-форумов (спойлеры + медиа-ссылки).
+> **RU.** Десктоп-приложение (Python 3.12 + PySide6): снимает экран/окно/область (глобальный хоткей снимка с оверлеем выбора режима; по умолчанию PrtSc, но Windows часто забирает его себе — клавишу можно переназначить в Настройки → Приложение → Горячие клавиши) и публикует скриншоты в темы Discord-форума («Альбомы») через **вебхуки** — без отдельного сервера-посредника и без хостинга. Авторизация только через вебхук по URL: приложение не хранит и не запрашивает у Discord никаких токенов. Двуязычный интерфейс RU/EN. Поддержка «Название | N.ext»-именования, секций (`**Заголовок**` + скриншоты одним сообщением), импорта существующих публикаций форума по ссылкам (без бота) и BB-кода публикации для XenForo-форумов (спойлеры + медиа-ссылки).
 >
-> **EN.** Desktop app (Python 3.12 + PySide6): capture full screen / active window / region (global PrintScreen hotkey with a mode picker overlay, like the built-in Windows experience) and post screenshots into Discord forum threads ("Albums") via **webhooks** — no middleman server, no hosting. Webhooks are the only auth path: the app stores and requests no Discord tokens. Bilingual RU/EN UI. Supports `Name | N.ext` file naming, sections (`**Heading**` + shots in one message), import of existing forum posts via links (no bot needed), and XenForo BB-code export for forum publishing (spoilers + media links).
+> **EN.** Desktop app (Python 3.12 + PySide6): capture full screen / active window / region (global screenshot hotkey with a mode picker overlay; defaults to PrtSc but Windows usually claims it — rebind it in Settings → App → Hotkeys) and post screenshots into Discord forum threads ("Albums") via **webhooks** — no middleman server, no hosting. Webhooks are the only auth path: the app stores and requests no Discord tokens. Bilingual RU/EN UI. Supports `Name | N.ext` file naming, sections (`**Heading**` + shots in one message), import of existing forum posts via links (no bot needed), and XenForo BB-code export for forum publishing (spoilers + media links).
 
 ## Быстрый старт / Quick start
 
@@ -33,7 +33,9 @@ app/
   store.py               # config.json + history.json, атомарная запись, .bak-recovery
   webhook_url.py         # валидация/разбор URL вебхука
   capture.py             # захват: весь экран / активное окно / область (Qt-free, тестируемо)
-  hotkeys.py             # глобальные хоткеи Windows (PrintScreen, Ctrl+Shift+S/R)
+  hotkeys.py             # глобальные хоткеи Windows (настраиваемый снимок, Ctrl+Shift+S/R)
+  hotkey_parse.py        # чистая нормализация/разбор хоткеев (без Qt)
+  ui/hotkey_qt.py        # QKeySequence из канонической комбинации
   ui/main_window.py      # главное окно (очередь, секции, отправка)
   ui/capture_overlay.py  # PrtSc-оверлей выбора режима захвата
   ui/import_threads_dialog.py  # импорт существующих публикаций по ссылкам
@@ -121,9 +123,9 @@ Right-click an album → **“BB-code to publish…”**. The dialog builds the 
 
 ## Финал / Final
 
-Приложение запускается двойным кликом по `start.bat` (само развернёт `.venv` и зависимости) или `python main.py`. С hotkey PrintScreen (и его кнопки внутри окна) можно снимать весь экран, активное окно или область — с overlay выбора режима как у «белого» PrtSc в Windows; последний использованный режим подсвечивается и выбирается по Enter.
+Приложение запускается двойным кликом по `start.bat` (само развернёт `.venv` и зависимости) или `python main.py`. Глобальный хоткей снимка (по умолчанию PrtSc — Windows его часто перехватывает, поэтому переназначается в **Настройки → Приложение → Горячие клавиши**, например на F9) открывает overlay выбора режима; последний использованный режим подсвечивается и выбирается по Enter. Внутри окна та же комбинация работает всегда.
 
-Launch by double-clicking `start.bat` (it self-provisions `.venv` + deps) or `python main.py`. The PrintScreen hotkey (and the in-window button) captures the full screen, the active window, or a region through a mode-picker overlay, just like the stock Windows PrtSc — the last used mode is pre-highlighted and confirmed with Enter.
+Launch by double-clicking `start.bat` (it self-provisions `.venv` + deps) or `python main.py`. The global screenshot hotkey (PrtSc by default — but Windows usually claims it, so it can be rebound in **Settings → App → Hotkeys**, e.g. to F9) opens the mode-picker overlay; the last used mode is pre-highlighted and confirmed with Enter. The same combo always works inside the window.
 
 **Что нужно знать / Known limitations:**
 - GUI проверен автоматическими тестами логики (QT-free) и headless-компиляцией; первый живой прогон интерфейса — на Windows (Qt там работает из коробки, Linux нужны `libgl1`, `libegl1`, `libxkbcommon`). / GUI logic is covered by QT-free tests; the first live UI run happens on Windows (Linux needs the GL libs).

@@ -45,6 +45,7 @@ class AppSettings:
     active_profile_id: str = ""
     use_keyring: bool = False
     last_capture_mode: str = "fullscreen"  # fullscreen | window | region (PrintScreen overlay)
+    capture_hotkey: str = "Print"          # global hotkey for the capture overlay (e.g. "Print", "F9")
 
     @classmethod
     def from_dict(cls, raw: dict) -> "AppSettings":

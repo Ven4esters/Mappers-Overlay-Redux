@@ -33,7 +33,7 @@ class AlbumSidebar(QFrame):
     def __init__(self, store: ConfigStore, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("Sidebar")
-        self.setFixedWidth(258)
+        self.setFixedWidth(282)
         self._store = store
         self._albums: list[Album] = []
 
@@ -79,11 +79,11 @@ class AlbumSidebar(QFrame):
         footer = QHBoxLayout()
         footer.setSpacing(6)
         history = QPushButton(f"🕘  {tr('nav.history')}", self)
-        history.setObjectName("Ghost")
+        history.setObjectName("FooterButton")
         history.clicked.connect(self.historyRequested.emit)
         footer.addWidget(history, stretch=1)
         settings = QPushButton(f"⚙  {tr('nav.settings')}", self)
-        settings.setObjectName("Ghost")
+        settings.setObjectName("FooterButton")
         settings.clicked.connect(self.settingsRequested.emit)
         footer.addWidget(settings, stretch=1)
         layout.addLayout(footer)

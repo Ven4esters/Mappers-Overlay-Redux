@@ -152,7 +152,7 @@
   "capture.overlay_hint": "Enter — capture · 1–3 — pick mode · Esc — cancel",
   "common.cancel": "Cancel",
   "settings.no_profiles": "Add a webhook profile in Settings first.",
-  "capture.hotkey_unavailable": "Global PrintScreen is taken by another app (e.g. the Windows Snipping Tool) — PrtSc still works inside the window.",
+  "capture.hotkey_unavailable": "Couldn’t grab: {combos} — Windows gave them to another app. They still work inside the app’s window.",
   "album.import_existing": "Import via links",
   "album.import_hint": "Attach existing forum posts by pasting their links (no bot needed)",
   "import.title": "Attach existing posts",
@@ -168,5 +168,13 @@
   "import.all_skipped": "The selected posts are already in the album registry.",
   "import.imported": "Attached albums: {count}",
   "import.skipped_suffix": "(skipped duplicates: {count})",
-  "import.resolved_suffix": "(names recovered for {resolved} of {total} — the rest are “Thread <id>”)."
+  "import.resolved_suffix": "(names recovered for {resolved} of {total} — the rest are “Thread <id>”).",
+  "settings.hotkeys_group": "Hotkeys",
+  "settings.hotkey_capture_label": "Screenshot (mode picker)",
+  "settings.hotkey_hint": "PrintScreen is the default, but Windows usually claims it (“Snipping Tool”) — the app then never receives the key and the overlay does not open. Click the field and press your own combo, e.g. F9 or Ctrl+Shift+Q.",
+  "settings.hotkey_press": "Press your shortcut…",
+  "settings.hotkey_reset": "Reset (PrtSc)",
+  "settings.hotkey_rejected": "That combo is reserved (Ctrl+Shift+S / Ctrl+Shift+R are built in) or unsupported. Try another one, e.g. F9.",
+  "settings.hotkey_applied": "Done: {combo}",
+  "settings.hotkey_rebind_failed": "Windows refused {combo} — the Snipping Tool or another app grabbed it first. Try a different combo."
 }

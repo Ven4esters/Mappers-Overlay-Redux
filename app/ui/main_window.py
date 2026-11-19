@@ -27,6 +27,7 @@ from app.store import ConfigStore, HistoryStore
 from app.ui.album_sidebar import AlbumSidebar
 from app.ui.bbcode_dialog import BBCodeDialog
 from app.ui.capture_overlay import CaptureOverlay
+from app.ui.hotkey_qt import build_shortcut_sequence
 from app.ui.import_threads_dialog import ImportThreadsDialog
 from app.ui.queue_panel import QueuePanel, ShotItem
 from app.ui.region_overlay import RegionOverlay
@@ -51,6 +52,7 @@ class MainWindow(QMainWindow):
         self._worker: SendWorker | None = None
         self._overlay: RegionOverlay | None = None
         self._capture_overlay: CaptureOverlay | None = None
+        self._capture_shortcut: QShortcut | None = None
         self._shot_seq = 0
         self._pending_cache_paths: list[str] = []
 
@@ -113,12 +115,33 @@ class MainWindow(QMainWindow):
     def _install_hotkeys(self) -> None:
         self._hotkeys = HotkeyManager(self)
         self._hotkeys.actionRequested.connect(self._on_hotkey)
-        ok = self._hotkeys.install(QApplication.instance())
-        if not ok and HotkeyManager.supported():
-            self._status.showMessage(tr("capture.hotkey_unavailable"), 5000)
+        combo = self.store.settings.capture_hotkey
+        failed = self._hotkeys.install(QApplication.instance(), combo)
+        if failed:
+            self._status.showMessage(
+                tr("capture.hotkey_unavailable", combos=", ".join(failed)), 6000)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=lambda: self._capture("fullscreen"))
         QShortcut(QKeySequence("Ctrl+Shift+R"), self, activated=lambda: self._capture("region"))
-        QShortcut(QKeySequence(Qt.Key_Print), self, activated=self._show_capture_overlay)
+        self._capture_shortcut = None
+        self._bind_capture_shortcut(combo)
+
+    def _bind_capture_shortcut(self, combo: str) -> None:
+        if self._capture_shortcut is not None:
+            self._capture_shortcut.setEnabled(False)
+            self._capture_shortcut.deleteLater()
+            self._capture_shortcut = None
+        sequence = build_shortcut_sequence(combo)
+        if sequence is None:
+            return
+        self._capture_shortcut = QShortcut(sequence, self, activated=self._show_capture_overlay)
+
+    def _on_capture_hotkey_changed(self, combo: str) -> None:
+        ok = self._hotkeys.rebind_capture(combo)
+        if ok:
+            self._bind_capture_shortcut(combo)
+            self._status.showMessage(tr("settings.hotkey_applied", combo=combo), 4000)
+        else:
+            self._status.showMessage(tr("settings.hotkey_rebind_failed", combo=combo), 6000)
 
     def _on_hotkey(self, which: str) -> None:
         if which == "overlay":
@@ -496,12 +519,16 @@ class MainWindow(QMainWindow):
         dialog.profilesChanged.connect(self._refresh_profiles)
         dialog.sendingDefaultsChanged.connect(self._apply_sending_defaults)
         dialog.configImported.connect(self._on_config_imported)
+        dialog.captureHotkeyChanged.connect(self._on_capture_hotkey_changed)
         dialog.exec()
 
     def _on_config_imported(self) -> None:
         self.store.reload()
         self._apply_sending_defaults()
         self._refresh_profiles()
+        combo = self.store.settings.capture_hotkey
+        self._hotkeys.rebind_capture(combo)
+        self._bind_capture_shortcut(combo)
         self._status.showMessage(tr("settings.import_reloaded"), 4000)
 
     def _history_stub(self) -> None:

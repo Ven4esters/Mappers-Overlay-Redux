@@ -5,6 +5,11 @@ Webhooks are the only auth path — there is no OAuth/Discord-login flow; the
 page includes step-by-step instructions on how to create a webhook URL.
 Вход только через вебхук — никакого OAuth; на странице есть инструкция,
 как создать URL вебхука.
+
+Capture hotkey is configurable (default PrtSc, usually owned by Windows
+Snipping Tool) — «Горячие клавиши» on the app page.
+Горячую клавишу снимка можно менять (по умолчанию PrtSc — его обычно забирает
+«Ножницы» Windows) — блок «Горячие клавиши» на странице приложения.
 """
 
 from __future__ import annotations
@@ -26,7 +31,8 @@ from app.discord_client import DiscordClient, DiscordError
 from app.i18n import tr
 from app.store import ConfigStore
 from app.webhook_url import is_webhook_url, parse_webhook_url
-from app.ui.widgets import SegmentedControl
+from app.hotkey_parse import DEFAULT_HOTKEY, normalize_hotkey
+from app.ui.widgets import HotkeyRecorder, SegmentedControl
 
 
 def _mask_webhook(url: str) -> str:
@@ -56,6 +62,7 @@ class SettingsDialog(QDialog):
     profilesChanged = Signal()
     sendingDefaultsChanged = Signal()
     configImported = Signal()
+    captureHotkeyChanged = Signal(str)
 
     def __init__(self, store: ConfigStore, parent=None) -> None:
         super().__init__(parent)
@@ -507,6 +514,33 @@ class SettingsDialog(QDialog):
         lang_layout.addWidget(self._lang_note)
         layout.addWidget(lang_box)
 
+        hotkeys_box = QGroupBox(tr("settings.hotkeys_group"), page)
+        hotkeys_layout = QVBoxLayout(hotkeys_box)
+        hotkeys_layout.setSpacing(8)
+        hint = QLabel(tr("settings.hotkey_hint"), hotkeys_box)
+        hint.setObjectName("Hint")
+        hint.setWordWrap(True)
+        hotkeys_layout.addWidget(hint)
+        capture_row = QHBoxLayout()
+        capture_row.setSpacing(10)
+        capture_label = QLabel(tr("settings.hotkey_capture_label"), hotkeys_box)
+        capture_row.addWidget(capture_label)
+        capture_row.addStretch(1)
+        self._hotkey_recorder = HotkeyRecorder(self._store.settings.capture_hotkey, hotkeys_box)
+        self._hotkey_recorder.captureFinished.connect(self._on_capture_hotkey)
+        self._hotkey_recorder.rejected.connect(self._on_capture_hotkey_rejected)
+        capture_row.addWidget(self._hotkey_recorder)
+        reset_button = QPushButton(tr("settings.hotkey_reset"), hotkeys_box)
+        reset_button.setObjectName("Ghost")
+        reset_button.clicked.connect(self._reset_capture_hotkey)
+        capture_row.addWidget(reset_button)
+        hotkeys_layout.addLayout(capture_row)
+        self._hotkey_note = QLabel("", hotkeys_box)
+        self._hotkey_note.setObjectName("Hint")
+        self._hotkey_note.setWordWrap(True)
+        hotkeys_layout.addWidget(self._hotkey_note)
+        layout.addWidget(hotkeys_box)
+
         cache_box = QGroupBox(tr("settings.cache"), page)
         cache_layout = QVBoxLayout(cache_box)
         self._keep_cache = QCheckBox(tr("settings.cache_keep"), cache_box)
@@ -562,6 +596,23 @@ class SettingsDialog(QDialog):
     def _on_keep_cache_changed(self, checked: bool) -> None:
         self._store.settings.keep_local_cache = checked
         self._store.save()
+
+    def _on_capture_hotkey(self, combo: str) -> None:
+        combo = normalize_hotkey(combo) or DEFAULT_HOTKEY
+        self._store.settings.capture_hotkey = combo
+        self._store.save()
+        self._hotkey_note.setStyleSheet("")
+        self._hotkey_note.setText(tr("settings.hotkey_applied", combo=combo))
+        self._flash_saved()
+        self.captureHotkeyChanged.emit(combo)
+
+    def _on_capture_hotkey_rejected(self) -> None:
+        self._hotkey_note.setStyleSheet("color: rgba(248, 113, 113, 0.95);")
+        self._hotkey_note.setText(tr("settings.hotkey_rejected"))
+
+    def _reset_capture_hotkey(self) -> None:
+        self._hotkey_recorder.set_hotkey(DEFAULT_HOTKEY)
+        self._on_capture_hotkey(DEFAULT_HOTKEY)
 
     def _refresh_cache_stats(self) -> None:
         files, size = cache_store.cache_stats()

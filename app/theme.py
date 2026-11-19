@@ -44,7 +44,7 @@ _CHEVRON = (_ICONS / "chevron-down.svg").as_posix()
 _CHECK = (_ICONS / "check.svg").as_posix()
 
 QSS: str = f"""
-* {{ font-family: "Segoe UI", "Inter", "Noto Sans", sans-serif; font-size: 13px; }}
+* {{ font-family: "Segoe UI", "Noto Sans", "DejaVu Sans", sans-serif; font-size: 14px; }}
 QMainWindow, QDialog {{ background: {COLORS['bg']}; }}
 QWidget {{ color: {COLORS['text']}; background: transparent; }}
 
@@ -66,11 +66,11 @@ QLabel {{ color: {COLORS['text']}; }}
 
 /* --- group box --- */
 QGroupBox {{ background: {COLORS['card']}; border: 1px solid {COLORS['border']};
-            border-radius: 10px; margin-top: 12px; padding: 14px 14px 14px 14px; }}
+            border-radius: 12px; margin-top: 0px; padding: 34px 14px 14px 14px; }}
 QGroupBox:hover {{ border-color: #3D5180; }}
-QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
-                    left: 12px; padding: 0 8px; color: #F2F5FB;
-                    font-size: 13px; font-weight: 700; }}
+QGroupBox::title {{ subcontrol-origin: padding; subcontrol-position: top left;
+                    top: 10px; left: 8px; padding: 0 6px; color: #F2F5FB;
+                    font-size: 13px; font-weight: 700; letter-spacing: 0.2px; }}
 
 /* --- buttons --- */
 QPushButton {{ background: {COLORS['card']}; color: {COLORS['text']};
@@ -95,6 +95,17 @@ QPushButton#Danger {{ background: transparent; color: {COLORS['danger']};
                       border: 1px solid {COLORS['danger']}; }}
 QPushButton#Danger:hover {{ background: rgba(248, 113, 113, 31); }}
 
+QPushButton#HotkeyRecorder {{ background: {COLORS['panel']}; border: 1px dashed {COLORS['border']};
+                              border-radius: 8px; padding: 6px 18px; min-width: 96px;
+                              font-size: 13px; font-weight: 600; }}
+QPushButton#HotkeyRecorder:hover {{ border-color: {COLORS['accent']}; border-style: solid; }}
+QPushButton#HotkeyRecorder:focus {{ border: 1px solid {COLORS['accent']}; border-style: solid;
+                                    background: {COLORS['card_alt']}; }}
+
+QPushButton#FooterButton {{ font-size: 12px; padding: 8px 6px; background: transparent;
+                            border: 1px solid transparent; color: {COLORS['text_dim']}; }}
+QPushButton#FooterButton:hover {{ background: {COLORS['card']}; color: {COLORS['text']};
+                                  border-color: {COLORS['border']}; }}
 QPushButton#NavButton {{ background: transparent; border: 1px solid transparent;
                          text-align: left; padding: 9px 12px; border-radius: 8px;
                          color: {COLORS['text_dim']}; font-size: 13px; }}
@@ -165,7 +176,7 @@ QListWidget::item:selected {{ background: {COLORS['accent_soft']}; color: #FFFFF
 /* --- progress --- */
 QProgressBar {{ background: {COLORS['panel']}; border: 1px solid {COLORS['border']};
                 border-radius: 7px; text-align: center; height: 16px;
-                color: {COLORS['text']}; font-size: 11px; }}
+                color: {COLORS['text']}; font-size: 12px; }}
 QProgressBar::chunk {{ background: {COLORS['accent']}; border-radius: 6px; }}
 
 /* --- message boxes --- */
@@ -174,7 +185,7 @@ QMessageBox QLabel {{ min-width: 260px; }}
 
 /* --- misc --- */
 QStatusBar {{ background: {COLORS['panel']}; border-top: 1px solid {COLORS['border']};
-              color: {COLORS['text_dim']}; font-size: 11px; }}
+              color: {COLORS['text_dim']}; font-size: 12px; }}
 QToolTip {{ background: {COLORS['card_alt']}; color: {COLORS['text']};
             border: 1px solid {COLORS['accent']}; border-radius: 6px; padding: 6px 9px; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 4px 2px; }}
@@ -215,8 +226,8 @@ QFrame#CaptureCard {{ background: rgba(13, 21, 38, 244); border: 1px solid #2E44
 #OverlayTitle {{ font-size: 13px; font-weight: 700; color: #E8EDF7; letter-spacing: 0.4px; }}
 #OverlayBadge {{ color: #FFFFFF; background: {COLORS['accent_soft']};
                  border: 1px solid {COLORS['accent']}; border-radius: 10px;
-                 padding: 2px 10px; font-size: 11px; font-weight: 600; }}
-#OverlayHint {{ color: #8FA3CC; font-size: 11px; }}
+                 padding: 2px 10px; font-size: 12px; font-weight: 600; }}
+#OverlayHint {{ color: #A4B4D8; font-size: 12px; }}
 QPushButton#ModeButton {{ background: {COLORS['card']}; border: 2px solid {COLORS['border']};
                           border-radius: 12px; color: {COLORS['text']};
                           font-size: 14px; padding: 10px 6px; }}

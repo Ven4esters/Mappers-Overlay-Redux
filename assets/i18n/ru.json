@@ -152,7 +152,7 @@
   "capture.overlay_hint": "Enter — захватить · 1–3 — выбрать режим · Esc — отменить",
   "common.cancel": "Отмена",
   "settings.no_profiles": "Сначала добавьте профиль вебхука в настройках.",
-  "capture.hotkey_unavailable": "Глобальный PrintScreen занят другой программой (например «Ножницы» Windows) — внутри окна клавиша PrtSc работает.",
+  "capture.hotkey_unavailable": "Не удалось занять: {combos} — Windows отдала эти клавиши другой программе. Они по-прежнему работают внутри окна приложения.",
   "album.import_existing": "Импорт по ссылкам",
   "album.import_hint": "Привязать существующие публикации форума, вставив их ссылки (без бота)",
   "import.title": "Привязка существующих публикаций",
@@ -168,5 +168,13 @@
   "import.all_skipped": "Выбранные публикации уже есть в реестре альбомов.",
   "import.imported": "Привязано альбомов: {count}",
   "import.skipped_suffix": "(пропущено дубликатов: {count})",
-  "import.resolved_suffix": "(имена восстановлены для {resolved} из {total} — у остальных «Thread <id>»)."
+  "import.resolved_suffix": "(имена восстановлены для {resolved} из {total} — у остальных «Thread <id>»).",
+  "settings.hotkeys_group": "Горячие клавиши",
+  "settings.hotkey_capture_label": "Снимок (оверлей выбора)",
+  "settings.hotkey_hint": "По умолчанию — PrtSc, но его обычно забирает Windows («Ножницы» или «выделение») — тогда клавиша в приложение не доходит и снимок не открывается. Нажмите поле, затем нажмите свою комбинацию, например F9 или Ctrl+Shift+Q.",
+  "settings.hotkey_press": "Нажмите сочетание клавиш…",
+  "settings.hotkey_reset": "Сбросить (PrtSc)",
+  "settings.hotkey_rejected": "Такая комбинация занята (Ctrl+Shift+S / Ctrl+Shift+R — встроенные) или не поддерживается. Попробуйте другую, например F9.",
+  "settings.hotkey_applied": "Готово: {combo}",
+  "settings.hotkey_rebind_failed": "Windows не отдала приложению {combo} — «Ножницы» или другая программа заняла её раньше. Попробуйте другую комбинацию."
 }
