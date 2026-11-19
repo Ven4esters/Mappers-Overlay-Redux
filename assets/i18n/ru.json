@@ -178,5 +178,8 @@
   "settings.hotkey_applied": "Готово: {combo}",
   "settings.hotkey_rebind_failed": "Windows не отдала приложению {combo} — «Ножницы» или другая программа заняла её раньше. Попробуйте другую комбинацию.",
   "settings.about_log_path": "Журнал работы: {path}",
-  "settings.cache_open": "Открыть папку с локальными снимками"
+  "settings.cache_open": "Открыть папку с локальными снимками",
+  "queue.delete_confirm": "Удалить выбранные изображения из очереди? Количество: {count}",
+  "queue.clear_confirm": "Очистить всю очередь? Количество: {count}",
+  "queue.removed": "Удалено из очереди: {count}"
 }

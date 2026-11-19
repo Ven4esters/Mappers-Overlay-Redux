@@ -41,6 +41,7 @@ class ShotItem:
 
 class _DropList(QListWidget):
     filesDropped = Signal(list)
+    deleteRequested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -55,6 +56,13 @@ class _DropList(QListWidget):
         self.setSpacing(6)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setWordWrap(True)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() == Qt.Key.Key_Delete:
+            self.deleteRequested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         if self._first_local_image(event.mimeData()):
@@ -95,6 +103,12 @@ class QueuePanel(QWidget):
     captureRequested = Signal(str)           # 'fullscreen' | 'window' | 'region'
     openFilesRequested = Signal()
     changed = Signal()
+    # UI asks for confirmation first (main window shows the dialog) — the panel
+    # never deletes interactively on its own. / Интерактивное удаление — через
+    # главное окно (с подтверждением); прямых вызовов методов удаления нет.
+    removeRequested = Signal()
+    clearRequested = Signal()
+    deleteCheckedRequested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -121,12 +135,12 @@ class QueuePanel(QWidget):
         toolbar.addWidget(self._add_files)
 
         self._remove = QPushButton(tr("queue.remove_selected"), self)
-        self._remove.clicked.connect(self.remove_selected)
+        self._remove.clicked.connect(self.removeRequested)
         toolbar.addWidget(self._remove)
 
         self._clear = QPushButton(tr("queue.clear"), self)
         self._clear.setObjectName("Ghost")
-        self._clear.clicked.connect(self.clear)
+        self._clear.clicked.connect(self.clearRequested)
         toolbar.addWidget(self._clear)
         toolbar.addStretch(1)
         self._counter = QLabel("0", self)
@@ -137,6 +151,7 @@ class QueuePanel(QWidget):
         self._list = _DropList(self)
         self._list.itemChanged.connect(lambda _item: self.changed.emit())
         self._list.filesDropped.connect(self._on_files_dropped)
+        self._list.deleteRequested.connect(self.deleteCheckedRequested)
         layout.addWidget(self._list, stretch=1)
 
         self._empty = QLabel(tr("queue.empty"), self)
@@ -174,6 +189,27 @@ class QueuePanel(QWidget):
         self._update_empty_state()
         self.changed.emit()
 
+    # ------------------------------------------------------ deletion helpers
+    def checked_count(self) -> int:
+        return sum(1 for i in range(self._list.count())
+                   if self._list.item(i).checkState() == Qt.Checked)
+
+    def selected_count(self) -> int:
+        return len(self._list.selectedItems())
+
+    def total_count(self) -> int:
+        return self._list.count()
+
+    def remove_checked(self) -> int:
+        """Delete every tick-checked item; returns how many. / Удалить все с галочкой."""
+        doomed = [self._list.item(i) for i in range(self._list.count())
+                  if self._list.item(i).checkState() == Qt.Checked]
+        for item in doomed:
+            self._drop_item(item)
+        self._update_empty_state()
+        self.changed.emit()
+        return len(doomed)
+
     def checked_shots(self) -> list[ShotItem]:
         result = []
         for index in range(self._list.count()):
@@ -184,17 +220,21 @@ class QueuePanel(QWidget):
                     result.append(shot)
         return result
 
-    def remove_selected(self) -> None:
-        for item in self._list.selectedItems():
+    def remove_selected(self) -> int:
+        selected = list(self._list.selectedItems())
+        for item in selected:
             self._drop_item(item)
         self._update_empty_state()
         self.changed.emit()
+        return len(selected)
 
-    def clear(self) -> None:
+    def clear(self) -> int:
+        count = self._list.count()
         while self._list.count():
             self._drop_item(self._list.item(0))
         self._update_empty_state()
         self.changed.emit()
+        return count
 
     def _drop_item(self, item: QListWidgetItem) -> None:
         self._shots.pop(item.data(Qt.UserRole), None)

@@ -62,6 +62,60 @@ def match_combo(bindings, mods: int, vk: int) -> str | None:
     return None
 
 
+def force_foreground(hwnd: int) -> bool:
+    """Best-effort OS foreground steal (Windows only). / Попытка честно дать окну
+    foreground средствами Windows (только Windows).
+
+    Qt's activateWindow() is silently denied for foreground-locked games
+    (Windows foreground rules). The classic workaround — used by ShareX and
+    friends — is AttachThreadInput to the current foreground thread, then
+    SetForegroundWindow/BringWindowToTop, then detach. Games that keep OS
+    foreground (raw input targets it) put the camera still and hand the mouse
+    to the overlay. Returns True when our window ended up in the foreground.
+    """
+    if not sys.platform.startswith("win"):
+        return False
+    if not hwnd:
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, wintypes.LPDWORD]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.SetForegroundWindow.restype = wintypes.BOOL
+    user32.BringWindowToTop.argtypes = [wintypes.HWND]
+    user32.SetActiveWindow.argtypes = [wintypes.HWND]
+    kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+
+    foreground = user32.GetForegroundWindow()
+    our_thread = kernel32.GetCurrentThreadId()
+    target_pid = wintypes.DWORD(0)
+    foreground_thread = user32.GetWindowThreadProcessId(foreground, ctypes.byref(target_pid)) if foreground else 0
+    attached = False
+    try:
+        if foreground_thread and foreground_thread != our_thread:
+            attached = bool(user32.AttachThreadInput(foreground_thread, our_thread, True))
+        ok = bool(user32.SetForegroundWindow(wintypes.HWND(hwnd)))
+        user32.BringWindowToTop(wintypes.HWND(hwnd))
+        user32.SetActiveWindow(wintypes.HWND(hwnd))
+        now_foreground = user32.GetForegroundWindow() == wintypes.HWND(hwnd)
+        if ok and now_foreground:
+            logger.info("foreground stolen for overlay (hwnd=%d)", int(hwnd))
+            return True
+        err = ctypes.get_last_error()
+        logger.warning("could not force foreground (hwnd=%d, err=%d: %s) — game keeps the mouse",
+                       int(hwnd), err, ctypes.WinError(err) if err else "permission denied by Windows")
+        return False
+    finally:
+        if attached:
+            user32.AttachThreadInput(foreground_thread, our_thread, False)
+
+
 _mod_user32 = None
 
 

@@ -133,3 +133,13 @@ def test_overlay_keys_pass_through_while_active() -> None:
     assert hook.handle_key_event(0x0D, 0) is False
 
     assert fired == ["overlay:enter", "overlay:escape", "overlay:2", "overlay:2", "overlay"]
+
+
+def test_force_foreground_non_windows_is_false() -> None:
+    import sys
+
+    from app.low_level_hook import force_foreground
+
+    if not sys.platform.startswith("win"):
+        assert force_foreground(0) is False
+        assert force_foreground(12345) is False

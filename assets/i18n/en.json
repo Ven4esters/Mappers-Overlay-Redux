@@ -178,5 +178,8 @@
   "settings.hotkey_applied": "Done: {combo}",
   "settings.hotkey_rebind_failed": "Windows refused {combo} — the Snipping Tool or another app grabbed it first. Try a different combo.",
   "settings.about_log_path": "Log file: {path}",
-  "settings.cache_open": "Open folder with local screenshots"
+  "settings.cache_open": "Open folder with local screenshots",
+  "queue.delete_confirm": "Remove the selected images from the queue? Count: {count}",
+  "queue.clear_confirm": "Clear the whole queue? Count: {count}",
+  "queue.removed": "Removed from queue: {count}"
 }

@@ -25,6 +25,7 @@ from app.hotkeys import HotkeyManager
 from app.i18n import tr
 from app.models import Attachment, HistoryItem, utcnow_iso
 from app.store import ConfigStore, HistoryStore
+from app.low_level_hook import force_foreground
 from app.ui.album_sidebar import AlbumSidebar
 from app.ui.bbcode_dialog import BBCodeDialog
 from app.ui.capture_overlay import CaptureOverlay
@@ -93,6 +94,9 @@ class MainWindow(QMainWindow):
         self.queue.captureRequested.connect(self._capture)
         self.queue.openFilesRequested.connect(self._open_files)
         self.queue.changed.connect(self._sync_can_send)
+        self.queue.removeRequested.connect(self._confirm_remove_selected)
+        self.queue.clearRequested.connect(self._confirm_clear_queue)
+        self.queue.deleteCheckedRequested.connect(self._confirm_remove_checked)
         center_layout.addWidget(self.queue)
         layout.addWidget(center, stretch=1)
 
@@ -181,6 +185,7 @@ class MainWindow(QMainWindow):
         overlay.show()
         overlay.raise_()
         overlay.activateWindow()
+        force_foreground(int(overlay.winId()))
         self._hotkeys.set_overlay_active(True)
 
     def _on_overlay_destroyed(self) -> None:
@@ -301,6 +306,7 @@ class MainWindow(QMainWindow):
                 self._overlay = RegionOverlay()
                 self._overlay.regionSelected.connect(self._region_captured)
                 self._overlay.cancelled.connect(self._region_cancelled)
+                force_foreground(int(self._overlay.winId()))
         except UnsupportedPlatformError as exc:
             QMessageBox.warning(self, tr("app.window_title"), str(exc))
         except CaptureError as exc:
@@ -327,6 +333,39 @@ class MainWindow(QMainWindow):
         name = f"shot_{datetime.now():%Y%m%d_%H%M%S}_{self._shot_seq}.png"
         self.queue.add([ShotItem.create(name, image_to_bytes(image, "PNG"), "image/png")])
         self._status.showMessage(tr("common.ready"), 1500)
+
+    # ------------------------------------------------------ queue deletion
+    def _confirm_delete(self, count: int, title_key: str, message_key: str) -> bool:
+        if count <= 0:
+            return False
+        answer = QMessageBox.question(
+            self, tr(title_key), tr(message_key, count=count),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        return answer == QMessageBox.Yes
+
+    def _confirm_remove_checked(self) -> None:
+        count = self.queue.checked_count()
+        if not self._confirm_delete(count, "queue.remove_selected", "queue.delete_confirm"):
+            return
+        removed = self.queue.remove_checked()
+        logger.info("queue: removed %d checked item(s) by user request", removed)
+        self._status.showMessage(tr("queue.removed", count=removed), 3000)
+
+    def _confirm_remove_selected(self) -> None:
+        count = self.queue.selected_count()
+        if not self._confirm_delete(count, "queue.remove_selected", "queue.delete_confirm"):
+            return
+        removed = self.queue.remove_selected()
+        logger.info("queue: removed %d selected item(s) by user request", removed)
+        self._status.showMessage(tr("queue.removed", count=removed), 3000)
+
+    def _confirm_clear_queue(self) -> None:
+        count = self.queue.total_count()
+        if not self._confirm_delete(count, "queue.clear", "queue.clear_confirm"):
+            return
+        removed = self.queue.clear()
+        logger.info("queue: cleared %d item(s) by user request", removed)
+        self._status.showMessage(tr("queue.removed", count=removed), 3000)
 
     def _open_files(self) -> None:
         paths, _filter = QFileDialog.getOpenFileNames(
