@@ -34,7 +34,7 @@ app/
   webhook_url.py         # валидация/разбор URL вебхука
   capture.py             # захват: весь экран / активное окно / область (Qt-free, тестируемо)
   hotkeys.py             # глобальные хоткеи Windows (Ctrl+Shift+S/R)
-  ui/main_window.py      # главное окно (пока каркас)
+  ui/main_window.py      # главное окно (очередь, секции, отправка)
   ui/region_overlay.py   # оверлей выбора области
   discord_client.py      # вебхук: multipart, ретраи 429/5xx, маппинг кодов ошибок
   albums.py              # сервис альбомов: создание/привязка/имена файлов
@@ -45,7 +45,7 @@ app/
   bbcode.py              # сборщик BB-кода XenForo (заголовок, секции, спойлеры)
   catbox.py              # анонимная загрузка на catbox.moe (постоянные ссылки)
 assets/i18n/             # языковые пакеты (RU+EN, ключи синхронны)
-tests/                   # pytest (91 тест, respx-моки для HTTP)
+tests/                   # pytest (100 тестов: 99 ✓ + 1 GUI-skip, respx-моки)
 oauth.client.example.json  # шаблон oauth.client.json (сам файл НЕ коммитится)
 ```
 
@@ -61,7 +61,7 @@ oauth.client.example.json  # шаблон oauth.client.json (сам файл Н�
 | 7 | Настройки, профили, очистка кэша, экспорт/импорт | ✅ |
 | 8 | OAuth2 (PKCE) «Подключить Discord» | ✅ |
 | 9 | BB-код публикации (XenForo) + кэш скриншотов + catbox | ✅ |
-| 10 | start.bat, README-финализация, смоук-тесты | ⏳ |
+| 10 | start.bat, README-финализация, смоук-тесты | ✅ |
 
 ## Подключить Discord (OAuth2) / Connect Discord
 
@@ -110,6 +110,18 @@ Right-click an album → **“BB-code to publish…”**. The dialog builds the 
 - **Media tag**: `IMG` (default), `MEDIA` or a custom tag.
 - Heading: yellow bold template `#FFD34D` (configurable via `bb_heading_template` in config.json).
 - Local screenshot cache is on by default (needed for catbox); clear it in Settings → App → Clear cache.
+
+## Финал / Final
+
+Готовы и запушены все 10 модулей: каркас → конфигурация → захват → Discord-клиент → альбомы → главное окно → настройки → OAuth2 → BB-код → релизная обвязка. Приложение запускается двойным кликом по `start.bat` (само развернёт `.venv` и зависимости) или `python main.py`.
+
+All 10 modules are done and pushed: scaffold → config → capture → Discord client → albums → main window → settings → OAuth2 → BB-code → release packaging. Double-click `start.bat` (it self-provisions `.venv` + deps) or run `python main.py`.
+
+**Что нужно знать / Known limitations:**
+- GUI проверен автоматическими тестами логики (QT-free) и headless-компиляцией; первый живой прогон интерфейса — на Windows (Qt там работает из коробки, Linux нужны `libgl1`, `libegl1`, `libxkbcommon`). / GUI logic is covered by QT-free tests; the first live UI run happens on Windows (Linux needs the GL libs).
+- «Подключить Discord» требует одноразового `oauth.client.json` (см. раздел про OAuth2 выше); без него ручной вебхук работает как раньше. / The OAuth button needs a one-time `oauth.client.json` (see OAuth2 section); manual webhooks work regardless.
+- Ссылки Discord CDN живут ≈24 ч (ограничение Discord); для постоянных медиа-ссылок в BB-коде используйте источник catbox.moe. / Discord CDN links expire after ≈24 h; use catbox.moe for permanent BB-code media links.
+- URL вебхука = пароль на отправку в канал: храните `config.json` в секрете (он в `.gitignore`). / A webhook URL is a posting password: keep `config.json` secret (it is gitignored).
 
 ## Безопасность / Security
 - `config.json` (URL вебхуков), `oauth.client.json` (client secret), `cache/` — в `.gitignore`.

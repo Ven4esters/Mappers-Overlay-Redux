@@ -4,4 +4,4 @@ Screenshot → forum-threads "albums" in Discord via webhooks, no bot required.
 Скриншот → темы-«альбомы» в Discord-форуме через вебхуки, без отдельного бота.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
