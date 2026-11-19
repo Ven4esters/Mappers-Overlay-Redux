@@ -22,7 +22,11 @@ from typing import Any
 
 from app.models import Album, AppSettings, HistoryItem, WebhookProfile, new_id, utcnow_iso
 from app.paths import CONFIG_FILE, HISTORY_FILE
+import logging
+
 from app.webhook_url import is_webhook_url
+
+logger = logging.getLogger("screensaver.store")
 
 SCHEMA_VERSION = 1
 HISTORY_LIMIT = 50  # locked spec: keep ~50 entries / зафиксировано ТЗ: ~50 записей
@@ -44,10 +48,11 @@ def _read_json(path: Path, default: Any) -> Any:
         return default
     except (json.JSONDecodeError, UnicodeDecodeError):
         backup = path.with_suffix(path.suffix + f".bak-{utcnow_iso().replace(':', '-')}")
+        logger.error("corrupt file %s — backed up to %s and re-initialised", path.name, backup.name)
         try:
             shutil.copy2(path, backup)
         except OSError:
-            pass
+            logger.exception("could not copy corrupt file %s to a backup", path)
         return default
 
 

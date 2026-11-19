@@ -1,69 +1,122 @@
 """Qt glue for capture hotkeys (UI layer only). / Qt-склейка хоткеев снимка.
 
-Builds a ``QKeySequence`` from our canonical combo text. Kept separate so the
-pure parsing layer (``app.hotkey_parse``) stays Qt-free and unit-testable.
-Строит ``QKeySequence`` из канонического хоткея; парсинг живёт отдельно,
-без Qt — чтобы его можно было тестировать без GUI.
+Builds a ``QKeySequence`` from our canonical combo text. Written defensively:
+every Qt symbol is resolved lazily, so a missing/relocated class (as happened
+with ``QKeyCombination`` in ``QtGui`` vs ``QtCore`` in different PySide6
+versions) never breaks the app at import time — worst case the in-window
+shortcut stays unbound while the global hotkey keeps working.
+Строит ``QKeySequence`` из канонического хоткея. Все Qt-символы резолвятся
+лениво: отсутствие/переезд класса никогда не роняет приложение при импорте —
+в худшем случае не сработает внутриоконный хоткей (глобальный останется).
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeyCombination, QKeySequence
+from PySide6.QtGui import QKeySequence
 
 from app.hotkey_parse import normalize_hotkey
 
-_MOD_FLAGS: dict[str, "Qt.KeyboardModifier"] = {}
-for _attr, _name in (("ControlModifier", "Ctrl"),
-                     ("ShiftModifier", "Shift"),
-                     ("AltModifier", "Alt"),
-                     ("MetaModifier", "Meta")):
-    _MOD_FLAGS[_name] = getattr(Qt.KeyboardModifier, _attr)
 
-_BASE_KEYS: dict[str, "Qt.Key"] = {}
-for _letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-    _BASE_KEYS[_letter] = getattr(Qt.Key, f"Key_{_letter}")
-for _digit in "0123456789":
-    _BASE_KEYS[_digit] = getattr(Qt.Key, f"Key_{_digit}")
-for _n in range(1, 25):
-    _BASE_KEYS[f"F{_n}"] = getattr(Qt.Key, f"Key_F{_n}")
-_BASE_KEYS.update({
-    "Print": Qt.Key.Key_Print, "ScrollLock": Qt.Key.Key_ScrollLock,
-    "Pause": Qt.Key.Key_Pause, "NumLock": Qt.Key.Key_NumLock,
-    "Space": Qt.Key.Key_Space, "Tab": Qt.Key.Key_Tab, "Escape": Qt.Key.Key_Escape,
-    "Backspace": Qt.Key.Key_Backspace, "Return": Qt.Key.Key_Return,
-    "Insert": Qt.Key.Key_Insert, "Delete": Qt.Key.Key_Delete,
-    "Home": Qt.Key.Key_Home, "End": Qt.Key.Key_End,
-    "PageUp": Qt.Key.Key_PageUp, "PageDown": Qt.Key.Key_PageDown,
-    "Left": Qt.Key.Key_Left, "Up": Qt.Key.Key_Up,
-    "Right": Qt.Key.Key_Right, "Down": Qt.Key.Key_Down,
-})
+def _enum_member(flat_map: dict[str, str]) -> dict:
+    """Resolve ``Key_X`` / ``KeyboardModifier_X`` from either enum namespace."""
+    resolved: dict = {}
+    namespaces = [getattr(Qt, "Key", None), getattr(Qt, "KeyboardModifier", None), Qt]
+    for token, member in flat_map.items():
+        for ns in namespaces:
+            if ns is None:
+                continue
+            value = getattr(ns, member, None)
+            if value is not None:
+                resolved[token] = value
+                break
+    return resolved
+
+
+_BASE_TOKENS = {
+    **{chr(ord("A") + i): f"Key_{chr(ord('A') + i)}" for i in range(26)},
+    **{str(i): f"Key_{i}" for i in range(10)},
+    **{f"F{n}": f"Key_F{n}" for n in range(1, 25)},
+    "Print": "Key_Print", "ScrollLock": "Key_ScrollLock",
+    "Pause": "Key_Pause", "NumLock": "Key_NumLock",
+    "Space": "Key_Space", "Tab": "Key_Tab", "Escape": "Key_Escape",
+    "Backspace": "Key_Backspace", "Return": "Key_Return",
+    "Insert": "Key_Insert", "Delete": "Key_Delete",
+    "Home": "Key_Home", "End": "Key_End",
+    "PageUp": "Key_PageUp", "PageDown": "Key_PageDown",
+    "Left": "Key_Left", "Up": "Key_Up", "Right": "Key_Right", "Down": "Key_Down",
+}
+_MOD_TOKENS = {"Ctrl": "ControlModifier", "Shift": "ShiftModifier",
+               "Alt": "AltModifier", "Meta": "MetaModifier"}
+# Qt portable-text aliases for the last-resort string path
+_PORTABLE_ALIASES = {"Escape": "Esc", "PageUp": "PgUp", "PageDown": "PgDown"}
+
+
+def _key_combination_class():
+    try:
+        from PySide6 import QtCore
+
+        cls = getattr(QtCore, "QKeyCombination", None)
+        if cls is not None:
+            return cls
+    except Exception:  # noqa: BLE001 — defensive: version-dependent layout
+        pass
+    try:
+        from PySide6 import QtGui
+
+        return getattr(QtGui, "QKeyCombination", None)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _no_modifier():
+    for ns in (getattr(Qt, "KeyboardModifier", None), getattr(Qt, "Modifier", None), Qt):
+        if ns is None:
+            continue
+        value = getattr(ns, "NoModifier", None)
+        if value is not None:
+            return value
+    return 0  # flags are int-compatible; 0 == NoModifier
+
+
+def _modifiers(tokens: list[str]):
+    if not tokens:
+        return _no_modifier()
+    resolved = _enum_member(_MOD_TOKENS)
+    combo = _no_modifier()
+    for token in tokens:
+        value = resolved.get(token)
+        if value is None:
+            return None
+        combo = combo | value
+    return combo
 
 
 def build_shortcut_sequence(combo: str):
-    """Return a QKeySequence for ``combo`` or None when unsupported/unknown.
-    Вернуть QKeySequence для ``combo`` либо None."""
+    """Return a QKeySequence for ``combo`` or None when unsupported/unknown."""
     norm = normalize_hotkey(combo)
     if not norm:
         return None
-    key_limit = None
-    mods = Qt.KeyboardModifier.NoModifier
-    for token in norm.split("+"):
-        if token in _MOD_FLAGS:
-            mods |= _MOD_FLAGS[token]
-            continue
-        key = _BASE_KEYS.get(token)
-        if key is None:
-            return None
-        key_limit = key
-    if key_limit is None:
-        return None
-    # Qt6 path: QKeyCombination(KeyboardModifiers, Key) → QKeySequence
-    try:
-        return QKeySequence(QKeyCombination(mods, key_limit))
-    except Exception:  # noqa: BLE001 — older PySide6: pack bits manually
-        try:
-            return QKeySequence(int(mods) | int(key_limit))
-        except Exception:  # noqa: BLE001 — last resort: portable string
-            sequence = QKeySequence(norm)
-            return sequence if not sequence.isEmpty() else None
+    tokens = norm.split("+")
+    base = tokens[-1]
+    modifier_tokens = tokens[:-1]
+    key = _enum_member(_BASE_TOKENS).get(base)
+    mods = _modifiers(modifier_tokens)
+
+    if key is not None and mods is not None:
+        combo_cls = _key_combination_class()
+        if combo_cls is not None:
+            try:
+                return QKeySequence(combo_cls(mods, key))
+            except Exception:  # noqa: BLE001 — fall through to bit packing
+                pass
+            try:
+                return QKeySequence(combo_cls.fromCombined(int(mods) | int(key)))
+            except Exception:  # noqa: BLE001 — fall through to string
+                pass
+
+    # portable-string last resort (standard names parse in every Qt)
+    candidate = "+".join(
+        [*modifier_tokens, _PORTABLE_ALIASES.get(base, base)])
+    sequence = QKeySequence(candidate)
+    return sequence if not sequence.isEmpty() else None

@@ -61,6 +61,7 @@ set "APP_EXIT=%errorlevel%"
 if not "%APP_EXIT%"=="0" (
     echo.
     echo [ОШИБКА / ERROR] Приложение завершилось с кодом %APP_EXIT%.
+    echo Подробности — в журнале / Details are in the log: %~dp0screensaver.log
     echo Если это первая установка — попробуйте удалить папку .venv и запустить снова.
     echo If this is a fresh install - try deleting the .venv folder and run again.
     pause

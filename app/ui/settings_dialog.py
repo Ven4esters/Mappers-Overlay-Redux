@@ -14,6 +14,7 @@ Snipping Tool) — «Горячие клавиши» on the app page.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal
@@ -32,7 +33,10 @@ from app.i18n import tr
 from app.store import ConfigStore
 from app.webhook_url import is_webhook_url, parse_webhook_url
 from app.hotkey_parse import DEFAULT_HOTKEY, normalize_hotkey
+from app.paths import DATA_DIR
 from app.ui.widgets import HotkeyRecorder, SegmentedControl
+
+logger = logging.getLogger("screensaver.settings")
 
 
 def _mask_webhook(url: str) -> str:
@@ -360,6 +364,7 @@ class SettingsDialog(QDialog):
         except ValueError as exc:
             self._show_form_error(str(exc))
             return
+        logger.info("profile saved (%s: %r)", "new" if create else "edit", profile.name)
         self._set_buttons_for_mode(create=False)
         self._load_profiles(select_id=profile.id)
         self._flash_saved()
@@ -376,6 +381,7 @@ class SettingsDialog(QDialog):
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
+        logger.info("profile removed: %r", profile.name)
         self._store.remove_profile(profile_id)
         self._set_buttons_for_mode(create=False)
         self._load_profiles()
@@ -407,6 +413,7 @@ class SettingsDialog(QDialog):
             finally:
                 client.close()
         except DiscordError as exc:
+            logger.warning("webhook check failed: %s", exc.code)
             self._test_result.setText(f"✗ {_friendly_error(exc.code)}")
             self._test_result.setStyleSheet("color:#F87171;")
             return
@@ -415,6 +422,7 @@ class SettingsDialog(QDialog):
             self._test_button.setEnabled(True)
         name = str(info.get("name", "?"))
         channel = str(info.get("channel_id", "?"))
+        logger.info("webhook check ok (channel_id=%s)", channel)
         guild = str(info.get("guild_id", ""))
         detail = f"{name} · #{channel}" + (f" · guild {guild}" if guild else "")
         self._test_result.setText(f"✓ {tr('settings.test_ok')}: {detail}")
@@ -579,6 +587,10 @@ class SettingsDialog(QDialog):
         about = QLabel(tr("settings.about_text", version=__version__), about_box)
         about.setWordWrap(True)
         about_layout.addWidget(about)
+        log_hint = QLabel(tr("settings.about_log_path", path=str(DATA_DIR / "screensaver.log")), about_box)
+        log_hint.setObjectName("Hint")
+        log_hint.setWordWrap(True)
+        about_layout.addWidget(log_hint)
         link_button = QPushButton(tr("settings.repo_open"), about_box)
         link_button.setObjectName("Primary")
         link_button.clicked.connect(
@@ -599,6 +611,7 @@ class SettingsDialog(QDialog):
 
     def _on_capture_hotkey(self, combo: str) -> None:
         combo = normalize_hotkey(combo) or DEFAULT_HOTKEY
+        logger.info("capture hotkey set to %s", combo)
         self._store.settings.capture_hotkey = combo
         self._store.save()
         self._hotkey_note.setStyleSheet("")

@@ -7,6 +7,7 @@ thread applies registry/history updates.
 
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -18,6 +19,8 @@ from app.discord_client import (
 )
 from app.models import Album
 from app.catbox import CatboxError, upload_file
+
+logger = logging.getLogger("screensaver.workers")
 
 
 @dataclass
@@ -63,6 +66,8 @@ class SendWorker(QThread):
         client = self._client_factory(self._url) if self._client_factory else DiscordClient(self._url)
         parts: list[list[UploadedFile]] = [self._files] if self._mode == "single" else [[f] for f in self._files]
         total = sum(len(chunk_files(part)) for part in parts)
+        logger.info("send start: album=%s files=%d mode=%s style=%s", self._album.id, len(self._files),
+                    self._mode, self._style)
 
         delivered: list = []
         sent = 0
@@ -100,6 +105,8 @@ class SendWorker(QThread):
             except Exception:  # noqa: BLE001 — cleanup must never crash the worker
                 pass
 
+        logger.info("send finished: status=%s messages=%d shots=%d error=%s", status, sent, len(self._files),
+                    error_code or "-")
         summary = SendSummary(
             status=status, shots=len(self._files), messages=sent,
             message_url=next((r.message_url for r in delivered if r.message_url), ""),

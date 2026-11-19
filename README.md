@@ -35,7 +35,8 @@ app/
   capture.py             # захват: весь экран / активное окно / область (Qt-free, тестируемо)
   hotkeys.py             # глобальные хоткеи Windows (настраиваемый снимок, Ctrl+Shift+S/R)
   hotkey_parse.py        # чистая нормализация/разбор хоткеев (без Qt)
-  ui/hotkey_qt.py        # QKeySequence из канонической комбинации
+  ui/hotkey_qt.py        # QKeySequence из канонической комбинации (лениво, с фоллбэками)
+  logging_setup.py       # журнал: ротация screensaver.log + маскировка секретов
   ui/main_window.py      # главное окно (очередь, секции, отправка)
   ui/capture_overlay.py  # PrtSc-оверлей выбора режима захвата
   ui/import_threads_dialog.py  # импорт существующих публикаций по ссылкам
@@ -126,6 +127,8 @@ Right-click an album → **“BB-code to publish…”**. The dialog builds the 
 Приложение запускается двойным кликом по `start.bat` (само развернёт `.venv` и зависимости) или `python main.py`. Глобальный хоткей снимка (по умолчанию PrtSc — Windows его часто перехватывает, поэтому переназначается в **Настройки → Приложение → Горячие клавиши**, например на F9) открывает overlay выбора режима; последний использованный режим подсвечивается и выбирается по Enter. Внутри окна та же комбинация работает всегда.
 
 Launch by double-clicking `start.bat` (it self-provisions `.venv` + deps) or `python main.py`. The global screenshot hotkey (PrtSc by default — but Windows usually claims it, so it can be rebound in **Settings → App → Hotkeys**, e.g. to F9) opens the mode-picker overlay; the last used mode is pre-highlighted and confirmed with Enter. The same combo always works inside the window.
+
+**Логи / Logs.** Журнал — `screensaver.log` рядом с `main.py` (ротация, 2 файла по 512 КБ, путь также в Настройках → Приложение → «О программе»). Без секретного: URL вебхуков и ключи маскируются форматтером до записи. Туда попадают запуск (версия, Python, платформа), регистрация глобальных хоткеев, результаты отправки (счётчики, без содержимого), решения импорта, восстановление из .bak. / The journal lives at `screensaver.log` next to `main.py` (rotating, 2×512 KB, path also shown in Settings → App → About). Secrets never persist: webhook URLs and keys are redacted by the formatter. It records startup (version, Python, platform), global-hotkey registration, send counts (no content), import results and .bak recovery.
 
 **Что нужно знать / Known limitations:**
 - GUI проверен автоматическими тестами логики (QT-free) и headless-компиляцией; первый живой прогон интерфейса — на Windows (Qt там работает из коробки, Linux нужны `libgl1`, `libegl1`, `libxkbcommon`). / GUI logic is covered by QT-free tests; the first live UI run happens on Windows (Linux needs the GL libs).

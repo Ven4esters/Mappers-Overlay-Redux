@@ -20,3 +20,6 @@ dist/
 # OS noise / Шум ОС
 .DS_Store
 Thumbs.db
+
+# runtime log / журнал
+screensaver.log*

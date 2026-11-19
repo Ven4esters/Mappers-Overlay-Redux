@@ -13,11 +13,14 @@ no-op; the in-window bindings for the same combos still work.
 
 from __future__ import annotations
 
+import logging
 import sys
 
 from PySide6.QtCore import QAbstractNativeEventFilter, QObject, Signal
 
 from app.hotkey_parse import DEFAULT_HOTKEY, normalize_hotkey, to_windows
+
+logger = logging.getLogger("screensaver.hotkeys")
 
 WM_HOTKEY = 0x0312
 MOD_CONTROL, MOD_SHIFT = 0x0002, 0x0004
@@ -89,6 +92,10 @@ class HotkeyManager(QObject):
             failed.append("Ctrl+Shift+R")
         if not self._register(user32, self._capture_combo, OVERLAY_ID):
             failed.append(self._capture_combo)
+        if failed:
+            logger.warning("global hotkey registration refused by Windows: %s", ", ".join(failed))
+        else:
+            logger.info("global hotkeys registered (capture: %s)", self._capture_combo)
         return failed
 
     def rebind_capture(self, combo: str) -> bool:
@@ -105,7 +112,9 @@ class HotkeyManager(QObject):
         user32.UnregisterHotKey(None, OVERLAY_ID)
         if self._register(user32, combo, OVERLAY_ID):
             self._capture_combo = combo
+            logger.info("capture hotkey rebound to %s", combo)
             return True
+        logger.warning("capture hotkey rebind to %s refused by Windows — keeping %s", combo, old)
         # rollback to the previous combo — never leave the user without a hotkey
         self._register(user32, old, OVERLAY_ID)
         return False

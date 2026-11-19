@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +29,8 @@ from app.ui.album_sidebar import AlbumSidebar
 from app.ui.bbcode_dialog import BBCodeDialog
 from app.ui.capture_overlay import CaptureOverlay
 from app.ui.hotkey_qt import build_shortcut_sequence
+
+logger = logging.getLogger("screensaver.ui")
 from app.ui.import_threads_dialog import ImportThreadsDialog
 from app.ui.queue_panel import QueuePanel, ShotItem
 from app.ui.region_overlay import RegionOverlay
@@ -118,6 +121,7 @@ class MainWindow(QMainWindow):
         combo = self.store.settings.capture_hotkey
         failed = self._hotkeys.install(QApplication.instance(), combo)
         if failed:
+            logger.warning("global hotkey(s) refused by Windows: %s", ", ".join(failed))
             self._status.showMessage(
                 tr("capture.hotkey_unavailable", combos=", ".join(failed)), 6000)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=lambda: self._capture("fullscreen"))
@@ -150,6 +154,7 @@ class MainWindow(QMainWindow):
         self._capture("fullscreen" if which == "fullscreen" else "region")
 
     def _show_capture_overlay(self) -> None:
+        logger.info("capture overlay requested (last mode: %s)", self.store.settings.last_capture_mode)
         last = self.store.settings.last_capture_mode
         overlay = CaptureOverlay(last, self)
         overlay.modeChosen.connect(self._on_overlay_mode)
@@ -310,6 +315,7 @@ class MainWindow(QMainWindow):
         if profile is None:
             return
         created, skipped = self.service.import_threads(profile, items)
+        logger.info("forum link import: attached=%d duplicates=%d", len(created), skipped)
         if not created:
             QMessageBox.information(self, tr("import.title"), tr("import.all_skipped"))
             return
