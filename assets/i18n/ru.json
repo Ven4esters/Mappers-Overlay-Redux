@@ -116,7 +116,7 @@
   "bb.source": "Источник ссылок",
   "bb.source_discord": "Discord CDN (≈24 часа) — по умолчанию",
   "bb.source_catbox": "catbox.moe (постоянно)",
-  "bb.source_note": "Discord-ссылки протухают за сутки, но работают сразу. catbox.moe даёт постоянные прямые ссылки: файлы будут загружены из локального кэша один раз (идемпотентно, повторно не перезаливает).",
+  "bb.source_note": "Discord-ссылки протухают за сутки, но работают сразу. catbox.moe и telegra.ph дают постоянные прямые ссылки: файлы будут загружены из локального кэша один раз (идемпотентно, повторно не перезаливает). Для telegra.ph большие файлы автоматически уменьшаются до 2560 px (JPEG).",
   "bb.media_tag": "Медиа-тег:",
   "bb.summary": "Альбом «{album}» · секций в истории: {sections} · изображений: {shots}",
   "bb.empty": "В истории этого альбома нет успешных отправок — сначала отправьте пачку.",
@@ -218,5 +218,8 @@
   "catbox.delete_confirm": "Удалить {count} файл(ов) на CatBox? Это необратимо.",
   "catbox.delete_done": "Удаление: {response}",
   "queue.remove_short": "Убрать",
-  "queue.files_short": "Файлы"
+  "queue.files_short": "Файлы",
+  "bb.source_telegraph": "telegra.ph (постоянно, работает в РФ)",
+  "bb.telegraph_uploading": "Загрузка в telegra.ph: {total} файл(ов)…",
+  "bb.telegraph_failed": "telegra.ph недоступен: {error}"
 }

@@ -116,7 +116,7 @@
   "bb.source": "Link source",
   "bb.source_discord": "Discord CDN (≈24 hours) — default",
   "bb.source_catbox": "catbox.moe (permanent)",
-  "bb.source_note": "Discord links expire within a day but work immediately. catbox.moe gives permanent direct links: files are uploaded from the local cache once (idempotent — re-exports never re-upload).",
+  "bb.source_note": "Discord links expire within a day but work immediately. catbox.moe and telegra.ph give permanent direct links: files are uploaded from the local cache once (idempotent — re-exports never re-upload). For telegra.ph, oversize files are automatically downscaled to 2560 px (JPEG).",
   "bb.media_tag": "Media tag:",
   "bb.summary": "Album “{album}” · sections in history: {sections} · images: {shots}",
   "bb.empty": "No successful sends in this album's history — send a batch first.",
@@ -218,5 +218,8 @@
   "catbox.delete_confirm": "Delete {count} file(s) on CatBox? This cannot be undone.",
   "catbox.delete_done": "Delete response: {response}",
   "queue.remove_short": "Remove",
-  "queue.files_short": "Files"
+  "queue.files_short": "Files",
+  "bb.source_telegraph": "telegra.ph (permanent, works in Russia)",
+  "bb.telegraph_uploading": "Uploading to telegra.ph: {total} file(s)…",
+  "bb.telegraph_failed": "telegra.ph is unavailable: {error}"
 }

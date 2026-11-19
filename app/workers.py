@@ -19,6 +19,7 @@ from app.discord_client import (
 )
 from app.models import Album
 from app.catbox import CatboxError, upload_file
+from app.telegraph import TelegraphError, upload_file as upload_file_telegraph
 
 logger = logging.getLogger("screensaver.workers")
 
@@ -223,3 +224,49 @@ class CatboxThumbnailWorker(QThread):
                     self.itemReady.emit(url, response.content)
             except Exception:  # noqa: BLE001 — a thumbnail is never critical
                 continue
+
+
+class TelegraphUploadWorker(QThread):
+    """Upload cached shots to telegra.ph without blocking the UI.
+    Загружает снимки из кэша в telegra.ph, не блокируя UI.
+
+    Reuses CatboxSummary — the outcome shape is identical.
+    files: list of (key, filename, local_path). / (ключ, имя, путь).
+    """
+
+    progress = Signal(int, int)
+    done = Signal(CatboxSummary)
+
+    def __init__(self, files: list[tuple[str, str, str]], parent=None) -> None:
+        super().__init__(parent)
+        self._files = list(files)
+        self._abort = threading.Event()
+
+    def abort(self) -> None:
+        self._abort.set()
+
+    def run(self) -> None:
+        urls: dict[str, str] = {}
+        errors: dict[str, str] = {}
+        total = len(self._files)
+        for index, (key, filename, local_path) in enumerate(self._files):
+            if self._abort.is_set():
+                break
+            try:
+                data = Path(local_path).read_bytes()
+            except OSError as exc:
+                errors[key] = str(exc)
+                self.progress.emit(index + 1, total)
+                continue
+            try:
+                urls[key] = upload_file_telegraph(data, filename)
+            except TelegraphError as exc:
+                errors[key] = str(exc)
+            self.progress.emit(index + 1, total)
+        if not errors:
+            status = "ok"
+        elif urls:
+            status = "partial"
+        else:
+            status = "failed"
+        self.done.emit(CatboxSummary(status=status, urls=urls, errors=errors))

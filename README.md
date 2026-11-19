@@ -50,6 +50,7 @@ app/
   cache.py               # локальный кэш отправленных скриншотов (blake2b, дедуп)
   bbcode.py              # сборщик BB-кода XenForo (заголовок, секции, спойлеры)
   catbox.py              # анонимная загрузка на catbox.moe (постоянные ссылки)
+  telegraph.py           # анонимная загрузка в telegra.ph (постоянные ссылки, РФ)
 assets/i18n/             # языковые пакеты (RU+EN, ключи синхронны)
 tests/                   # pytest (respx-моки, QT-free)
 ```
@@ -64,7 +65,7 @@ tests/                   # pytest (respx-моки, QT-free)
 | 5 | Альбомы: создание/привязка/сквозная нумерация имён | ✅ |
 | 6 | Главное окно: очередь, секции, отправка (QThread) | ✅ |
 | 7 | Настройки, профили, очистка кэша, экспорт/импорт | ✅ |
-| 8 | BB-код публикации (XenForo) + кэш скриншотов + catbox | ✅ |
+| 8 | BB-код публикации (XenForo) + кэш скриншотов + catbox/telegra.ph | ✅ |
 | 9 | Принтскрин-оверлей, импорт существующих публикаций по ссылкам | ✅ |
 | 10 | start.bat, README-финализация, смоук-тесты | ✅ |
 
@@ -114,15 +115,15 @@ Right-click an album → **“BB-code to publish…”**. The dialog builds the 
 [/spoiler]
 ```
 
-- **Источник ссылок**: Discord CDN (по умолчанию, ≈24 ч) или **catbox.moe** (постоянные; файлы загружаются из локального кэша один раз, повторный экспорт не перезаливает).
+- **Источник ссылок**: Discord CDN (по умолчанию, ≈24 ч), **catbox.moe** или **telegra.ph** (оба постоянные; файлы загружаются из локального кэша один раз, повторный экспорт не перезаливает). telegra.ph — вариант для РФ: анонимно без аккаунта, лимит ~6 МБ на файл, большие скриншоты автоматически уменьшаются до 2560 px по ширине и пережимаются в JPEG (q90).
 - **Медиа-тег**: `IMG` (по умолчанию), `MEDIA` или собственный (`CUSTOM`).
 - Заголовок: жёлтый жирный шаблон `#FFD34D` (настраивается ключом `bb_heading_template` в config.json).
-- Локальный кэш скриншотов включён по умолчанию (нужен для catbox); «Настройки → Приложение → Очистить кэш» удаляет его содержимое.
+- Локальный кэш скриншотов включён по умолчанию (нужен для catbox/telegra.ph); «Настройки → Приложение → Очистить кэш» удаляет его содержимое.
 
-- **Link source**: Discord CDN (default, ≈24 h) or **catbox.moe** (permanent; files upload from the local cache once, re-exports never re-upload).
+- **Link source**: Discord CDN (default, ≈24 h), **catbox.moe** or **telegra.ph** (both permanent; files upload from the local cache once, re-exports never re-upload). telegra.ph is the Russia-friendly option: anonymous, ~6 MB per file, oversize shots are downscaled to 2560 px wide and re-encoded as JPEG (q90).
 - **Media tag**: `IMG` (default), `MEDIA` or a custom tag.
 - Heading: yellow bold template `#FFD34D` (configurable via `bb_heading_template` in config.json).
-- Local screenshot cache is on by default (needed for catbox); clear it in Settings → App → Clear cache.
+- Local screenshot cache is on by default (needed for catbox/telegra.ph); clear it in Settings → App → Clear cache.
 
 ## Финал / Final
 
@@ -149,7 +150,7 @@ Launch by double-clicking `start.bat` (it self-provisions `.venv` + deps) or `py
 - Кнопки режима в оверлее подтверждаются мышью или клавиатурой (стрелки нет — Enter / Esc / 1–3 / Space); в играх клавиши оверлея прокидываются через low-level hook. / Overlay buttons confirm via mouse or keyboard (Enter / Esc / 1–3 / Space); in games overlay keys are piped through the low-level hook.
 - Глобальные хоткеи перехватываются low-level hook (WH_KEYBOARD_LL), поэтому работают и в полноэкранных играх. Не поможут против античита, запущенного выше уровня приложения, и против процессов с большими правами — запускайте игру и приложение одинаково (или играйте в borderless windowed). Выбранная клавиша «съедается» глобально — назначайте её с учётом привязок игры. / Global hotkeys use a low-level WH_KEYBOARD_LL hook, so they also fire in exclusive fullscreen games. They cannot beat anti-cheats running at a higher privilege level or elevated games when the app is not elevated — run both the same way (or play in borderless windowed). The chosen key is swallowed globally — mind the game's own bindings.
 - Windows 11 по умолчанию забирает PrtSc под «Ножницы» и не отдаёт нажатие приложениям — если хоткей снимка не срабатывает и внутри окна, выберите другую клавишу в Настройках → Приложение → Горячие клавиши (например, F9). Пока идёт запись клавиши, глобальные хоткеи временно отключаются автоматически. / Windows 11 reserves PrtSc for Snipping Tool and does not deliver it to apps — if the capture hotkey never fires, even in-window, pick another key in Settings → App → Hotkeys (e.g. F9). While a key is being recorded, global hotkeys are suspended automatically.
-- Ссылки Discord CDN живут ≈24 ч (ограничение Discord); для постоянных медиа-ссылок в BB-коде используйте источник catbox.moe. / Discord CDN links expire after ≈24 h; use catbox.moe for permanent BB-code media links.
+- Ссылки Discord CDN живут ≈24 ч (ограничение Discord); для постоянных медиа-ссылок в BB-коде используйте catbox.moe или telegra.ph. / Discord CDN links expire after ≈24 h; use catbox.moe or telegra.ph for permanent BB-code media links.
 - URL вебхука = пароль на отправку в канал: храните `config.json` в секрете (он в `.gitignore`). / A webhook URL is a posting password: keep `config.json` secret (it is gitignored).
 
 ## Безопасность / Security
