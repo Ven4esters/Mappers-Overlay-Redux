@@ -7,10 +7,13 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QUrl
-from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtGui import (
+    QColor, QDesktopServices, QGuiApplication, QIcon, QKeySequence, QPainter, QPen,
+    QPixmap, QShortcut,
+)
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QHBoxLayout, QInputDialog, QMainWindow, QMessageBox,
-    QStatusBar, QVBoxLayout, QWidget,
+    QApplication, QFileDialog, QHBoxLayout, QInputDialog, QMainWindow, QMenu,
+    QMessageBox, QStatusBar, QVBoxLayout, QWidget, QSystemTrayIcon,
 )
 
 from app import cache as cache_store
@@ -46,6 +49,9 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
+        self._force_quit = False
+        self._tray_hint_shown = False
+        self._tray: QSystemTrayIcon | None = None
         self.setWindowTitle(tr("app.window_title"))
         self.resize(1300, 780)
         self.setMinimumSize(1120, 660)
@@ -63,6 +69,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._restore_settings()
         self._install_hotkeys()
+        self._install_tray()
         self._refresh_profiles()
 
     # -------------------------------------------------------------- layout
@@ -177,7 +184,7 @@ class MainWindow(QMainWindow):
     def _show_capture_overlay(self) -> None:
         logger.info("capture overlay requested (last mode: %s)", self.store.settings.last_capture_mode)
         last = self.store.settings.last_capture_mode
-        overlay = CaptureOverlay(last, self)
+        overlay = CaptureOverlay(last)
         overlay.modeChosen.connect(self._on_overlay_mode)
         overlay.cancelled.connect(self._on_capture_overlay_done)
         overlay.destroyed.connect(self._on_overlay_destroyed)
@@ -655,7 +662,76 @@ class MainWindow(QMainWindow):
     def _history_stub(self) -> None:
         QMessageBox.information(self, tr("nav.history"), tr("common.module_pending"))
 
+    # ------------------------------------------------------------- tray
+    def _draw_tray_icon(self) -> QPixmap:
+        """Small in-code camera tile — no assets needed. / Рисуем иконку кодом."""
+        pixmap = QPixmap(64, 64)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#4F7DFF"))
+        painter.drawRoundedRect(2, 6, 60, 52, 12, 12)  # camera body
+        painter.setBrush(QColor("#2B4077"))
+        painter.drawRoundedRect(22, 2, 20, 12, 5, 5)   # viewfinder hump
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.drawEllipse(20, 16, 24, 24)            # lens outer
+        painter.setBrush(QColor("#4F7DFF"))
+        painter.drawEllipse(27, 23, 10, 10)            # lens inner
+        painter.setPen(QPen(QColor("#FFFFFF"), 4))
+        painter.drawPoint(52, 15)                      # flash dot
+        painter.end()
+        return pixmap
+
+    def _install_tray(self) -> None:
+        """Create the tray icon/menu (when the system has a tray)."""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            logger.info("system tray not available — close behavior will quit directly")
+            return
+        tray = QSystemTrayIcon(QIcon(self._draw_tray_icon()), self)
+        menu = QMenu()
+        menu.addAction(tr("tray.show"), self._restore_from_tray)
+        menu.addSeparator()
+        menu.addAction(tr("tray.quit"), self._quit_from_tray)
+        tray.setContextMenu(menu)
+        tray.setToolTip("Screensaver into Discord")
+        tray.activated.connect(self._on_tray_activated)
+        tray.show()
+        self._tray = tray
+
+    def _restore_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _quit_from_tray(self) -> None:
+        self._force_quit = True
+        logger.info("quit requested from the tray menu")
+        self.close()
+
+    def _on_tray_activated(self, reason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self._restore_from_tray()
+        elif reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self._restore_from_tray()
+
     def closeEvent(self, event) -> None:  # noqa: N802
+        minimize = bool(self._store.settings.minimize_to_tray)
+        if minimize and not self._force_quit:
+            if self._tray is None:
+                logger.warning("minimize_to_tray is on but no tray is available — closing instead")
+            else:
+                event.ignore()
+                self.hide()
+                if not self._tray_hint_shown:
+                    self._tray_hint_shown = True
+                    self._tray.showMessage(
+                        "Screensaver into Discord", tr("tray.minimized_hint"),
+                        QSystemTrayIcon.Information, 4000)
+                logger.info("main window hidden to the tray")
+                return
+        if self._tray is not None:
+            self._tray.hide()
         if self._worker is not None:
             self._worker.abort()
             self._worker.wait(3000)

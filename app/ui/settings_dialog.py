@@ -525,6 +525,22 @@ class SettingsDialog(QDialog):
         lang_layout.addWidget(self._lang_note)
         layout.addWidget(lang_box)
 
+        close_box = QGroupBox(tr("settings.close_behavior_group"), page)
+        close_layout = QVBoxLayout(close_box)
+        close_layout.setSpacing(8)
+        self._close_behavior = SegmentedControl(
+            [("close", tr("settings.close_behavior_close")),
+             ("tray", tr("settings.close_behavior_tray"))], close_box)
+        self._close_behavior.set_current(
+            "tray" if self._store.settings.minimize_to_tray else "close")
+        self._close_behavior.currentChanged.connect(self._on_close_behavior_changed)
+        close_layout.addWidget(self._close_behavior)
+        close_hint = QLabel(tr("settings.close_group_hint"), close_box)
+        close_hint.setObjectName("Hint")
+        close_hint.setWordWrap(True)
+        close_layout.addWidget(close_hint)
+        layout.addWidget(close_box)
+
         hotkeys_box = QGroupBox(tr("settings.hotkeys_group"), page)
         hotkeys_layout = QVBoxLayout(hotkeys_box)
         hotkeys_layout.setSpacing(8)
@@ -620,6 +636,15 @@ class SettingsDialog(QDialog):
     def _on_keep_cache_changed(self, checked: bool) -> None:
         self._store.settings.keep_local_cache = checked
         self._store.save()
+
+    def _on_close_behavior_changed(self, option_id: str) -> None:
+        to_tray = option_id == "tray"
+        if self._store.settings.minimize_to_tray == to_tray:
+            return
+        self._store.settings.minimize_to_tray = to_tray
+        self._store.save()
+        self._flash_saved()
+        logger.info("close behavior set to %s", "tray" if to_tray else "close")
 
     def _on_capture_hotkey(self, combo: str) -> None:
         combo = normalize_hotkey(combo) or DEFAULT_HOTKEY

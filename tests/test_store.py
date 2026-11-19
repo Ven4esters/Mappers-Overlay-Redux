@@ -138,3 +138,20 @@ def test_history_item_roundtrip(tmp_path) -> None:
     hist.append(item)
     loaded = hist.all()[0]
     assert loaded.to_dict() == item.to_dict()
+
+
+def test_minimize_to_tray_roundtrip(tmp_path) -> None:
+    from app.models import AppSettings
+
+    settings = AppSettings()
+    assert settings.minimize_to_tray is False          # safe default: classic quit
+    settings.minimize_to_tray = True
+    restored = AppSettings.from_dict(settings.to_dict())
+    assert restored.minimize_to_tray is True
+
+    store = ConfigStore(tmp_path / "config.json")
+    assert store.settings.minimize_to_tray is False
+    store.settings.minimize_to_tray = True
+    store.save()
+    reloaded = ConfigStore(tmp_path / "config.json")
+    assert reloaded.settings.minimize_to_tray is True

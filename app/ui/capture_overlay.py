@@ -36,8 +36,9 @@ class CaptureOverlay(QWidget):
     cancelled = Signal()
 
     def __init__(self, last_mode: str, parent=None) -> None:
-        super().__init__(parent)
+        super().__init__(None)  # independent top-level: never owned by the main window
         self.setObjectName("CaptureOverlay")
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setFixedSize(QSize(640, 216))

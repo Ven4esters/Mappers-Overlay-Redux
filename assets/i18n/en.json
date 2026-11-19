@@ -181,5 +181,12 @@
   "settings.cache_open": "Open folder with local screenshots",
   "queue.delete_confirm": "Remove the selected images from the queue? Count: {count}",
   "queue.clear_confirm": "Clear the whole queue? Count: {count}",
-  "queue.removed": "Removed from queue: {count}"
+  "queue.removed": "Removed from queue: {count}",
+  "settings.close_behavior_group": "On window close…",
+  "settings.close_behavior_close": "Close the app",
+  "settings.close_behavior_tray": "Minimize to tray",
+  "settings.close_group_hint": "Tray menu: show the window or quit.",
+  "tray.show": "Show",
+  "tray.quit": "Quit",
+  "tray.minimized_hint": "Minimized to the tray. Click the icon to bring it back."
 }

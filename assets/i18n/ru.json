@@ -181,5 +181,12 @@
   "settings.cache_open": "Открыть папку с локальными снимками",
   "queue.delete_confirm": "Удалить выбранные изображения из очереди? Количество: {count}",
   "queue.clear_confirm": "Очистить всю очередь? Количество: {count}",
-  "queue.removed": "Удалено из очереди: {count}"
+  "queue.removed": "Удалено из очереди: {count}",
+  "settings.close_behavior_group": "При закрытии программы…",
+  "settings.close_behavior_close": "Закрывать приложение",
+  "settings.close_behavior_tray": "Сворачивать в трей",
+  "settings.close_group_hint": "Трей: показать окно или «Закрыть приложение».",
+  "tray.show": "Показать",
+  "tray.quit": "Закрыть приложение",
+  "tray.minimized_hint": "Приложение свёрнуто в трей. Нажмите на иконку, чтобы развернуть."
 }
