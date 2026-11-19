@@ -44,6 +44,7 @@ class AppSettings:
     clear_fields_after_send: bool = True
     active_profile_id: str = ""
     use_keyring: bool = False
+    last_capture_mode: str = "fullscreen"  # fullscreen | window | region (PrintScreen overlay)
 
     @classmethod
     def from_dict(cls, raw: dict) -> "AppSettings":

@@ -22,6 +22,7 @@ class AlbumSidebar(QFrame):
     albumSelected = Signal(str)        # album_id
     createRequested = Signal()
     attachRequested = Signal()
+    discoverRequested = Signal()
     openRequested = Signal(str)
     renameRequested = Signal(str)
     forgetRequested = Signal(str)
@@ -68,6 +69,12 @@ class AlbumSidebar(QFrame):
         attach.clicked.connect(self.attachRequested.emit)
         actions.addWidget(attach, stretch=1)
         layout.addLayout(actions)
+
+        discover = QPushButton(f"🔍  {tr('album.discover')}", self)
+        discover.setObjectName("Ghost")
+        discover.setToolTip(tr("album.discover_hint"))
+        discover.clicked.connect(self.discoverRequested.emit)
+        layout.addWidget(discover)
 
         footer = QHBoxLayout()
         footer.setSpacing(6)

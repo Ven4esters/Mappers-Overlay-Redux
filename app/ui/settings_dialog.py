@@ -1,10 +1,10 @@
 """Settings dialog: webhook profiles, sending defaults, app (cache/language/backup/about).
 Диалог настроек: профили вебхуков, параметры отправки, приложение (кэш/язык/бэкап/о себе).
 
-The «Собственное приложение Discord» block lets the app write oauth.client.json
-itself (client id + client secret, owner-only file) so the user never edits JSON.
-Блок «Собственное приложение Discord» позволяет приложению самому записать
-oauth.client.json (id + секрет, файл только для владельца) — без ручной правки JSON.
+Webhooks are the only auth path — there is no OAuth/Discord-login flow; the
+page includes step-by-step instructions on how to create a webhook URL.
+Вход только через вебхук — никакого OAuth; на странице есть инструкция,
+как создать URL вебхука.
 """
 
 from __future__ import annotations
@@ -24,14 +24,9 @@ from app import cache as cache_store
 from app import transfer
 from app.discord_client import DiscordClient, DiscordError
 from app.i18n import tr
-from app.oauth import (
-    DEFAULT_CLIENT_ID, delete_oauth_client, load_oauth_client, oauth_status,
-    save_oauth_client,
-)
 from app.store import ConfigStore
 from app.webhook_url import is_webhook_url, parse_webhook_url
 from app.ui.widgets import SegmentedControl
-from app.workers import ConnectDiscordWorker
 
 
 def _mask_webhook(url: str) -> str:
@@ -69,7 +64,6 @@ class SettingsDialog(QDialog):
         self._store = store
         self._create_mode = False
         self._loading = False
-        self._connect_worker: ConnectDiscordWorker | None = None
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -104,7 +98,6 @@ class SettingsDialog(QDialog):
         self._load_profiles()
         self._load_sending()
         self._refresh_cache_stats()
-        self._refresh_oauth_status()
 
     # ---------------------------------------------------------------- nav
     def _build_nav(self) -> QWidget:
@@ -162,10 +155,6 @@ class SettingsDialog(QDialog):
         self._new_button = QPushButton(f"＋  {tr('settings.profile_new')}", box)
         self._new_button.clicked.connect(self._start_create)
         left.addWidget(self._new_button)
-        self._connect_button = QPushButton(f"🔗  {tr('settings.connect_discord')}", box)
-        self._connect_button.setObjectName("Primary")
-        self._connect_button.clicked.connect(self._connect_discord)
-        left.addWidget(self._connect_button)
         small_row = QHBoxLayout()
         small_row.setSpacing(6)
         self._activate_button = QPushButton(f"★ {tr('settings.profile_activate')}", box)
@@ -214,7 +203,6 @@ class SettingsDialog(QDialog):
 
         test_row = QHBoxLayout()
         self._test_button = QPushButton(f"⚡  {tr('settings.test')}", form_host)
-        self._test_button.setObjectName("Ghost")
         self._test_button.clicked.connect(self._test_webhook)
         test_row.addWidget(self._test_button)
         self._test_result = QLabel("", form_host)
@@ -241,68 +229,26 @@ class SettingsDialog(QDialog):
         row.addWidget(form_host, stretch=3)
         layout.addWidget(box, stretch=1)
 
-        oauth_box = QGroupBox(tr("settings.oauth_group"), page)
-        oauth_layout = QVBoxLayout(oauth_box)
-        oauth_layout.setSpacing(6)
-
-        self._oauth_status = QLabel("", oauth_box)
-        self._oauth_status.setWordWrap(True)
-        oauth_layout.addWidget(self._oauth_status)
-
-        oauth_form_row = QHBoxLayout()
-        oauth_form_row.setSpacing(10)
-        self._client_id = QLineEdit(oauth_box)
-        self._client_id.setPlaceholderText("client_id")
-        id_col = QVBoxLayout()
-        id_col.addWidget(QLabel(tr("settings.client_id"), oauth_box))
-        id_col.addWidget(self._client_id)
-        oauth_form_row.addLayout(id_col, stretch=2)
-        self._client_secret = QLineEdit(oauth_box)
-        self._client_secret.setEchoMode(QLineEdit.Password)
-        self._client_secret.setPlaceholderText("client_secret")
-        secret_col = QVBoxLayout()
-        secret_col.addWidget(QLabel(tr("settings.client_secret"), oauth_box))
-        secret_col.addWidget(self._client_secret)
-        oauth_form_row.addLayout(secret_col, stretch=3)
-        self._show_secret = QCheckBox(tr("settings.show_secret"), oauth_box)
-        self._show_secret.toggled.connect(
-            lambda checked: self._client_secret.setEchoMode(
-                QLineEdit.Normal if checked else QLineEdit.Password))
-        show_col = QVBoxLayout()
-        show_col.addSpacing(26)
-        show_col.addWidget(self._show_secret)
-        oauth_form_row.addLayout(show_col)
-        oauth_layout.addLayout(oauth_form_row)
-
-        oauth_actions = QHBoxLayout()
-        self._save_oauth_button = QPushButton(tr("settings.oauth_save"), oauth_box)
-        self._save_oauth_button.setObjectName("Primary")
-        self._save_oauth_button.clicked.connect(self._save_oauth)
-        oauth_actions.addWidget(self._save_oauth_button)
-        self._clear_oauth_button = QPushButton(tr("settings.oauth_clear"), oauth_box)
-        self._clear_oauth_button.setObjectName("Danger")
-        self._clear_oauth_button.clicked.connect(self._clear_oauth)
-        oauth_actions.addWidget(self._clear_oauth_button)
-        copy_redirect = QPushButton(tr("settings.copy_redirect"), oauth_box)
-        copy_redirect.setObjectName("Ghost")
-        copy_redirect.clicked.connect(self._copy_redirect)
-        oauth_actions.addWidget(copy_redirect)
-        portal = QPushButton(tr("settings.portal_open"), oauth_box)
-        portal.setObjectName("Ghost")
-        portal.clicked.connect(self._open_portal)
-        oauth_actions.addWidget(portal)
-        oauth_actions.addStretch(1)
-        oauth_layout.addLayout(oauth_actions)
-
-        self._oauth_hint_label = QLabel("", oauth_box)
-        self._oauth_hint_label.setObjectName("Hint")
-        self._oauth_hint_label.setWordWrap(True)
-        oauth_layout.addWidget(self._oauth_hint_label)
-        forum_note = QLabel(tr("settings.oauth_forum_note"), oauth_box)
-        forum_note.setObjectName("Hint")
-        forum_note.setWordWrap(True)
-        oauth_layout.addWidget(forum_note)
-        layout.addWidget(oauth_box)
+        help_box = QGroupBox(tr("settings.help_group"), page)
+        help_layout = QVBoxLayout(help_box)
+        help_layout.setSpacing(6)
+        for key in ("settings.help_step1", "settings.help_step2", "settings.help_step3"):
+            step = QLabel(tr(key), help_box)
+            step.setWordWrap(True)
+            help_layout.addWidget(step)
+        note = QLabel(tr("settings.help_note"), help_box)
+        note.setObjectName("Hint")
+        note.setWordWrap(True)
+        help_layout.addWidget(note)
+        help_row = QHBoxLayout()
+        help_link = QPushButton(tr("settings.help_link"), help_box)
+        help_link.setObjectName("Ghost")
+        help_link.clicked.connect(lambda: QDesktopServices.openUrl(
+            QUrl("https://discord.com/developers/docs/resources/webhook")))
+        help_row.addWidget(help_link, 0, Qt.AlignLeft)
+        help_row.addStretch(1)
+        help_layout.addLayout(help_row)
+        layout.addWidget(help_box)
         return page
 
     def _load_profiles(self, select_id: str = "") -> None:
@@ -471,108 +417,6 @@ class SettingsDialog(QDialog):
         self._form_error.setText(text)
         self._form_error.show()
 
-    # ------------------------------------------------------ oauth (in-app)
-    def _refresh_oauth_status(self) -> None:
-        status = oauth_status()
-        current_id = str(status["client_id"])
-        uri = str(status["redirect_uri"])
-        self._client_id.setText(current_id)
-        self._client_secret.clear()
-        if str(current_id) == DEFAULT_CLIENT_ID:
-            # built-in public ID: works only with the project owner's secret
-            self._oauth_hint_label.setText(tr("settings.oauth_builtin_warn", uri=uri))
-            self._oauth_hint_label.setStyleSheet("color:#FBBF24;")
-        else:
-            self._oauth_hint_label.setText(tr("settings.oauth_pair_hint", uri=uri))
-            self._oauth_hint_label.setStyleSheet("")
-        if status["configured"]:
-            self._client_secret.setPlaceholderText(tr("settings.secret_keep"))
-            self._oauth_status.setText(f"✓ {tr('settings.oauth_configured')}")
-            self._oauth_status.setStyleSheet("color:#34D399;")
-        else:
-            self._client_secret.setPlaceholderText(tr("settings.client_secret"))
-            self._oauth_status.setText(tr("settings.oauth_not_configured"))
-            self._oauth_status.setStyleSheet("color:#FBBF24;")
-
-    def _save_oauth(self) -> None:
-        secret = self._client_secret.text().strip()
-        if not secret:
-            # keep the stored secret if one exists
-            config, _error = load_oauth_client()
-            secret = config.client_secret if config else ""
-        ok, error = save_oauth_client(self._client_id.text(), secret)
-        if not ok:
-            QMessageBox.warning(self, tr("settings.oauth_group"), error)
-            return
-        self._refresh_oauth_status()
-        self._flash_saved()
-
-    def _clear_oauth(self) -> None:
-        answer = QMessageBox.question(
-            self, tr("settings.oauth_group"), tr("settings.oauth_clear_confirm"),
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if answer != QMessageBox.Yes:
-            return
-        delete_oauth_client()
-        self._refresh_oauth_status()
-        self._flash_saved()
-
-    def _copy_redirect(self) -> None:
-        QApplication.clipboard().setText(str(oauth_status()["redirect_uri"]))
-        self._flash_saved()
-
-    def _open_portal(self) -> None:
-        QDesktopServices.openUrl(QUrl("https://discord.com/developers/applications"))
-
-    def _connect_discord(self) -> None:
-        config, error = load_oauth_client()
-        if config is None:
-            QMessageBox.information(self, tr("settings.connect_discord"),
-                                    f"{tr('settings.connect_need_setup')}")
-            self._client_id.setFocus()
-            return
-        self._connect_button.setEnabled(False)
-        self._connect_button.setText(f"🔗  {tr('settings.connect_waiting')}")
-        worker = ConnectDiscordWorker(config, parent=self)
-        worker.browserRequested.connect(lambda url: QDesktopServices.openUrl(QUrl(url)))
-        worker.done.connect(self._on_connect_done)
-        worker.finished.connect(self._reset_connect_button)
-        self._connect_worker = worker
-        worker.start()
-
-    def _reset_connect_button(self) -> None:
-        self._connect_button.setEnabled(True)
-        self._connect_button.setText(f"🔗  {tr('settings.connect_discord')}")
-        self._connect_worker = None
-
-    def _on_connect_done(self, summary) -> None:
-        if summary.status == "ok":
-            self._start_create()
-            self._url.setText(summary.webhook_url)
-            self._name.setText(f"Discord · {summary.channel_id}" if summary.channel_id else "Discord")
-            self._name.selectAll()
-            self._name.setFocus()
-            self._test_result.setText(tr("settings.connect_prefill"))
-            self._test_result.setStyleSheet("color:#34D399;")
-            return
-        key = {"timeout": "settings.connect_timeout",
-               "cancelled": "settings.connect_cancelled"}.get(summary.status, "settings.connect_failed")
-        QMessageBox.warning(self, tr("settings.connect_discord"),
-                            f"{tr(key)}\n\n{summary.error_message}")
-
-    def done(self, result: int) -> None:
-        worker = self._connect_worker
-        if worker is not None:
-            try:
-                worker.finished.disconnect(self._reset_connect_button)
-                worker.done.disconnect(self._on_connect_done)
-            except (TypeError, RuntimeError):
-                pass
-            worker.abort()
-            worker.wait(1500)
-            self._connect_worker = None
-        super().done(result)
-
     # --------------------------------------------------------- sending page
     def _build_sending_page(self) -> QWidget:
         page = QWidget(self)
@@ -689,6 +533,7 @@ class SettingsDialog(QDialog):
         export_button.clicked.connect(self._export_bundle)
         backup_row.addWidget(export_button)
         import_button = QPushButton(tr("settings.import"), backup_box)
+        import_button.setObjectName("Danger")
         import_button.clicked.connect(self._import_bundle)
         backup_row.addWidget(import_button)
         backup_row.addStretch(1)
@@ -701,7 +546,7 @@ class SettingsDialog(QDialog):
         about.setWordWrap(True)
         about_layout.addWidget(about)
         link_button = QPushButton(tr("settings.repo_open"), about_box)
-        link_button.setObjectName("Ghost")
+        link_button.setObjectName("Primary")
         link_button.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://github.com/Ven4esters/screensaver-into-discord")))
         about_layout.addWidget(link_button, alignment=Qt.AlignLeft)

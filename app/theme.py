@@ -10,7 +10,7 @@ Palette / Палитра:
     accent_hi #6E92FF   accent hover
     accent_soft rgba(79,125,255,41)  subtle highlight fill (~16% alpha)
     text      #E8EDF7   primary text
-    text_dim  #8A99B8   secondary text
+    text_dim  #A8B8DC   secondary text
     success   #34D399
     danger    #F87171
     warning   #FBBF24
@@ -28,12 +28,12 @@ COLORS: dict[str, str] = {
     "panel": "#111B2E",
     "card": "#16233C",
     "card_alt": "#1B2B4A",
-    "border": "#25365A",
+    "border": "#32456F",
     "accent": "#4F7DFF",
     "accent_hi": "#6E92FF",
     "accent_soft": "rgba(79, 125, 255, 41)",
     "text": "#E8EDF7",
-    "text_dim": "#8A99B8",
+    "text_dim": "#A8B8DC",
     "success": "#34D399",
     "danger": "#F87171",
     "warning": "#FBBF24",
@@ -52,23 +52,25 @@ QWidget {{ color: {COLORS['text']}; background: transparent; }}
 #Sidebar {{ background: {COLORS['panel']}; border-right: 1px solid {COLORS['border']}; }}
 #Card {{ background: {COLORS['card']}; border: 1px solid {COLORS['border']}; border-radius: 12px; }}
 #EmptyState {{ background: transparent; }}
-#SectionHeader {{ font-size: 15px; font-weight: 700; }}
+#SectionHeader {{ font-size: 16px; font-weight: 700; color: #FFFFFF; }}
+#AlbumName {{ font-size: 16px; font-weight: 700; color: #FFFFFF; }}
 
 /* --- typography --- */
 QLabel {{ color: {COLORS['text']}; }}
 #Title {{ font-size: 26px; font-weight: 700; letter-spacing: 0.2px; }}
-#Subtitle {{ color: {COLORS['text_dim']}; font-size: 12px; }}
-#SectionLabel {{ color: {COLORS['text_dim']}; font-size: 10px; font-weight: 700;
-                letter-spacing: 1.6px; text-transform: uppercase; }}
+#Subtitle {{ color: #A4B4D8; font-size: 13px; }}
+#SectionLabel {{ color: #C9D4EE; font-size: 12px; font-weight: 700;
+                letter-spacing: 1.1px; text-transform: uppercase; }}
 #Dim {{ color: {COLORS['text_dim']}; font-size: 12px; }}
-#Hint {{ color: {COLORS['text_dim']}; font-size: 11px; }}
+#Hint {{ color: #A4B4D8; font-size: 12px; }}
 
 /* --- group box --- */
 QGroupBox {{ background: {COLORS['card']}; border: 1px solid {COLORS['border']};
-            border-radius: 10px; margin-top: 10px; padding: 12px 14px 14px 14px; }}
+            border-radius: 10px; margin-top: 12px; padding: 14px 14px 14px 14px; }}
+QGroupBox:hover {{ border-color: #3D5180; }}
 QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
-                    left: 12px; padding: 0 6px; color: {COLORS['text_dim']};
-                    font-size: 10px; font-weight: 700; letter-spacing: 1.6px; }}
+                    left: 12px; padding: 0 8px; color: #F2F5FB;
+                    font-size: 13px; font-weight: 700; }}
 
 /* --- buttons --- */
 QPushButton {{ background: {COLORS['card']}; color: {COLORS['text']};
@@ -204,3 +206,23 @@ def apply_theme(app: QApplication) -> None:
     palette.setColor(QPalette.PlaceholderText, QColor(COLORS["text_dim"]))
     app.setPalette(palette)
     app.setStyleSheet(QSS)
+
+_OVERLAY_QSS = f"""
+/* --- capture overlay (PrintScreen) --- */
+QWidget#CaptureOverlay {{ background: transparent; }}
+QFrame#CaptureCard {{ background: rgba(13, 21, 38, 244); border: 1px solid #2E4470;
+                      border-radius: 16px; }}
+#OverlayTitle {{ font-size: 13px; font-weight: 700; color: #E8EDF7; letter-spacing: 0.4px; }}
+#OverlayBadge {{ color: #FFFFFF; background: {COLORS['accent_soft']};
+                 border: 1px solid {COLORS['accent']}; border-radius: 10px;
+                 padding: 2px 10px; font-size: 11px; font-weight: 600; }}
+#OverlayHint {{ color: #8FA3CC; font-size: 11px; }}
+QPushButton#ModeButton {{ background: {COLORS['card']}; border: 2px solid {COLORS['border']};
+                          border-radius: 12px; color: {COLORS['text']};
+                          font-size: 14px; padding: 10px 6px; }}
+QPushButton#ModeButton:hover {{ border-color: {COLORS['accent']}; background: {COLORS['card_alt']}; }}
+QPushButton#ModeButton[current="true"] {{ border: 2px solid {COLORS['accent']};
+                                          background: {COLORS['accent_soft']}; color: #FFFFFF; }}
+"""
+
+QSS = QSS + _OVERLAY_QSS

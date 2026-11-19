@@ -52,7 +52,7 @@ def test_version_is_semver() -> None:
 
 def test_qtfree_modules_import() -> None:
     for name in ("app.paths", "app.i18n", "app.models", "app.store", "app.webhook_url",
-                 "app.discord_client", "app.albums", "app.oauth", "app.transfer",
+                 "app.discord_client", "app.albums", "app.transfer",
                  "app.bbcode", "app.catbox", "app.cache", "app.capture"):
         importlib.import_module(name)
 
@@ -76,7 +76,7 @@ def test_readme_roadmap_complete() -> None:
 
 def test_gitignored_secrets_and_state() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
-    for needle in ("config.json", "oauth.client.json", "history.json", "cache/"):
+    for needle in ("config.json", "history.json", "cache/"):
         assert needle in gitignore
 
 

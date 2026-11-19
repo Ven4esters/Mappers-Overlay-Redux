@@ -40,6 +40,16 @@ class AlbumError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ThreadImport:
+    """An existing forum post to register locally. / Существующая публикация для регистрации."""
+
+    thread_id: str
+    name: str
+    last_number: int = 0   # 0 → counter untouched (next shot = 1) / 0 — счётчик с нуля
+    guild_id: str = ""
+
+
+@dataclass(frozen=True)
 class ThreadRef:
     """Parsed thread reference. / Разобранная ссылка на тему."""
 
@@ -128,6 +138,33 @@ class AlbumsService:
             self.store.update_album(album.id, guild_id=result.guild_id)
         self.store.touch_profile(profile.id)
         return album
+
+    # ------------------------------------------------------------- import
+    def import_threads(self, profile: WebhookProfile, items: list[ThreadImport]) -> tuple[list[Album], int]:
+        """Register existing forum posts as albums; skips ones already in the registry.
+        Привязать существующие публикации как альбомы; дубликаты пропускаются.
+
+        Returns (created albums, skipped duplicates). / (созданные, пропущенные)."""
+        known = {a.thread_id for a in self.store.albums_for(profile.id)}
+        created: list[Album] = []
+        skipped = 0
+        for item in items:
+            thread_id = (item.thread_id or "").strip()
+            if not thread_id or thread_id in known:
+                skipped += 1
+                continue
+            name = (item.name or "").strip()[:MAX_THREAD_NAME] or f"Thread {thread_id}"
+            album = self.store.add_album(profile.id, name, thread_id)
+            changes: dict[str, object] = {}
+            if item.guild_id:
+                changes["guild_id"] = item.guild_id
+            if item.last_number > 0:
+                changes["last_number"] = int(item.last_number)
+            if changes:
+                self.store.update_album(album.id, **changes)
+            known.add(thread_id)
+            created.append(album)
+        return created, skipped
 
     # --------------------------------------------------------------- link
     def attach_by_link(self, profile: WebhookProfile, link: str, name: str = "") -> Album:

@@ -26,6 +26,8 @@ from app.models import Attachment, HistoryItem, utcnow_iso
 from app.store import ConfigStore, HistoryStore
 from app.ui.album_sidebar import AlbumSidebar
 from app.ui.bbcode_dialog import BBCodeDialog
+from app.ui.capture_overlay import CaptureOverlay
+from app.ui.forum_discover_dialog import ForumDiscoveryDialog
 from app.ui.queue_panel import QueuePanel, ShotItem
 from app.ui.region_overlay import RegionOverlay
 from app.ui.send_panel import SendPanel
@@ -48,6 +50,7 @@ class MainWindow(QMainWindow):
         self.service = AlbumsService(self.store)
         self._worker: SendWorker | None = None
         self._overlay: RegionOverlay | None = None
+        self._capture_overlay: CaptureOverlay | None = None
         self._shot_seq = 0
         self._pending_cache_paths: list[str] = []
 
@@ -69,6 +72,7 @@ class MainWindow(QMainWindow):
         self.sidebar.albumSelected.connect(self._on_album_selected)
         self.sidebar.createRequested.connect(self._create_album)
         self.sidebar.attachRequested.connect(self._attach_album)
+        self.sidebar.discoverRequested.connect(self._discover_albums)
         self.sidebar.openRequested.connect(self._open_album)
         self.sidebar.renameRequested.connect(self._rename_album)
         self.sidebar.forgetRequested.connect(self._forget_album)
@@ -108,11 +112,35 @@ class MainWindow(QMainWindow):
 
     def _install_hotkeys(self) -> None:
         self._hotkeys = HotkeyManager(self)
-        self._hotkeys.actionRequested.connect(
-            lambda which: self._capture("fullscreen" if which == "fullscreen" else "region"))
-        self._hotkeys.install(QApplication.instance())
+        self._hotkeys.actionRequested.connect(self._on_hotkey)
+        ok = self._hotkeys.install(QApplication.instance())
+        if not ok and HotkeyManager.supported():
+            self._status.showMessage(tr("capture.hotkey_unavailable"), 5000)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=lambda: self._capture("fullscreen"))
         QShortcut(QKeySequence("Ctrl+Shift+R"), self, activated=lambda: self._capture("region"))
+        QShortcut(QKeySequence(Qt.Key_Print), self, activated=self._show_capture_overlay)
+
+    def _on_hotkey(self, which: str) -> None:
+        if which == "overlay":
+            self._show_capture_overlay()
+            return
+        self._capture("fullscreen" if which == "fullscreen" else "region")
+
+    def _show_capture_overlay(self) -> None:
+        last = self.store.settings.last_capture_mode
+        overlay = CaptureOverlay(last, self)
+        overlay.modeChosen.connect(self._on_overlay_mode)
+        overlay.cancelled.connect(lambda: self._status.showMessage(tr("capture.cancelled"), 2000))
+        overlay.destroyed.connect(lambda: setattr(self, "_capture_overlay", None))
+        self._capture_overlay = overlay
+        overlay.show()
+        overlay.raise_()
+        overlay.activateWindow()
+
+    def _on_overlay_mode(self, mode: str) -> None:
+        self.store.settings.last_capture_mode = mode
+        self.store.save()
+        self._capture(mode)
 
     # ------------------------------------------------------------- sidebar
     def _refresh_profiles(self) -> None:
@@ -165,6 +193,9 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------- capture
     def _capture(self, which: str) -> None:
+        if which in ("fullscreen", "window", "region") and self.store.settings.last_capture_mode != which:
+            self.store.settings.last_capture_mode = which
+            self.store.save()
         try:
             if which == "fullscreen":
                 self._add_image(capture_fullscreen())
@@ -240,6 +271,33 @@ class MainWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
         self._status.showMessage(tr("album.created", name=album.name), 4000)
         self._reload_albums(select_id=album.id)
+
+    def _discover_albums(self) -> None:
+        profile = self.store.active_profile()
+        if profile is None:
+            QMessageBox.information(self, tr("settings.title"), tr("settings.no_profiles"))
+            return
+        if not profile.is_forum:
+            QMessageBox.information(self, tr("discover.title"), tr("discover.forum_required"))
+            return
+        dialog = ForumDiscoveryDialog(webhook_url=profile.webhook_url, parent=self)
+        dialog.imported.connect(self._import_discovered)
+        dialog.exec()
+        self._reload_albums()
+
+    def _import_discovered(self, items: list) -> None:
+        profile = self.store.active_profile()
+        if profile is None:
+            return
+        created, skipped = self.service.import_threads(profile, items)
+        if not created:
+            QMessageBox.information(self, tr("discover.title"), tr("discover.all_skipped"))
+            return
+        text = tr("discover.imported", count=len(created))
+        if skipped:
+            text += " " + tr("discover.skipped_suffix", count=skipped)
+        QMessageBox.information(self, tr("discover.title"), text)
+        self._reload_albums(select_id=created[0].id)
 
     def _attach_album(self) -> None:
         profile = self.store.active_profile()

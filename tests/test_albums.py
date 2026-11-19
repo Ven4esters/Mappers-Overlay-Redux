@@ -6,7 +6,8 @@ from __future__ import annotations
 import pytest
 
 from app.albums import (
-    AlbumError, AlbumsService, album_starter_content, format_shot_filename, parse_thread_link,
+    AlbumError, AlbumsService, ThreadImport, album_starter_content,
+    format_shot_filename, parse_thread_link,
 )
 from app.discord_client import SendResult, WebhookDeadError
 from app.models import WebhookProfile
@@ -145,3 +146,34 @@ def test_rename_and_forget(tmp_path) -> None:
     assert store.albums == []
     with pytest.raises(AlbumError):
         service.rename_local(album.id, "Ещё раз")
+
+
+def test_import_threads_registers_and_skips_duplicates(tmp_path) -> None:
+    client = FakeClient()
+    store, service = make_service(tmp_path, client)
+    profile = forum_profile(store)
+    service.attach_by_link(profile, "222222222222222222", name="Уже есть")
+    items = [
+        ThreadImport(thread_id="222222222222222222", name="Уже есть"),   # duplicate → skipped
+        ThreadImport(thread_id="333333333333333333", name="Кухня", last_number=16,
+                     guild_id="700000000000000001"),
+        ThreadImport(thread_id="", name="Битая запись"),                  # no id → skipped
+    ]
+    created, skipped = service.import_threads(profile, items)
+    assert [a.thread_id for a in created] == ["333333333333333333"]
+    assert skipped == 2
+    album = created[0]
+    assert album.guild_id == "700000000000000001"
+    assert album.next_number == 17
+    # duplicates don't multiply on a second pass
+    again, again_skipped = service.import_threads(profile, items[:2])
+    assert again == [] and again_skipped == 2
+
+
+def test_import_threads_accepts_unknown_count(tmp_path) -> None:
+    client = FakeClient()
+    store, service = make_service(tmp_path, client)
+    profile = forum_profile(store)
+    created, skipped = service.import_threads(profile, [ThreadImport(thread_id="444444444444444444", name="Без номера")])
+    assert len(created) == 1 and skipped == 0
+    assert created[0].next_number == 1
