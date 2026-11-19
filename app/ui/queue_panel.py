@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 
@@ -14,6 +15,9 @@ from PySide6.QtWidgets import (
 
 from app.cache import guess_ext, mime_for_suffix
 from app.i18n import tr
+from app import queue_store
+
+logger = logging.getLogger("screensaver.queue")
 
 
 @dataclass
@@ -24,6 +28,7 @@ class ShotItem:
     filename: str
     data: bytes
     mime: str = "image/png"
+    cache_name: str = ""  # file name inside cache/shots (content-addressed)
 
     @classmethod
     def create(cls, filename: str, data: bytes, mime: str = "image/png") -> "ShotItem":
@@ -162,8 +167,15 @@ class QueuePanel(QWidget):
         self._update_empty_state()
 
     # ------------------------------------------------------------- content
-    def add(self, shots: list[ShotItem]) -> None:
-        for shot in shots:
+    def add(self, shots: list[ShotItem], *, checked: list[bool] | None = None) -> int:
+        added = 0
+        self._list.blockSignals(True)
+        for index, shot in enumerate(shots):
+            if not shot.cache_name:
+                try:
+                    shot.cache_name = queue_store.store_shot(shot.data, shot.filename)
+                except OSError:
+                    logger.exception("could not store shot %r in the cache", shot.filename)
             image = QImage.fromData(shot.data)
             if image.isNull():
                 continue
@@ -182,12 +194,56 @@ class QueuePanel(QWidget):
             item.setData(Qt.UserRole, shot.id)
             item.setToolTip(f"{shot.filename}\n{image.width()}×{image.height()} · {shot.size_label}")
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked)
+            state = Qt.Checked if (checked[index] if checked else True) else Qt.Unchecked
+            item.setCheckState(state)
             item.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
             self._list.addItem(item)
             self._shots[shot.id] = shot
+            added += 1
+        self._list.blockSignals(False)
         self._update_empty_state()
+        self._persist()
         self.changed.emit()
+        return added
+
+    def restore_from_disk(self) -> int:
+        """Rebuild the queue from cache/shots + queue.json. / Восстановить очередь."""
+        entries = queue_store.restore_entries()
+        shots, states = [], []
+        for entry in entries:
+            cache_path = queue_store.shot_path(str(entry.get("file", "")))
+            try:
+                data = cache_path.read_bytes()
+            except OSError:
+                logger.warning("queue entry %r unreadable — dropped", cache_path)
+                continue
+            item = ShotItem(id=str(entry.get("id") or uuid.uuid4().hex),
+                            filename=str(entry.get("filename", "shot.png")),
+                            data=data,
+                            mime=str(entry.get("mime", "image/png")),
+                            cache_name=cache_path.name)
+            shots.append(item)
+            states.append(bool(entry.get("checked", True)))
+        if not shots:
+            return 0
+        restored = self.add(shots, checked=states)
+        logger.info("queue restored from the cache: %d shot(s)", restored)
+        return restored
+
+    def _persist(self) -> None:
+        entries = []
+        for index in range(self._list.count()):
+            item = self._list.item(index)
+            shot = self._shots.get(item.data(Qt.UserRole))
+            if shot is None or not shot.cache_name:
+                continue
+            entries.append(queue_store.make_entry(
+                shot.id, shot.filename, shot.cache_name, shot.mime,
+                item.checkState() == Qt.Checked))
+        try:
+            queue_store.write_entries(entries)
+        except OSError:
+            logger.exception("could not persist the queue index")
 
     # ------------------------------------------------------ deletion helpers
     def checked_count(self) -> int:
@@ -207,6 +263,7 @@ class QueuePanel(QWidget):
         for item in doomed:
             self._drop_item(item)
         self._update_empty_state()
+        self._persist()
         self.changed.emit()
         return len(doomed)
 
@@ -225,6 +282,7 @@ class QueuePanel(QWidget):
         for item in selected:
             self._drop_item(item)
         self._update_empty_state()
+        self._persist()
         self.changed.emit()
         return len(selected)
 
@@ -233,6 +291,7 @@ class QueuePanel(QWidget):
         while self._list.count():
             self._drop_item(self._list.item(0))
         self._update_empty_state()
+        self._persist()
         self.changed.emit()
         return count
 

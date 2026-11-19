@@ -29,6 +29,7 @@ from app.i18n import tr
 from app.models import Attachment, HistoryItem, utcnow_iso
 from app.store import ConfigStore, HistoryStore
 from app.low_level_hook import force_foreground
+from app import queue_store
 from app.ui.album_sidebar import AlbumSidebar
 from app.ui.bbcode_dialog import BBCodeDialog
 from app.ui.capture_overlay import CaptureOverlay
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
         self.queue.captureRequested.connect(self._capture)
         self.queue.openFilesRequested.connect(self._open_files)
         self.queue.changed.connect(self._sync_can_send)
+        self.queue.restore_from_disk()
         self.queue.removeRequested.connect(self._confirm_remove_selected)
         self.queue.clearRequested.connect(self._confirm_clear_queue)
         self.queue.deleteCheckedRequested.connect(self._confirm_remove_checked)
@@ -284,13 +286,15 @@ class MainWindow(QMainWindow):
 
     def _end_capture_hide(self, stash) -> None:
         was_visible, was_active = stash
-        if was_visible:
+        if was_visible and was_active:
+            # the user was inside the app when the shot was taken: give the window
+            # back, but without yanking focus away from wherever it went
+            self.setAttribute(Qt.WA_ShowWithoutActivating, True)
             self.show()
-            if was_active:
-                self.raise_()
-                self.activateWindow()
-            # plain show() would pop the app over the game; keep it passive instead
             self.setAttribute(Qt.WA_ShowWithoutActivating, False)
+            logger.info("capture done — window restored (no focus grab)")
+        # window was behind the game or in the tray: it stays hidden — taking a
+        # screenshot must never pop the app over the foreground window
         QGuiApplication.processEvents()
 
     def _capture(self, which: str) -> None:
@@ -536,9 +540,13 @@ class MainWindow(QMainWindow):
             for i, shot in enumerate(shots)
         ]
         self._pending_cache_paths = []
-        for file in files:
+        for file, shot in zip(files, shots):
             local_path = ""
-            if settings.keep_local_cache:
+            if shot.cache_name:
+                candidate = queue_store.shot_path(shot.cache_name)
+                if candidate.is_file():
+                    local_path = str(candidate)
+            if not local_path and settings.keep_local_cache:
                 try:
                     local_path = str(cache_store.save_shot(file.data, file.filename))
                 except OSError:
@@ -719,6 +727,13 @@ class MainWindow(QMainWindow):
             self._restore_from_tray()
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        minimize = False
+        try:
+            # the settings dialog has its own store instance — re-read the file
+            # so a freshly toggled 'minimize to tray' applies immediately
+            self._store.reload()
+        except Exception:  # noqa: BLE001 — shutdown must go on with in-memory values
+            logger.exception("could not reload settings before close; using in-memory values")
         minimize = bool(self._store.settings.minimize_to_tray)
         if minimize and not self._force_quit:
             if self._tray is None:

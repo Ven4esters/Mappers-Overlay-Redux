@@ -143,3 +143,40 @@ def test_force_foreground_non_windows_is_false() -> None:
     if not sys.platform.startswith("win"):
         assert force_foreground(0) is False
         assert force_foreground(12345) is False
+
+
+def test_queue_store_roundtrip(tmp_path, monkeypatch) -> None:
+    import app.cache
+    import app.queue_store as qs
+
+    monkeypatch.setattr(app.cache, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(qs, "CACHE_DIR", tmp_path)
+
+    name1 = qs.store_shot(b"fake-png-bytes", "shot_1.png")
+    name2 = qs.store_shot(b"fake-png-bytes", "shot_1.png")
+    assert name1 == name2                      # content-addressed dedup
+    assert (tmp_path / "shots" / name1).is_file()
+
+    entry = qs.make_entry("id-1", "shot_1.png", name1, "image/png", checked=True)
+    qs.write_entries([entry])
+    loaded = qs.load_entries()
+    assert loaded == [entry]
+
+    restored = qs.restore_entries()
+    assert len(restored) == 1 and restored[0]["file"] == name1
+
+    # cached file gone -> entry is dropped, not restored
+    qs.shot_path(name1).unlink()
+    assert qs.restore_entries() == []
+
+    # corrupt index -> empty queue, no crash
+    qs.index_path().write_text("{ not json !", encoding="utf-8")
+    assert qs.load_entries() == []
+
+
+def test_queue_store_empty_by_default(tmp_path, monkeypatch) -> None:
+    import app.queue_store as qs
+
+    monkeypatch.setattr(qs, "CACHE_DIR", tmp_path)
+    assert qs.load_entries() == []
+    assert qs.restore_entries() == []
