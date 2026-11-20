@@ -115,18 +115,23 @@ class MapperController:
         custom_distance: float | None = None,
     ) -> list[str]:
         dist = self.settings.step if custom_distance is None else custom_distance
+        # Поправки направлений: позволяют мгновенно исправить инвертированные оси сервера
+        right_mult = -1.0 if self.settings.invert_right else 1.0
+        forward_mult = -1.0 if self.settings.invert_forward else 1.0
+        up_mult = -1.0 if self.settings.invert_up else 1.0
         new_t = apply_local_move(
             self.current,
-            right=right_sign * dist,
-            forward=forward_sign * dist,
-            up=up_sign * dist,
+            right=right_sign * dist * right_mult,
+            forward=forward_sign * dist * forward_mult,
+            up=up_sign * dist * up_mult,
             mode=MoveSpace(self.settings.move_space),
             anchor_rz=self.settings.anchor_rz,
         )
         return self.update_transform(new_t)
 
     def rotate_by(self, delta_rz: float) -> list[str]:
-        return self.update_transform(rotate_yaw(self.current, delta_rz))
+        mult = -1.0 if self.settings.invert_rotate else 1.0
+        return self.update_transform(rotate_yaw(self.current, delta_rz * mult))
 
     def snap_to_room_anchor(self, offset_deg: float = 0.0) -> list[str]:
         return self.update_transform(

@@ -173,8 +173,15 @@ class PanelAutomator:
         rot_decimals: int = 3,
         unfocus_after: bool = False,
         save_with_enter: bool = False,
+        verify: bool = True,
     ) -> list[str]:
-        """Вставляет указанные поля (Ctrl+A -> Ctrl+V) и при необходимости сохраняет (Клик мимо + Enter)."""
+        """
+        Вставляет указанные поля (Ctrl+A -> Ctrl+V) и при необходимости сохраняет (Клик мимо + Enter).
+
+        При verify=True каждое поле перечитывается обратно и сравнивается с ожидаемым значением:
+        если вставка «не легла» (промах клика, Ctrl+A не выделил текст, панель перехватила ввод),
+        выбрасывается AutomationError — объект не улетает в случайную точку, а операция отменяется.
+        """
         t0 = time.perf_counter()
         ordered_fields = [f for f in FIELD_NAMES if f in set(fields)]
         if not ordered_fields and not save_with_enter:
@@ -212,6 +219,7 @@ class PanelAutomator:
             timings.focus_handoff_ms,
         )
 
+        expected: dict[str, float] = {}
         try:
             for fname in ordered_fields:
                 px, py = coords[fname]
@@ -220,15 +228,12 @@ class PanelAutomator:
                     pos_decimals=pos_decimals,
                     rot_decimals=rot_decimals,
                 )
+                expected[fname] = float(formatted)
                 logger.debug("Вставка в поле '%s' (%d, %d) значения '%s'", fname, px, py, formatted)
-                self.backend.set_clipboard(formatted)
-                self.backend.left_click(px, py)
-                time.sleep(timings.click_delay_ms / 1000.0)
+                self._paste_into_field(fname, formatted, px, py, timings)
 
-                self.backend.send_ctrl_Combo("A")
-                time.sleep(timings.key_delay_ms / 1000.0)
-                self.backend.send_ctrl_Combo("V")
-                time.sleep(timings.key_delay_ms / 1000.0)
+            if verify and ordered_fields:
+                self._verify_written_fields(ordered_fields, expected, coords, timings)
 
             if save_with_enter:
                 nx, ny = coords["neutral"]
@@ -252,6 +257,61 @@ class PanelAutomator:
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         logger.info("Запись полей %s завершена за %.1f мс", ordered_fields, elapsed_ms)
         return ordered_fields
+
+    def _paste_into_field(
+        self,
+        fname: str,
+        formatted: str,
+        px: int,
+        py: int,
+        timings: MacroTimings,
+    ) -> None:
+        """Клик по полю -> Ctrl+A -> Ctrl+V с короткой паузой между шагами."""
+        self.backend.set_clipboard(formatted)
+        self.backend.left_click(px, py)
+        time.sleep(timings.click_delay_ms / 1000.0)
+
+        self.backend.send_ctrl_Combo("A")
+        time.sleep(timings.key_delay_ms / 1000.0)
+        self.backend.send_ctrl_Combo("V")
+        time.sleep(timings.key_delay_ms / 1000.0)
+        logger.debug("Поле '%s': вставлено '%s'", fname, formatted)
+
+    def _verify_written_fields(
+        self,
+        fields: list[str],
+        expected: dict[str, float],
+        coords: dict[str, tuple[int, int]],
+        timings: MacroTimings,
+    ) -> None:
+        """
+        Перечитывает поля после вставки. Любое расхождение — повод остановиться:
+        лучше отменить операцию, чем «улетевший» объект где-то в другой части карты.
+        """
+        problems: list[str] = []
+        for fname in fields:
+            px, py = coords[fname]
+            raw = self._read_single_field(fname, px, py, timings)
+            try:
+                actual = parse_number(raw)
+            except ValueError:
+                problems.append(f"{fname.upper()}: не удалось перечитать (в поле «{raw}»)")
+                continue
+
+            want = expected[fname]
+            tolerance = 0.002 if fname in ("x", "y", "z") else 0.05
+            if abs(actual - want) > tolerance:
+                problems.append(f"{fname.upper()}: ожидалось {want}, в поле {actual}")
+            else:
+                logger.debug("Проверка поля '%s' пройдена (%s ≈ %s)", fname, actual, want)
+
+        if problems:
+            details = "; ".join(problems)
+            logger.error("Вставка координат не подтверждена: %s", details)
+            raise AutomationError(
+                "Координаты не применились корректно: " + details + ". "
+                "Объект не изменён — проверьте калибровку полей (вкладка «Калибровка» → «Проверка»)."
+            )
 
     def commit_save_only(
         self,

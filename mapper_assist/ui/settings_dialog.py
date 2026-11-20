@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -74,6 +75,18 @@ class SettingsDialog(QDialog):
 
         root.addWidget(ui_box)
 
+        # 1б. Режим работы с панелью игры
+        mode_box = QGroupBox("Режим работы")
+        mode_v = QVBoxLayout(mode_box)
+        self.chk_auto_apply = QCheckBox("Сразу вводить изменения в игру")
+        self.chk_auto_apply.setChecked(settings.auto_apply_to_game)
+        mode_v.addWidget(self.chk_auto_apply)
+
+        self.chk_auto_save = QCheckBox("Авто-сохранение после каждого шага (клик мимо поля + Enter)")
+        self.chk_auto_save.setChecked(settings.auto_save_enter)
+        mode_v.addWidget(self.chk_auto_save)
+        root.addWidget(mode_box)
+
         # 2. Тайминги макроса
         timing_box = QGroupBox("Тайминги кликов и буфера (мс)")
         timing_form = QFormLayout(timing_box)
@@ -144,6 +157,8 @@ class SettingsDialog(QDialog):
 
     def apply_to_settings(self) -> None:
         self._settings.window_opacity = self.opacity_slider.value() / 100.0
+        self._settings.auto_apply_to_game = self.chk_auto_apply.isChecked()
+        self._settings.auto_save_enter = self.chk_auto_save.isChecked()
         self._settings.pos_decimals = self.pos_dec_spin.value()
         self._settings.rot_decimals = self.rot_dec_spin.value()
 

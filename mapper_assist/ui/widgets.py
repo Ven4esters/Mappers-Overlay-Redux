@@ -30,7 +30,9 @@ def make_number_spin(
     if suffix:
         spin.setSuffix(suffix)
     if no_buttons:
-        spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        # ВАЖНО: ButtonSymbols.NoButtons вместе с кастомным QSS оставляет поле без текста.
+        # Поэтому стрелки прячем через таблицу стилей (QDoubleSpinBox#coordSpin::up-button).
+        spin.setObjectName("coordSpin")
     return spin
 
 

@@ -161,6 +161,7 @@ def test_full_capture_dirty_write_and_save_workflow() -> None:
         cal,
         FAST_TIMINGS,
         save_with_enter=False,
+        verify=False,
     )
     ctrl.mark_synced(written)
     assert fake_nui.clicked_Field_history == ["rz"]
@@ -178,6 +179,7 @@ def test_full_capture_dirty_write_and_save_workflow() -> None:
         cal,
         FAST_TIMINGS,
         save_with_enter=False,
+        verify=False,
     )
     ctrl.mark_synced(written_move)
     assert fake_nui.clicked_Field_history == ["x", "y"]
@@ -260,3 +262,81 @@ def test_all_python_files_compile_cleanly() -> None:
     assert len(py_files) >= 10
     for path in py_files:
         py_compile.compile(str(path), doraise=True)
+
+
+class BrokenPasteBackend(FakeLspPanelBackend):
+    """Панель, которая «проглатывает» Ctrl+V: объект в игре остаётся прежним."""
+
+    def send_ctrl_Combo(self, letter: str) -> None:  # noqa: N802
+        if letter.upper() == "V":
+            return
+        super().send_ctrl_Combo(letter)
+
+
+def test_write_is_verified_and_catches_lost_paste() -> None:
+    fake_nui = BrokenPasteBackend(
+        {"x": "10", "y": "20", "z": "5", "rx": "0", "ry": "0", "rz": "0"}
+    )
+    cal = fake_nui.make_calibration()
+    automator = PanelAutomator(backend=fake_nui)
+
+    target = Transform(x=99.0, y=20.0, z=5.0, rz=0.0)
+    with pytest.raises(AutomationError, match="не применились"):
+        automator.write_fields(target, ["x"], cal, FAST_TIMINGS)
+
+    # Значение в «игре» не изменилось, и курсор/буфер возвращены владельцу
+    assert float(fake_nui.fields["x"]) == 10.0
+    assert fake_nui.cursor == (850, 540)
+    assert fake_nui.clipboard == "МОЙ_ВАЖНЫЙ_ТЕКСТ_В_БУФЕРЕ"
+
+
+def test_write_verification_passes_on_healthy_panel() -> None:
+    fake_nui = FakeLspPanelBackend(
+        {"x": "10", "y": "20", "z": "5", "rx": "0", "ry": "0", "rz": "0"}
+    )
+    cal = fake_nui.make_calibration()
+    automator = PanelAutomator(backend=fake_nui)
+
+    target = Transform(x=10.5, y=20.0, z=5.0, rz=0.0)
+    written = automator.write_fields(target, ["x"], cal, FAST_TIMINGS)  # verify=True по умолчанию
+    assert written == ["x"]
+    assert float(fake_nui.fields["x"]) == pytest.approx(10.5)
+
+
+def test_direction_inversion_flags() -> None:
+    settings = AppSettings(step=1.0)
+    ctrl = MapperController(settings)
+    ctrl.set_captured_transform(Transform(x=0.0, y=0.0, z=0.0, rz=0.0))
+
+    ctrl.move_step(forward_sign=1.0)
+    assert ctrl.current.y == pytest.approx(1.0)
+
+    settings.invert_forward = True
+    ctrl.move_step(forward_sign=1.0)
+    assert ctrl.current.y == pytest.approx(0.0)
+
+    settings.invert_right = True
+    ctrl.move_step(right_sign=1.0)
+    assert ctrl.current.x == pytest.approx(-1.0)
+
+    settings.invert_rotate = True
+    ctrl.rotate_by(90.0)
+    assert ctrl.current.rz == pytest.approx(-90.0)
+
+
+def test_settings_persist_direction_and_safety_flags(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "cfg.json")
+    settings = AppSettings(
+        invert_forward=True,
+        invert_right=True,
+        invert_up=True,
+        invert_rotate=True,
+        safe_write_verify=False,
+        max_jump=42.5,
+    )
+    store.save(settings)
+    loaded = store.load()
+    assert loaded.invert_forward and loaded.invert_right
+    assert loaded.invert_up and loaded.invert_rotate
+    assert loaded.safe_write_verify is False
+    assert loaded.max_jump == pytest.approx(42.5)

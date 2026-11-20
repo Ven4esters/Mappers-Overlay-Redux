@@ -163,9 +163,15 @@ def test_bootstrap_helpers(tmp_path: Path, monkeypatch) -> None:
 # --------------------------------------------------------------------------- калибровка
 @pytest.fixture(scope="module")
 def qt_core_app():
-    from PySide6.QtCore import QCoreApplication
+    """Создаёт QApplication (если доступен GUI), иначе QCoreApplication для таймеров и сигналов."""
+    try:
+        from PySide6.QtWidgets import QApplication
 
-    app = QCoreApplication.instance() or QCoreApplication([])
+        app = QApplication.instance() or QApplication([])
+    except ImportError:
+        from PySide6.QtCore import QCoreApplication
+
+        app = QCoreApplication.instance() or QCoreApplication([])
     yield app
 
 
@@ -274,6 +280,8 @@ def _class_members(path: Path, class_name: str) -> set[str]:
         ("join_tab", "tabs/join_tab.py", "JoinTab"),
         ("calib_tab", "tabs/calibration_tab.py", "CalibrationTab"),
         ("field_box", "widgets.py", "CoordinatesBox"),
+        ("quick", "quick_panel.py", "QuickPanel"),
+        ("tools", "tools_dialog.py", "ToolsDialog"),
         ("calibration_flow", "calibration_flow.py", "CalibrationFlow"),
         ("macro_runner", "threads.py", "MacroRunner"),
     ],
@@ -293,7 +301,9 @@ def test_main_window_uses_only_existing_tab_members(tab_attr: str, module: str, 
         ):
             used.add(node.attr)
 
-    missing = sorted(used - members)
+    # методы, унаследованные от Qt-классов
+    inherited_qt = {"close", "hide", "show", "deleteLater", "isVisible", "setVisible", "raise_"}
+    missing = sorted(used - members - inherited_qt)
     assert not missing, f"main_window.py обращается к несуществующим членам {class_name}: {missing}"
 
 
@@ -301,6 +311,8 @@ def test_ui_modules_are_split_by_responsibility() -> None:
     files = {p.name for p in UI_DIR.rglob("*.py")}
     for expected in {
         "main_window.py",
+        "quick_panel.py",
+        "tools_dialog.py",
         "calibration_flow.py",
         "threads.py",
         "widgets.py",
@@ -404,3 +416,17 @@ def test_launcher_labels_are_consistent() -> None:
         depth += stripped.count("(") - stripped.count(")")
         assert depth >= 0, f"Лишняя закрывающая скобка в строке: {line}"
     assert depth == 0, "Несбалансированные скобки в run_mapper.bat"
+
+
+def test_ui_has_no_emoji_glyphs() -> None:
+    """
+    Эмодзи в шрифтах Windows/Linux часто отсутствуют и превращаются в «квадратики».
+    В интерфейсе используем только символы, которые есть в Segoe UI / DejaVu.
+    """
+    bad = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF]")
+    offenders: list[str] = []
+    for path in (PROJECT_ROOT / "mapper_assist").rglob("*.py"):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if bad.search(line):
+                offenders.append(f"{path.name}:{number}: {line.strip()[:70]}")
+    assert not offenders, "Эмодзи в UI-коде:\n" + "\n".join(offenders)

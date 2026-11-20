@@ -255,6 +255,14 @@ class AppSettings:
             {"name": "Секция 2 м", "size": 2.0},
         ]
     )
+    # --- Поправки направлений (если оси на конкретном сервере/сборке инвертированы) ---
+    invert_forward: bool = False
+    invert_right: bool = False
+    invert_up: bool = False
+    invert_rotate: bool = False
+    # --- Защита от «улёта» объекта ---
+    safe_write_verify: bool = True   # перечитывать поля после вставки и сравнивать
+    max_jump: float = 20.0           # максимально допустимый скачок за один ввод, метры
     calibration: CalibrationProfile = field(default_factory=CalibrationProfile)
     timings: MacroTimings = field(default_factory=MacroTimings)
     hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
@@ -275,6 +283,12 @@ class AppSettings:
             "pos_decimals": self.pos_decimals,
             "rot_decimals": self.rot_decimals,
             "hotkeys_enabled": self.hotkeys_enabled,
+            "invert_forward": self.invert_forward,
+            "invert_right": self.invert_right,
+            "invert_up": self.invert_up,
+            "invert_rotate": self.invert_rotate,
+            "safe_write_verify": self.safe_write_verify,
+            "max_jump": self.max_jump,
             "step_presets": list(self.step_presets),
             "saved_prop_sizes": list(self.saved_prop_sizes),
             "calibration": self.calibration.to_dict(),
@@ -313,6 +327,12 @@ class AppSettings:
             pos_decimals=min(6, max(1, int(raw.get("pos_decimals", defaults.pos_decimals)))),
             rot_decimals=min(6, max(1, int(raw.get("rot_decimals", defaults.rot_decimals)))),
             hotkeys_enabled=bool(raw.get("hotkeys_enabled", defaults.hotkeys_enabled)),
+            invert_forward=bool(raw.get("invert_forward", defaults.invert_forward)),
+            invert_right=bool(raw.get("invert_right", defaults.invert_right)),
+            invert_up=bool(raw.get("invert_up", defaults.invert_up)),
+            invert_rotate=bool(raw.get("invert_rotate", defaults.invert_rotate)),
+            safe_write_verify=bool(raw.get("safe_write_verify", defaults.safe_write_verify)),
+            max_jump=max(1.0, float(raw.get("max_jump", defaults.max_jump))),
             step_presets=presets,
             saved_prop_sizes=saved_sizes,
             calibration=CalibrationProfile.from_dict(raw.get("calibration")),

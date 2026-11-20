@@ -179,3 +179,67 @@ QLabel#calibActiveBanner {
     font-weight: 600;
 }
 """
+
+# --- Компактный режим: маленькие кнопки и крестовина ---
+COMPACT_OVERLAY_ADDITIONS = """
+QPushButton#btnSmall {
+    font-size: 13px;
+    padding: 2px 7px;
+    min-height: 22px;
+    background-color: #1b2430;
+    border: 1px solid #2b3746;
+    border-radius: 5px;
+}
+QPushButton#btnSmall:hover { background-color: #24303f; }
+QPushButton#btnSmall:checked {
+    background-color: #1d3a5f;
+    border-color: #3b82f6;
+    color: #dbeafe;
+}
+
+QPushButton#btnTools {
+    font-size: 12px;
+    padding: 2px 8px;
+    background-color: #1b2430;
+    border: 1px solid #2b3746;
+    border-radius: 5px;
+    color: #9fb3c8;
+}
+QPushButton#btnTools:hover { background-color: #24303f; color: #dbeafe; }
+
+QPushButton#btnDpad {
+    font-size: 15px;
+    font-weight: 600;
+    padding: 1px;
+    min-height: 28px;
+    background-color: #1e2836;
+    border: 1px solid #2f3d4f;
+    border-radius: 5px;
+}
+QPushButton#btnDpad:hover { background-color: #2a3a4d; border-color: #3b82f6; }
+QPushButton#btnDpad:pressed { background-color: #3b82f6; color: #0b1220; }
+
+QDoubleSpinBox#coordSpin::up-button,
+QDoubleSpinBox#coordSpin::down-button {
+    width: 0px;
+    border: none;
+    background: transparent;
+}
+QDoubleSpinBox#coordSpin {
+    padding: 2px 6px;
+    min-height: 22px;
+    font-size: 12px;
+}
+
+QLabel#dpadCenter {
+    background-color: #141b24;
+    border: 1px dashed #2f3d4f;
+    border-radius: 5px;
+    color: #7dd3fc;
+    font-size: 11px;
+    font-weight: 600;
+}
+"""
+
+
+OVERLAY_STYLESHEET = OVERLAY_STYLESHEET + COMPACT_OVERLAY_ADDITIONS

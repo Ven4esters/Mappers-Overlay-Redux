@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+import math
 from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QMainWindow,
-    QTabWidget,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -28,10 +27,11 @@ from ..models import (
     format_number,
 )
 from .calibration_flow import CalibrationFlow
+from .quick_panel import QuickPanel
 from .settings_dialog import SettingsDialog
 from .styles import OVERLAY_STYLESHEET
-from .tabs import CalibrationTab, JoinTab, MovementTab
 from .threads import HotkeyBridge, MacroRunner
+from .tools_dialog import ToolsDialog
 from .widgets import CoordinatesBox, make_button, make_label
 
 
@@ -40,10 +40,10 @@ logger = get_logger("mapper_assist.ui.window")
 
 class MapperMainWindow(QMainWindow):
     """
-    Главное окно-оверлей LSP Mapper Assist.
-    Отвечает только за компоновку интерфейса и диспетчеризацию действий;
-    геометрия (math3d), автоматизация панели (automation) и вкладки (ui.tabs)
-    вынесены в отдельные модули.
+    Компактный оверлей: только то, что нужно во время маппинга.
+      * «Захват» и «Сохранить» — крупными кнопками;
+      * 6 координат, крестовина со шагом и три кнопки поворота;
+      * всё остальное (оси, якорь, пресеты, стыковка, линейка, калибровка) — в окне «Инструменты».
     """
 
     def __init__(
@@ -65,7 +65,6 @@ class MapperMainWindow(QMainWindow):
 
             self.automator = _PA(FallbackInputBackend())
 
-        # --- Связь с фоновыми потоками -------------------------------------
         self.hotkey_bridge = HotkeyBridge(self)
         self.hotkey_bridge.triggered.connect(self._on_hotkey_action)
 
@@ -74,7 +73,6 @@ class MapperMainWindow(QMainWindow):
         self.macro_runner.failed.connect(self._on_macro_failed)
         self.macro_runner.busy_changed.connect(self._on_macro_busy)
 
-        # --- Калибровка ------------------------------------------------------
         self.calibration_flow = CalibrationFlow(
             cursor_provider=self.automator.get_cursor_pos,
             hotkey_name_provider=lambda: self.settings.hotkeys.calibrate_point,
@@ -87,29 +85,46 @@ class MapperMainWindow(QMainWindow):
         self.calibration_flow.active_changed.connect(self._on_calibration_active_changed)
 
         self._mini_mode = False
+        self._pending_rollback: tuple[Transform, list[str]] | None = None
 
-        self.hotkey_service = GlobalHotkeyService(
-            on_action=self.hotkey_bridge.emit_action,
-        )
+        self.hotkey_service = GlobalHotkeyService(on_action=self.hotkey_bridge.emit_action)
 
         self._setup_window_flags()
         self._build_ui()
+        self._build_tools_dialog()
+        self._update_button_hotkey_titles()
         self.setStyleSheet(OVERLAY_STYLESHEET)
         self.setWindowOpacity(self.settings.window_opacity)
 
         self._sync_ui_from_state()
         self._refresh_calibration_labels()
         self._restart_hotkeys()
-        logger.info("Главное окно создано, интерфейс готов")
+        logger.info("Главное окно создано (компактный режим), интерфейс готов")
 
-    # ------------------------------------------------------------------ свойство
+    # ------------------------------------------------------------------ свойства
     @property
     def settings(self):
         return self.controller.settings
 
+    @property
+    def movement(self) -> QuickPanel:
+        return self.quick
+
+    @property
+    def join_tab(self):
+        return self.tools.join_tab
+
+    @property
+    def calib_tab(self):
+        return self.tools.calibration_tab
+
+    @property
+    def tabs(self):
+        return self.tools.tabs
+
     # ------------------------------------------------------------------ окно
     def _setup_window_flags(self) -> None:
-        self.setWindowTitle("LSP Mapper Assist — GTA V / FiveM")
+        self.setWindowTitle("LSP Mapper Assist")
         flags = (
             Qt.WindowType.Window
             | Qt.WindowType.CustomizeWindowHint
@@ -120,80 +135,71 @@ class MapperMainWindow(QMainWindow):
         if self.settings.always_on_top:
             flags |= Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
-        self.setMinimumWidth(395)
-        self.setMaximumWidth(450)
+        self.setMinimumWidth(330)
+        self.setMaximumWidth(380)
 
     # ------------------------------------------------------------------ сборка UI
     def _build_ui(self) -> None:
         central = QWidget(self)
         self.setCentralWidget(central)
-        self.root_layout = QVBoxLayout(central)
-        self.root_layout.setContentsMargins(8, 8, 8, 8)
-        self.root_layout.setSpacing(6)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(8, 6, 8, 6)
+        root.setSpacing(5)
 
-        self.root_layout.addLayout(self._build_top_bar())
-        self.root_layout.addWidget(self._build_calibration_banner())
-        self.root_layout.addLayout(self._build_sync_row())
+        root.addLayout(self._build_top_bar())
+        root.addWidget(self._build_calibration_banner())
+        root.addLayout(self._build_main_actions())
 
-        # Основное содержимое (скрывается в мини-режиме)
         self.body_container = QWidget()
         body = QVBoxLayout(self.body_container)
         body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(6)
-        body.addLayout(self._build_flags_row())
+        body.setSpacing(5)
 
         self.field_box = CoordinatesBox(self.settings.pos_decimals, self.settings.rot_decimals)
         self.field_box.field_edited.connect(self._on_manual_field_edited)
         body.addWidget(self.field_box)
 
-        self.tabs = QTabWidget()
-        self.movement = MovementTab(self.settings)
-        self.join_tab = JoinTab(self.settings, self.controller.advance_reference_on_join)
-        self.calib_tab = CalibrationTab(self.settings)
-        self.tabs.addTab(self.movement, "Движение и Углы")
-        self.tabs.addTab(self.join_tab, "Стыковка и Линейка")
-        self.tabs.addTab(self.calib_tab, "Калибровка")
-        body.addWidget(self.tabs)
+        self.quick = QuickPanel(self.settings)
+        self.quick.move_requested.connect(self.action_move)
+        self.quick.rotate_requested.connect(self.action_rotate_yaw)
+        self.quick.step_changed.connect(self._on_step_changed)
+        body.addWidget(self.quick)
+        root.addWidget(self.body_container)
 
-        self.root_layout.addWidget(self.body_container)
-
-        self.lbl_status = make_label(
-            "Готов к работе. Откалибруйте поля панели во вкладке «Калибровка».",
-            word_wrap=True,
-        )
+        self.lbl_status = make_label("Готов. Откалибруйте поля панели: «Инструменты» → «Калибровка».")
         self.lbl_status.setObjectName("statusBanner")
-        self.root_layout.addWidget(self.lbl_status)
+        self.lbl_status.setWordWrap(True)
+        root.addWidget(self.lbl_status)
 
-        self._connect_tab_signals()
-        self._update_button_hotkey_titles()
+    def _small_button(self, text: str, tooltip: str) -> QPushButton:
+        button = make_button(text, tooltip)
+        button.setObjectName("btnSmall")
+        button.setMinimumHeight(24)
+        return button
 
     def _build_top_bar(self) -> QHBoxLayout:
         bar = QHBoxLayout()
-        bar.setSpacing(5)
+        bar.setSpacing(4)
 
-        self.btn_pin = make_button(
-            "📌 Поверх",
-            "Держать окно поверх FiveM (требуется режим «Окно без рамки» в игре)",
-        )
+        self.btn_pin = self._small_button("Поверх", "Держать окно поверх FiveM (нужен режим «окно без рамки»)")
         self.btn_pin.setCheckable(True)
         self.btn_pin.setChecked(self.settings.always_on_top)
         self.btn_pin.clicked.connect(self._toggle_always_on_top)
         bar.addWidget(self.btn_pin)
 
-        self.btn_hk_toggle = make_button(
-            "⌨ Хоткеи",
-            "Включить / временно отключить глобальные горячие клавиши (например, для чата)",
-        )
+        self.btn_hk_toggle = self._small_button("Клавиши", "Включить/отключить глобальные горячие клавиши")
         self.btn_hk_toggle.setCheckable(True)
         self.btn_hk_toggle.setChecked(self.settings.hotkeys_enabled)
         self.btn_hk_toggle.clicked.connect(self._toggle_hotkeys)
         bar.addWidget(self.btn_hk_toggle)
 
-        self.btn_settings = make_button("⚙ Настройки")
-        self.btn_settings.clicked.connect(self._open_settings_dialog)
-        bar.addWidget(self.btn_settings)
+        self.btn_tools = make_button("Инструменты", "Стыковка, линейка, калибровка, пресеты, поправки осей")
+        self.btn_tools.setObjectName("btnTools")
+        self.btn_tools.setMinimumHeight(24)
+        self.btn_tools.clicked.connect(lambda: self.open_tools(0))
+        bar.addWidget(self.btn_tools, 1)
 
-        self.btn_mini = make_button("▾ Мини", "Свернуть до компактной полоски")
+        self.btn_mini = self._small_button("▾", "Свернуть до полоски")
         self.btn_mini.clicked.connect(self._toggle_mini_mode)
         bar.addWidget(self.btn_mini)
         return bar
@@ -202,94 +208,75 @@ class MapperMainWindow(QMainWindow):
         self.calib_banner_frame = QWidget()
         row = QHBoxLayout(self.calib_banner_frame)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(5)
+        row.setSpacing(4)
 
         self.lbl_calib_banner = make_label("", word_wrap=True)
         self.lbl_calib_banner.setObjectName("calibActiveBanner")
         row.addWidget(self.lbl_calib_banner, 1)
 
-        self.btn_calib_timer3s = make_button(
-            "⏱ 3 сек",
-            "Зафиксировать точку под курсором через 3 секунды без нажатия клавиш",
-        )
+        self.btn_calib_timer3s = make_button("3 сек", "Зафиксировать точку под курсором через 3 секунды")
         self.btn_calib_timer3s.clicked.connect(lambda: self.calibration_flow.start_countdown(3))
         row.addWidget(self.btn_calib_timer3s)
 
-        self.btn_calib_cancel = make_button("✕", "Отменить калибровку")
-        self.btn_calib_cancel.setMaximumWidth(28)
+        self.btn_calib_cancel = make_button("×", "Отменить калибровку")
+        self.btn_calib_cancel.setMaximumWidth(26)
         self.btn_calib_cancel.clicked.connect(self.calibration_flow.cancel)
         row.addWidget(self.btn_calib_cancel)
 
         self.calib_banner_frame.setVisible(False)
         return self.calib_banner_frame
 
-    def _build_sync_row(self) -> QGridLayout:
-        grid = QGridLayout()
-        grid.setSpacing(5)
+    def _build_main_actions(self) -> QVBoxLayout:
+        column = QVBoxLayout()
+        column.setSpacing(4)
 
+        main_row = QHBoxLayout()
+        main_row.setSpacing(4)
         self.btn_capture = make_button("", "Считать координаты выделенного объекта (Ctrl+A / Ctrl+C)")
         self.btn_capture.setObjectName("btnCapture")
+        self.btn_capture.setMinimumHeight(32)
         self.btn_capture.clicked.connect(self.action_capture_from_game)
-        grid.addWidget(self.btn_capture, 0, 0)
+        main_row.addWidget(self.btn_capture, 1)
 
-        self.btn_save_commit = make_button(
-            "",
-            "Кликнуть ЛКМ мимо поля и нажать Enter для фиксации координат в меню LSP",
-        )
+        self.btn_save_commit = make_button("", "Кликнуть мимо поля и нажать Enter — зафиксировать координаты")
         self.btn_save_commit.setObjectName("btnSaveCommit")
+        self.btn_save_commit.setMinimumHeight(32)
         self.btn_save_commit.clicked.connect(self.action_commit_save_in_game)
-        grid.addWidget(self.btn_save_commit, 0, 1)
+        main_row.addWidget(self.btn_save_commit, 1)
+        column.addLayout(main_row)
 
-        self.btn_paste_all = make_button(
-            "",
-            "Принудительно вставить все 6 полей (X, Y, Z, RX, RY, RZ) в выделенный объект",
+        sub_row = QHBoxLayout()
+        sub_row.setSpacing(4)
+        self.btn_paste_all = self._small_button(
+            "Вставить всё", "Принудительно ввести все 6 координат в выделенный объект"
         )
         self.btn_paste_all.clicked.connect(self.action_paste_all_to_game)
-        grid.addWidget(self.btn_paste_all, 1, 0)
+        sub_row.addWidget(self.btn_paste_all, 1)
 
-        undo_row = QHBoxLayout()
-        undo_row.setSpacing(4)
-        self.btn_undo = make_button("↶ Назад")
+        self.btn_undo = self._small_button("↶", "Отменить последний шаг (Alt+Z)")
         self.btn_undo.clicked.connect(self.action_undo)
-        self.btn_redo = make_button("↷ Вперёд")
+        sub_row.addWidget(self.btn_undo)
+
+        self.btn_redo = self._small_button("↷", "Повторить отменённый шаг")
         self.btn_redo.clicked.connect(self.action_redo)
-        undo_row.addWidget(self.btn_undo)
-        undo_row.addWidget(self.btn_redo)
-        grid.addLayout(undo_row, 1, 1)
-        return grid
+        sub_row.addWidget(self.btn_redo)
+        column.addLayout(sub_row)
+        return column
 
-    def _build_flags_row(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(10)
-
-        self.chk_auto_apply = QCheckBox("Сразу вводить в игру")
-        self.chk_auto_apply.setChecked(self.settings.auto_apply_to_game)
-        self.chk_auto_apply.toggled.connect(self._on_auto_flags_changed)
-        row.addWidget(self.chk_auto_apply)
-
-        self.chk_auto_save = QCheckBox("Авто-сохранение (Клик+Enter)")
-        self.chk_auto_save.setToolTip(
-            "Если включено — после каждого сдвига/поворота сразу кликает мимо поля и жмёт Enter.\n"
-            "Если выключено — объект двигается вживую, а сохранить всё разом можно кнопкой «Сохранить»."
-        )
-        self.chk_auto_save.setChecked(self.settings.auto_save_enter)
-        self.chk_auto_save.toggled.connect(self._on_auto_flags_changed)
-        row.addWidget(self.chk_auto_save)
-        return row
-
-    # ------------------------------------------------------------------ сигналы вкладок
-    def _connect_tab_signals(self) -> None:
-        mv = self.movement
-        mv.move_requested.connect(self.action_move)
+    def _build_tools_dialog(self) -> None:
+        self.tools = ToolsDialog(self.settings, self.controller.advance_reference_on_join, self)
+        mv = self.tools.movement_tab
+        mv.space_changed.connect(self._on_move_space_changed)
         mv.rotate_requested.connect(self.action_rotate_yaw)
+        mv.angle_step_changed.connect(self._on_angle_step_changed)
         mv.set_anchor_requested.connect(self.action_set_anchor_from_current)
         mv.snap_anchor_requested.connect(self.action_snap_anchor)
         mv.preset_requested.connect(self.action_apply_preset)
-        mv.step_changed.connect(self._on_step_changed)
-        mv.angle_step_changed.connect(self._on_angle_step_changed)
-        mv.space_changed.connect(self._on_move_space_changed)
+        mv.invert_changed.connect(self._on_invert_changed)
+        mv.test_move_requested.connect(self.action_test_move)
+        mv.test_rotate_requested.connect(self.action_test_rotate)
 
-        jt = self.join_tab
+        jt = self.tools.join_tab
         jt.prop_size_changed.connect(self._on_prop_size_changed)
         jt.saved_size_picked.connect(self._on_saved_size_picked)
         jt.save_size_requested.connect(self._save_current_prop_size)
@@ -303,14 +290,21 @@ class MapperMainWindow(QMainWindow):
         jt.ruler_anchor_requested.connect(self.action_ruler_to_anchor)
         jt.ruler_mid_requested.connect(self.action_move_to_ruler_midpoint)
         jt.btn_to_step.clicked.connect(
-            lambda: self.movement.set_step_value(jt.spin_prop_size.value())
+            lambda: self.quick.set_step_value(jt.spin_prop_size.value())
         )
 
-        ct = self.calib_tab
+        ct = self.tools.calibration_tab
         ct.wizard_requested.connect(self.start_full_calibration)
         ct.single_requested.connect(self.start_single_calibration)
         ct.fast_capture_toggled.connect(self._on_fast_capture_toggled)
         ct.unfocus_toggled.connect(self._on_unfocus_toggled)
+        ct.safe_verify_toggled.connect(self._on_safe_verify_toggled)
+        ct.max_jump_changed.connect(self._on_max_jump_changed)
+
+        self.tools.settings_requested.connect(self._open_settings_dialog)
+
+    def open_tools(self, index: int = 0) -> None:
+        self.tools.show_tab(index)
 
     # ------------------------------------------------------------------ состояние
     def _save_settings(self) -> None:
@@ -318,9 +312,9 @@ class MapperMainWindow(QMainWindow):
 
     def _update_button_hotkey_titles(self) -> None:
         hk = self.settings.hotkeys
-        self.btn_capture.setText(f"📥 Захват ({hk.capture or '—'})")
-        self.btn_save_commit.setText(f"💾 Сохранить ({hk.save_commit or '—'})")
-        self.btn_paste_all.setText(f"📤 Вставить всё ({hk.paste_all or '—'})")
+        self.btn_capture.setText(f"Захват  {hk.capture or '—'}")
+        self.btn_save_commit.setText(f"Сохранить  {hk.save_commit or '—'}")
+        self.btn_paste_all.setText(f"Вставить всё  {hk.paste_all or '—'}")
         self.calib_tab.set_hotkey_title(hk.calibrate_point)
 
     def _sync_ui_from_state(self) -> None:
@@ -334,12 +328,14 @@ class MapperMainWindow(QMainWindow):
         self.field_box.set_values({f: t.get_field(f) for f in FIELD_NAMES})
 
         use_anchor = self.settings.move_space == MoveSpace.ANCHOR_HORIZONTAL.value
-        self.movement.update_state(t.rz, self.settings.anchor_rz, use_anchor)
+        self.tools.movement_tab.update_state(t.rz, self.settings.anchor_rz, use_anchor)
+        self.quick.set_heading(t.rz)
+        self.quick.set_step_value(self.settings.step)
 
         self.btn_undo.setEnabled(self.controller.can_undo())
         self.btn_redo.setEnabled(self.controller.can_redo())
 
-        self.join_tab.set_reference_state(self.controller.reference_transform)
+        self.tools.join_tab.set_reference_state(self.controller.reference_transform)
 
     def _refresh_calibration_labels(self) -> None:
         self.calib_tab.refresh_points(self.settings.calibration)
@@ -349,11 +345,12 @@ class MapperMainWindow(QMainWindow):
 
     def _set_status(self, message: str, error: bool = False) -> None:
         self.lbl_status.setText(message)
+        self.lbl_status.setToolTip(message)
         if error:
             logger.warning("Статус (ошибка): %s", message)
             self.lbl_status.setStyleSheet(
                 "background-color: #3b1219; border: 1px solid #ef4444; color: #fecaca; "
-                "border-radius: 5px; padding: 5px 8px;"
+                "border-radius: 4px; padding: 4px 6px;"
             )
         else:
             logger.info("Статус: %s", message)
@@ -371,27 +368,26 @@ class MapperMainWindow(QMainWindow):
     def _toggle_mini_mode(self) -> None:
         self._mini_mode = not self._mini_mode
         self.body_container.setVisible(not self._mini_mode)
-        self.btn_mini.setText("▴ Развернуть" if self._mini_mode else "▾ Мини")
+        self.btn_mini.setText("▴" if self._mini_mode else "▾")
         self.adjustSize()
 
     def _toggle_hotkeys(self, checked: bool) -> None:
         self.settings.hotkeys_enabled = checked
         self._save_settings()
         self._restart_hotkeys()
-        self._set_status("Глобальные хоткеи включены." if checked else "Глобальные хоткеи временно отключены.")
+        self._set_status("Горячие клавиши включены." if checked else "Горячие клавиши отключены.")
 
     def _restart_hotkeys(self) -> None:
         self.hotkey_service.stop()
         hk = self.settings.hotkeys
         if not self.settings.hotkeys_enabled:
-            # Во время калибровки клавиша фиксации точки должна работать всегда
             if self.calibration_flow.is_active and hk.calibrate_point:
                 self.hotkey_service.start({"calibrate_point": hk.calibrate_point})
             return
 
         failed = self.hotkey_service.start(hk.to_dict())
         if failed:
-            self._set_status(f"Часть хоткеев занята другой программой: {', '.join(failed)}", error=True)
+            self._set_status(f"Хоткеи заняты другой программой: {', '.join(failed)}", error=True)
 
     def _open_settings_dialog(self) -> None:
         dlg = SettingsDialog(self.settings, self)
@@ -420,22 +416,15 @@ class MapperMainWindow(QMainWindow):
         self._save_settings()
         self._refresh_calibration_labels()
         if self.calibration_flow.is_active:
-            self._set_status(
-                f"Записана «{CALIBRATION_LABELS[target]}» ({x}, {y}). Переходите к следующей."
-            )
+            self._set_status(f"Записано «{CALIBRATION_LABELS[target]}»: {x}, {y}")
 
     def _on_calibration_finished(self) -> None:
-        self._set_status("Калибровка успешно завершена и сохранена!")
+        self._set_status("Калибровка завершена и сохранена.")
 
     def _on_calibration_cancelled(self) -> None:
         self._set_status("Калибровка отменена.")
 
-    # ------------------------------------------------------------------ обработчики вкладок
-    def _on_auto_flags_changed(self) -> None:
-        self.settings.auto_apply_to_game = self.chk_auto_apply.isChecked()
-        self.settings.auto_save_enter = self.chk_auto_save.isChecked()
-        self._save_settings()
-
+    # ------------------------------------------------------------------ обработчики
     def _on_fast_capture_toggled(self, val: bool) -> None:
         self.settings.fast_capture_skip_tilt = val
         self._save_settings()
@@ -443,6 +432,31 @@ class MapperMainWindow(QMainWindow):
     def _on_unfocus_toggled(self, val: bool) -> None:
         self.settings.unfocus_after_paste = val
         self._save_settings()
+
+    def _on_safe_verify_toggled(self, val: bool) -> None:
+        self.settings.safe_write_verify = val
+        self._save_settings()
+
+    def _on_max_jump_changed(self, val: float) -> None:
+        self.settings.max_jump = float(val)
+        self._save_settings()
+
+    def _on_invert_changed(self, name: str, value: bool) -> None:
+        mapping = {
+            "forward": "invert_forward",
+            "right": "invert_right",
+            "up": "invert_up",
+            "rotate": "invert_rotate",
+        }
+        attr = mapping.get(name)
+        if attr is None:
+            return
+        setattr(self.settings, attr, bool(value))
+        self._save_settings()
+        logger.info("Поправка направления '%s' = %s", name, value)
+        self._set_status(
+            f"Направление «{name}» инвертировано: {value}." if value else f"Направление «{name}» обычное."
+        )
 
     def _on_move_space_changed(self, space: str) -> None:
         self.settings.move_space = space
@@ -466,14 +480,12 @@ class MapperMainWindow(QMainWindow):
 
     def _on_saved_size_picked(self, size: float) -> None:
         self.join_tab.spin_prop_size.setValue(size)
-        self.movement.set_step_value(size)
+        self.quick.set_step_value(size)
 
     def _save_current_prop_size(self) -> None:
         sz = self.join_tab.spin_prop_size.value()
         name, ok = QInputDialog.getText(
-            self,
-            "Сохранить размер пропа",
-            f"Название для размера {format_number(sz, 4)} м:",
+            self, "Сохранить размер пропа", f"Название для размера {format_number(sz, 4)} м:"
         )
         if ok and name.strip():
             self.settings.saved_prop_sizes.append({"name": name.strip(), "size": sz})
@@ -501,10 +513,40 @@ class MapperMainWindow(QMainWindow):
             self._sync_ui_from_state()
         elif isinstance(payload, list):
             self.controller.mark_synced(payload)
+        self._pending_rollback = None
         self._set_status(msg, error=False)
 
     def _on_macro_failed(self, err_msg: str) -> None:
         self._set_status(err_msg, error=True)
+        pending = self._pending_rollback
+        self._pending_rollback = None
+        if pending is None:
+            return
+
+        baseline, fields = pending
+        if not fields:
+            return
+
+        logger.warning("Вставка не подтверждена — возвращаю прежние координаты в поля игры")
+        automator = self.automator
+        cal = self.settings.calibration
+        timings = self.settings.timings
+        pos_dec = self.settings.pos_decimals
+        rot_dec = self.settings.rot_decimals
+
+        def _job() -> tuple[str, object]:
+            automator.write_fields(
+                transform=baseline,
+                fields=fields,
+                calibration=cal,
+                timings=timings,
+                pos_decimals=pos_dec,
+                rot_decimals=rot_dec,
+                verify=False,
+            )
+            return "Возвращены прежние координаты (ввод отменён).", []
+
+        self.macro_runner.run(_job, label="Откат")
 
     def _maybe_push_to_game(self, dirty_fields: list[str], action_label: str) -> None:
         if not self.settings.auto_apply_to_game:
@@ -516,13 +558,30 @@ class MapperMainWindow(QMainWindow):
             return
 
         snap = self.controller.current
+        baseline = self.controller.panel_synced
+        if baseline is not None and dirty_fields:
+            jump = math.dist(
+                (baseline.x, baseline.y, baseline.z), (snap.x, snap.y, snap.z)
+            )
+            if jump > self.settings.max_jump:
+                message = (
+                    f"{action_label}: скачок {jump:.1f} м больше лимита {self.settings.max_jump:.0f} м — "
+                    "ввод заблокирован. Нажмите «Захват», чтобы синхронизировать координаты."
+                )
+                logger.error("Заблокирован ввод: скачок %.2f м (лимит %.2f м)", jump, self.settings.max_jump)
+                self._set_status(message, error=True)
+                return
+
+        self._pending_rollback = (baseline, list(dirty_fields)) if baseline is not None else None
+
+        automator = self.automator
         cal = self.settings.calibration
         timings = self.settings.timings
         pos_dec = self.settings.pos_decimals
         rot_dec = self.settings.rot_decimals
         save_enter = self.settings.auto_save_enter
         unfocus = self.settings.unfocus_after_paste
-        automator = self.automator
+        verify = self.settings.safe_write_verify
 
         def _job() -> tuple[str, object]:
             written = automator.write_fields(
@@ -534,9 +593,10 @@ class MapperMainWindow(QMainWindow):
                 rot_decimals=rot_dec,
                 unfocus_after=unfocus,
                 save_with_enter=save_enter,
+                verify=verify,
             )
             fields_str = ", ".join(f.upper() for f in written) if written else "без изм."
-            suffix = " + Сохранено (Enter)" if save_enter else ""
+            suffix = " + Сохранено" if save_enter else ""
             return f"{action_label} → [{fields_str}]{suffix}", written
 
         self.macro_runner.run(_job, label=action_label)
@@ -574,17 +634,14 @@ class MapperMainWindow(QMainWindow):
 
         def _job() -> tuple[str, object]:
             captured = automator.read_transform(
-                calibration=cal,
-                timings=timings,
-                skip_tilt=skip_tilt,
-                base_transform=base_t,
+                calibration=cal, timings=timings, skip_tilt=skip_tilt, base_transform=base_t
             )
             return (
-                f"Захвачено: X={captured.x:.3f}, Y={captured.y:.3f}, Z={captured.z:.3f}, RZ={captured.rz:+.2f}°",
+                f"Захвачено: X={captured.x:.3f} Y={captured.y:.3f} Z={captured.z:.3f} RZ={captured.rz:+.2f}°",
                 captured,
             )
 
-        self.macro_runner.run(_job, label="Захват из игры")
+        self.macro_runner.run(_job, label="Захват")
 
     def action_paste_all_to_game(self) -> None:
         snap = self.controller.current
@@ -594,7 +651,13 @@ class MapperMainWindow(QMainWindow):
         rot_dec = self.settings.rot_decimals
         save_enter = self.settings.auto_save_enter
         unfocus = self.settings.unfocus_after_paste
+        verify = self.settings.safe_write_verify
         automator = self.automator
+        self._pending_rollback = (
+            (self.controller.panel_synced, list(FIELD_NAMES))
+            if self.controller.panel_synced is not None
+            else None
+        )
 
         def _job() -> tuple[str, object]:
             written = automator.write_fields(
@@ -606,14 +669,14 @@ class MapperMainWindow(QMainWindow):
                 rot_decimals=rot_dec,
                 unfocus_after=unfocus,
                 save_with_enter=save_enter,
+                verify=verify,
             )
             suffix = " + Сохранено" if save_enter else ""
-            return f"Вставлены все 6 координат{suffix}.", written
+            return f"Вставлены все координаты{suffix}.", written
 
         self.macro_runner.run(_job, label="Вставить всё")
 
     def action_commit_save_in_game(self) -> None:
-        """Вставляет несинхронизированные поля (если есть), затем кликает мимо поля и жмёт Enter."""
         dirty = self.controller.compute_dirty_fields()
         snap = self.controller.current
         cal = self.settings.calibration
@@ -621,6 +684,7 @@ class MapperMainWindow(QMainWindow):
         pos_dec = self.settings.pos_decimals
         rot_dec = self.settings.rot_decimals
         auto_apply = self.settings.auto_apply_to_game
+        verify = self.settings.safe_write_verify
         automator = self.automator
 
         def _job() -> tuple[str, object]:
@@ -633,28 +697,39 @@ class MapperMainWindow(QMainWindow):
                     pos_decimals=pos_dec,
                     rot_decimals=rot_dec,
                     save_with_enter=True,
+                    verify=verify,
                 )
-                return "Все изменения введены и сохранены (Клик мимо + Enter)!", written
+                return "Изменения введены и сохранены.", written
             automator.commit_save_only(calibration=cal, timings=timings)
-            return "Сохранено в игре (Клик мимо поля + Enter)!", []
+            return "Сохранено в игре (Клик мимо + Enter).", []
 
         self.macro_runner.run(_job, label="Сохранение")
 
     def action_move(self, right: float = 0.0, forward: float = 0.0, up: float = 0.0) -> None:
         dirty = self.controller.move_step(right_sign=right, forward_sign=forward, up_sign=up)
         self._sync_ui_from_state()
-        self._maybe_push_to_game(dirty, f"Сдвиг ({format_number(self.settings.step, 4)} м)")
+        self._maybe_push_to_game(dirty, f"Сдвиг {format_number(self.settings.step, 3)} м")
+
+    def action_test_move(self) -> None:
+        dirty = self.controller.move_step(forward_sign=1.0, custom_distance=0.05)
+        self._sync_ui_from_state()
+        self._maybe_push_to_game(dirty, "Тест: 5 см вперёд")
+
+    def action_test_rotate(self) -> None:
+        dirty = self.controller.rotate_by(15.0)
+        self._sync_ui_from_state()
+        self._maybe_push_to_game(dirty, "Тест: поворот 15°")
 
     def action_rotate_yaw(self, delta_deg: float) -> None:
         dirty = self.controller.rotate_by(delta_deg)
         self._sync_ui_from_state()
-        self._maybe_push_to_game(dirty, f"Поворот {delta_deg:+.1f}°")
+        self._maybe_push_to_game(dirty, f"Поворот {delta_deg:+.0f}°")
 
     def action_set_anchor_from_current(self) -> None:
         ang = self.controller.set_anchor_from_current()
         self._save_settings()
         self._sync_ui_from_state()
-        self._set_status(f"Базовый угол комнаты установлен: {ang:+.2f}°")
+        self._set_status(f"Базовый угол комнаты: {ang:+.2f}°")
 
     def action_snap_anchor(self, offset_deg: float) -> None:
         dirty = self.controller.snap_to_room_anchor(offset_deg)
@@ -670,7 +745,7 @@ class MapperMainWindow(QMainWindow):
         ref = self.controller.save_reference_from_current()
         self._sync_ui_from_state()
         self._set_status(
-            f"Эталон сохранён: X={ref.x:.2f}, Y={ref.y:.2f}, Z={ref.z:.2f}, RZ={ref.rz:+.1f}°"
+            f"Эталон сохранён: X={ref.x:.2f} Y={ref.y:.2f} Z={ref.z:.2f} RZ={ref.rz:+.1f}°"
         )
 
     def action_align_to_reference(self) -> None:
@@ -685,37 +760,37 @@ class MapperMainWindow(QMainWindow):
     def action_join_section(self, direction: str, turn_deg: float) -> None:
         dirty = self.controller.join_section_from_reference(direction=direction, turn_deg=turn_deg)
         self._sync_ui_from_state()
-        self._maybe_push_to_game(dirty, f"Стыковка секции ({direction}, {turn_deg:+.0f}°)")
+        self._maybe_push_to_game(dirty, f"Стыковка ({direction}, {turn_deg:+.0f}°)")
 
     def action_rotate_edge(self, delta_deg: float, edge: str) -> None:
         dirty = self.controller.rotate_around_prop_edge(delta_deg, edge)
         self._sync_ui_from_state()
-        self._maybe_push_to_game(dirty, f"Поворот вокруг края ({edge})")
+        self._maybe_push_to_game(dirty, f"Поворот за край ({edge})")
 
     def action_record_point_a(self) -> None:
         pt = self.controller.set_ruler_point_a()
         self.join_tab.show_measurement(self.controller.get_ruler_measurement())
-        self._set_status(f"Точка A записана: ({pt.x:.3f}, {pt.y:.3f}, {pt.z:.3f})")
+        self._set_status(f"Точка A: ({pt.x:.3f}, {pt.y:.3f}, {pt.z:.3f})")
 
     def action_record_point_b(self) -> None:
         pt = self.controller.set_ruler_point_b()
         self.join_tab.show_measurement(self.controller.get_ruler_measurement())
-        self._set_status(f"Точка B записана: ({pt.x:.3f}, {pt.y:.3f}, {pt.z:.3f})")
+        self._set_status(f"Точка B: ({pt.x:.3f}, {pt.y:.3f}, {pt.z:.3f})")
 
     def action_ruler_to_anchor(self) -> None:
         meas = self.controller.get_ruler_measurement()
         if meas is None:
-            self._set_status("Сначала запишите точки A и B!", error=True)
+            self._set_status("Сначала запишите точки A и B.", error=True)
             return
         self.settings.anchor_rz = meas.rz_along_x
         self._save_settings()
         self._sync_ui_from_state()
-        self._set_status(f"Угол линии A→B ({meas.rz_along_x:+.3f}°) установлен как якорь комнаты!")
+        self._set_status(f"Угол A→B ({meas.rz_along_x:+.3f}°) — якорь комнаты.")
 
     def action_move_to_ruler_midpoint(self) -> None:
         meas = self.controller.get_ruler_measurement()
         if meas is None:
-            self._set_status("Сначала запишите точки A и B!", error=True)
+            self._set_status("Сначала запишите точки A и B.", error=True)
             return
         mid = Transform(
             x=meas.midpoint.x,
@@ -727,7 +802,7 @@ class MapperMainWindow(QMainWindow):
         )
         dirty = self.controller.update_transform(mid)
         self._sync_ui_from_state()
-        self._maybe_push_to_game(dirty, "Центр между A и B")
+        self._maybe_push_to_game(dirty, "Центр A–B")
 
     def action_undo(self) -> None:
         dirty = self.controller.undo()
@@ -735,15 +810,15 @@ class MapperMainWindow(QMainWindow):
             self._set_status("История отмены пуста.")
             return
         self._sync_ui_from_state()
-        self._maybe_push_to_game(dirty, "Отмена (Undo)")
+        self._maybe_push_to_game(dirty, "Отмена")
 
     def action_redo(self) -> None:
         dirty = self.controller.redo()
         if dirty is None:
-            self._set_status("Нет действий для повтора.")
+            self._set_status("Нечего повторять.")
             return
         self._sync_ui_from_state()
-        self._maybe_push_to_game(dirty, "Повтор (Redo)")
+        self._maybe_push_to_game(dirty, "Повтор")
 
     # ------------------------------------------------------------------ завершение
     def closeEvent(self, event) -> None:  # noqa: N802
@@ -751,4 +826,5 @@ class MapperMainWindow(QMainWindow):
         self.calibration_flow.shutdown()
         self.hotkey_service.stop()
         self._save_settings()
+        self.tools.close()
         super().closeEvent(event)
