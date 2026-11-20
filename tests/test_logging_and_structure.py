@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ast
 import logging
+import re
+import sys
 import threading
 from pathlib import Path
 
@@ -73,19 +75,89 @@ def test_session_ready_marker(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- launcher
-def test_launcher_script_имеет_все_этапы() -> None:
-    bat = (PROJECT_ROOT / "run_mapper.bat").read_text(encoding="utf-8")
+def test_launcher_is_ascii_and_crlf() -> None:
+    """ASCII + CRLF: .bat нельзя ломать кодировкой или LF — иначе окно закрывается мгновенно."""
+    data = (PROJECT_ROOT / "run_mapper.bat").read_bytes()
+    data.decode("ascii")  # бросит UnicodeDecodeError, если появится не-ASCII
+    assert data.count(b"\r\n") > 30
+    assert data.count(b"\n") == data.count(b"\r\n"), "В .bat не должно быть одиночных LF"
+    assert not data.startswith(b"\xef\xbb\xbf"), "BOM в начале .bat ломает cmd"
 
-    assert "python -m venv" in bat or "-m venv" in bat
-    assert "requirements.txt" in bat
-    assert "-m pip install" in bat
-    assert "main.py" in bat
-    assert "pythonw.exe" in bat or "%PYW%" in bat
-    assert "setup.log" in bat
-    assert "mapper_assist.log" in bat
-    assert "pause" in bat, "При ошибке окно не должно закрываться мгновенно"
-    assert "--repair-venv" in bat
-    assert "--debug" in bat
+
+def test_launcher_never_closes_silently() -> None:
+    source = (PROJECT_ROOT / "run_mapper.bat").read_text(encoding="ascii")
+    # На каждую ошибку — пауза, иначе окно закроется до того, как пользователь прочитает текст
+    error_blocks = re.findall(r"\[ERROR\][\s\S]{0,400}?exit /b", source)
+    assert error_blocks, "В launcher-е нет блоков обработки ошибок"
+    for block in error_blocks:
+        assert "pause" in block, f"Блок ошибки без pause:\n{block}"
+
+
+def test_launcher_delegates_to_bootstrap() -> None:
+    source = (PROJECT_ROOT / "run_mapper.bat").read_text(encoding="ascii")
+    assert "tools\\bootstrap.py" in source
+    assert "pause" in source
+    assert "%*" in source, "Аргументы (--debug, --reinstall...) должны передаваться дальше"
+    assert (PROJECT_ROOT / "tools" / "bootstrap.py").exists()
+    # Никакой сложной логики в batch: ни циклов, ни goto, ни delayed expansion
+    assert "goto " not in source.lower()
+    assert "for /f" not in source.lower()
+    assert "setlocal EnableDelayedExpansion" not in source
+
+
+def test_bootstrap_covers_required_steps() -> None:
+    source = (PROJECT_ROOT / "tools" / "bootstrap.py").read_text(encoding="utf-8")
+    for step in (
+        "-m", "venv",          # создание окружения
+        "pip", "install",      # установка зависимостей
+        "requirements.txt",
+        "session_ready.txt",   # контроль успешного старта GUI
+        "setup.log",
+        "mapper_assist.log",
+        "--repair-venv",
+        "--check-only",
+        "--debug",
+    ):
+        assert step in source, f"bootstrap.py не содержит шага: {step}"
+
+
+def test_bootstrap_help_runs_without_side_effects(tmp_path: Path) -> None:
+    import subprocess
+
+    proc = subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "tools" / "bootstrap.py"), "--help"],
+        cwd=str(PROJECT_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=120,
+    )
+    assert proc.returncode == 0
+    output = proc.stdout.decode("utf-8", "replace")
+    assert "--repair-venv" in output and "--check-only" in output
+
+
+def test_bootstrap_helpers(tmp_path: Path, monkeypatch) -> None:
+    import importlib
+
+    bootstrap = importlib.import_module("tools.bootstrap")
+
+    assert bootstrap.requirements_hash() == bootstrap.requirements_hash()
+    assert len(bootstrap.requirements_hash()) == 32
+
+    sample = tmp_path / "sample.log"
+    sample.write_text("\n".join(f"line {i}" for i in range(50)), encoding="utf-8")
+    tail = bootstrap.tail_of(sample, 5)
+    assert tail.splitlines() == [f"line {i}" for i in range(45, 50)]
+
+    assert bootstrap.tail_of(tmp_path / "missing.log") == ""
+
+    options = bootstrap.parse_args(["--debug", "--repair-venv", "--check-only"])
+    assert options.debug and options.repair_venv and options.check_only
+    assert options.start_timeout > 0
+
+    monkeypatch.setattr(bootstrap, "STAMP_FILE", tmp_path / "stamp")
+    bootstrap.write_stamp("abc123")
+    assert bootstrap.read_stamp() == "abc123"
 
 
 # --------------------------------------------------------------------------- калибровка
