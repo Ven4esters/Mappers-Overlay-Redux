@@ -20,3 +20,6 @@ dist/
 # Logs and launcher state
 logs/
 *.log
+
+# Готовые архивы релиза
+*.zip
