@@ -1,0 +1,22 @@
+"""Журнал: JSON-строки с уровнем и сообщением."""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+
+from map_overlay.logging_setup import setup_logging
+
+
+def test_setup_logging_writes_json(tmp_path: Path) -> None:
+    path = tmp_path / "logs" / "overlay.log"
+    setup_logging(path)
+    logging.getLogger("test").warning("проверка журнала")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    line = path.read_text(encoding="utf-8").strip().splitlines()[-1]
+    payload = json.loads(line)
+    assert payload["level"] == "WARNING"
+    assert payload["message"] == "проверка журнала"
+    assert payload["logger"] == "test"

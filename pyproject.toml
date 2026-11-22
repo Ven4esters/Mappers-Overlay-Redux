@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "map-overlay-redux"
+version = "1.0.0"
+description = "Map Overlay Redux — оверлей для мапперов LSP (FiveM): калибровка полей панели, запись координат и сдвиг по 8 направлениям."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6-Essentials==6.8.1",
+    "pyperclip==1.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy==1.11.2",
+    "ruff==0.7.4",
+    "pytest==8.3.3",
+    "pytest-cov==5.0.0",
+    "pip-audit==2.7.3",
+    "pyinstaller==6.10.0",
+]
+
+[tool.setuptools]
+packages = ["map_overlay", "map_overlay.domain", "map_overlay.application", "map_overlay.infrastructure", "map_overlay.ui", "map_overlay.ui.tabs"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["map_overlay", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF", "RET", "ARG", "PTH", "D1"]
+# D105/D107: поведение __init__ и магических методов описано в docstring класса.
+ignore = ["RUF001", "RUF002", "RUF003", "D105", "D107"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D1", "ARG", "PLR2004"]
+"tools/*" = ["D1"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+python_version = "3.12"
+# Приложение настольное и работает только в Windows: разбираем именно эту ветку кода.
+platform = "win32"
+strict = true
+# Qt-декораторы (@Slot, @Signal) в typeshed нетипизированы; это единственное исключение.
+disallow_untyped_decorators = false
+warn_unreachable = true
+no_implicit_reexport = true
+files = ["map_overlay", "tools"]
+exclude = ["tests"]
+
+[[tool.mypy.overrides]]
+module = ["pyperclip.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = ["error"]
