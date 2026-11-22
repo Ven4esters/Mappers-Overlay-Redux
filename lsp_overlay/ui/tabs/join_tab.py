@@ -142,6 +142,8 @@ class JoinTab(QWidget):
             self.combo_across.addItem(field.label, field.value)
         self.combo_across.currentIndexChanged.connect(self._on_geometry_changed)
         across_row.addWidget(self.combo_across, 1)
+        self.lbl_across = make_label(EMPTY_TEXT, muted=True)
+        across_row.addWidget(self.lbl_across)
         column.addLayout(across_row)
 
         sides = QHBoxLayout()
@@ -160,6 +162,7 @@ class JoinTab(QWidget):
         grid = QGridLayout(group)
         grid.setHorizontalSpacing(6)
         grid.setVerticalSpacing(3)
+        self.lbl_base = make_label(EMPTY_TEXT, muted=True, wrap=True)
         self._value_labels: dict[str, QLabel] = {}
         for row, (key, title) in enumerate((("x", "X"), ("y", "Y"), ("rz", "RZ"))):
             grid.addWidget(make_label(title, muted=True), row, 0)
@@ -168,6 +171,7 @@ class JoinTab(QWidget):
             value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self._value_labels[key] = value
             grid.addWidget(value, row, 1)
+        grid.addWidget(self.lbl_base, len(self._value_labels), 0, 1, 2)
         return group
 
     def _build_actions(self) -> QWidget:
@@ -268,6 +272,8 @@ class JoinTab(QWidget):
 
     def _update_preview(self) -> None:
         first, second = self.selected_specs()
+        self._update_base_line()
+        self._update_across_value(first, second)
         texts = dict.fromkeys(self._value_labels, EMPTY_TEXT)
         if first is not None and second is not None:
             try:
@@ -294,6 +300,33 @@ class JoinTab(QWidget):
         self.combo_first.blockSignals(False)
         self.combo_second.blockSignals(False)
         self._update_preview()
+
+    def _update_base_line(self) -> None:
+        pose = self._pose
+        self.lbl_base.setText(
+            f"A сейчас: X {format_length(pose.x, 2)} · Y {format_length(pose.y, 2)} · "
+            f"угол {pose.rz:.1f}° — при установке угол перечитывается из панели"
+        )
+
+    def _update_across_value(self, first: ObjectSpec | None, second: ObjectSpec | None) -> None:
+        field = AcrossField(self.combo_across.currentData())
+        spec = first or second
+        if spec is None:
+            self.lbl_across.setText(EMPTY_TEXT)
+            return
+        value = spec.dimension(field.dimension)
+        if value <= 0.0:
+            self.lbl_across.setText(f"не измерено ({field.label.lower()})")
+            return
+        self.lbl_across.setText(f"{format_length(value, 3)} м")
+
+    def base_line(self) -> str:
+        """Строка про текущий угол A (для подсказок и тестов)."""
+        return self.lbl_base.text()
+
+    def across_text(self) -> str:
+        """Поперечный размер, которым считается стык (для тестов)."""
+        return self.lbl_across.text()
 
     def _select_name(self, combo: QComboBox, name: str) -> None:
         if not name:

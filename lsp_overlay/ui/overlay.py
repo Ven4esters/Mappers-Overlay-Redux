@@ -538,10 +538,7 @@ class OverlayWindow(QWidget):
         if first is None or second is None:
             self._set_status("Выберите оба предмета в списках «Стык»", "warning")
             return
-        if self._session.panel_pose is None:
-            self._set_status("Сначала нажмите «Считать» — без этого неизвестно, где A", "warning")
-            return
-        self._busy("Ставлю второй предмет — не двигайте мышь")
+        self._busy("Читаю угол A и ставлю второй предмет — не двигайте мышь")
         try:
             result = self._session.place_join(first, second, self.join_tab.request())
         except DomainError as error:
@@ -549,12 +546,14 @@ class OverlayWindow(QWidget):
             return
         finally:
             self._idle()
+        base = self._session.last_join_base
+        angle = f"угол A {base.rz:.1f}° → B {result.pose.rz:.1f}°, " if base else ""
         if not result.fields:
             self._set_status("B уже стоит на месте стыка — писать нечего", "info")
         else:
             names = ", ".join(key.value.upper() for key in result.fields)
             self._set_status(
-                f"«{first.name}» → «{second.name}»: записано {names}, "
+                f"«{first.name}» → «{second.name}»: {angle}записано {names}, "
                 "F не нажат — предмет только показан",
                 "success",
             )

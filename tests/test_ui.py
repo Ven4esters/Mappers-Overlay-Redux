@@ -68,7 +68,7 @@ def test_window_has_seven_tabs(tmp_path: Path, qt_app: object) -> None:
 
 def test_join_places_second_object_without_pressing_f(tmp_path: Path, qt_app: object) -> None:
     window, panel = make_window(tmp_path, qt_app)
-    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, thickness=3.0))
+    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2))
     window.join_tab.combo_first.setCurrentIndex(0)
     window.join_tab.combo_second.setCurrentIndex(0)
     window.join_tab.place_requested.emit()
@@ -106,15 +106,30 @@ def test_join_swap_makes_second_object_the_base(tmp_path: Path, qt_app: object) 
     assert window.join_tab.selected_specs()[1] == first
 
 
-def test_join_without_capture_warns(tmp_path: Path, qt_app: object) -> None:
+def test_join_reads_base_pose_itself(tmp_path: Path, qt_app: object) -> None:
+    """Без «Считать» стык сам читает A из панели — угол берётся настоящий."""
     settings = Settings(calibration=build_calibration())
-    panel = FakeGamePanel(START)
+    panel = FakeGamePanel(Pose(x=100.0, y=200.0, z=30.0, rz=25.0))
     window = OverlayWindow(
         MappingSession(panel, settings), ConfigStore(tmp_path / "s.json"), settings
     )
-    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, thickness=3.0))
+    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2))
+    window.join_tab.combo_first.setCurrentIndex(0)
+    window.join_tab.combo_second.setCurrentIndex(0)
     window.join_tab.place_requested.emit()
-    assert "Считать" in window.lbl_status.text()
+    assert panel.writes
+    assert panel.pose.rz == pytest.approx(-65.0)
+
+
+def test_join_tab_shows_base_angle_and_across_value(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=1.0, y=2.0, z=3.0, rz=70.0))
+    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2))
+    window.join_tab.combo_first.setCurrentIndex(0)
+    window.join_tab.combo_second.setCurrentIndex(0)
+    assert "угол 70.0°" in window.join_tab.base_line()
+    assert window.join_tab.across_text() == "0.200 м"
+    window.join_tab.place_requested.emit()
+    assert "угол A 70.0° → B -20.0°" in window.lbl_status.text()
 
 
 def test_join_without_dimensions_reports_error(tmp_path: Path, qt_app: object) -> None:
@@ -233,16 +248,19 @@ def test_apply_without_capture_shows_error(tmp_path: Path, qt_app: object) -> No
     assert "Считать" in window.lbl_status.text()
 
 
-def test_join_can_switch_across_to_thickness(tmp_path: Path, qt_app: object) -> None:
+def test_join_switches_across_to_width(tmp_path: Path, qt_app: object) -> None:
     window, panel = make_window(tmp_path, qt_app)
-    window.action_save_object(ObjectSpec(name="Плита", length=4.0, width=0.2, thickness=0.1))
+    window.action_save_object(ObjectSpec(name="Плита", length=4.0, width=2.5, thickness=0.1))
     window.join_tab.combo_first.setCurrentIndex(0)
     window.join_tab.combo_second.setCurrentIndex(0)
-    index = window.join_tab.combo_across.findData("thickness")
-    window.join_tab.combo_across.setCurrentIndex(index)
     window.join_tab.place_requested.emit()
     assert panel.pose.x == pytest.approx(250.5 + 0.05 + 2.0)
-    assert panel.pose.y == pytest.approx(-810.25 + 1.95)
+    assert panel.pose.y == pytest.approx(-810.25 + 2.0 - 0.05)
+    panel.pose = START  # возвращаем A на место: следующая попытка — снова от A
+    index = window.join_tab.combo_across.findData("width")
+    window.join_tab.combo_across.setCurrentIndex(index)
+    window.join_tab.place_requested.emit()
+    assert panel.pose.x == pytest.approx(250.5 + 1.25 + 2.0)
 
 
 def test_dimension_labels_in_objects_tab_have_thickness(tmp_path: Path, qt_app: object) -> None:

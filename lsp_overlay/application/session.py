@@ -45,6 +45,7 @@ class MappingSession:
         self._tape = MeasureTape()
         self._catalog = catalog or Catalog()
         self._pending_dimensions: dict[Dimension, float] = {}
+        self._last_join_base: Pose | None = None
         self._lock = threading.RLock()
 
     @property
@@ -140,6 +141,11 @@ class MappingSession:
         if span is None or span.is_degenerate:
             return None
         return span.projections()
+
+    @property
+    def last_join_base(self) -> Pose | None:
+        """Поза ``A``, от которой считался последний стык."""
+        return self._last_join_base
 
     @property
     def span(self) -> Span | None:
@@ -248,9 +254,18 @@ class MappingSession:
         request: JoinRequest,
         *,
         commit: bool = False,
+        refresh: bool = True,
     ) -> ApplyResult:
-        """Ставит второй предмет вплотную к первому: считает позу и пишет её в панель."""
+        """Ставит второй предмет вплотную к первому: считает позу и пишет её в панель.
+
+        Перед расчётом поза ``A`` перечитывается из панели (``refresh``): на карте предмет
+        часто поворачивают «для ровности» уже после того, как его считали, и стык должен
+        идти по его настоящему углу, а не по устаревшему.
+        """
         with self._lock:
+            if refresh:
+                self._capture()
+            self._last_join_base = self._pose
             target = self.join_target(first, second, request)
             ensure_within_limit(self._pose, target, self._settings.max_jump)
             self._pose = target

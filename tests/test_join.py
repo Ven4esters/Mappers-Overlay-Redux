@@ -23,8 +23,8 @@ from lsp_overlay.domain.join import (
 )
 from lsp_overlay.domain.pose import Pose
 
-WALL = ObjectSpec(name="Стена", length=4.0, width=0.2, thickness=3.0)
-FENCE = ObjectSpec(name="Забор", length=2.0, width=0.1, thickness=2.0)
+WALL = ObjectSpec(name="Стена", length=4.3, width=2.5, thickness=0.2)
+FENCE = ObjectSpec(name="Забор", length=2.0, width=1.2, thickness=0.1)
 BASE = Pose(x=0.0, y=0.0, z=1.0, rz=0.0)
 
 
@@ -48,16 +48,16 @@ def near_corner(
 
 def test_corner_90_right_puts_second_object_flush() -> None:
     target = join_pose(BASE, WALL, WALL, corner())
-    assert target.x == pytest.approx(0.1 + 2.0)
-    assert target.y == pytest.approx(2.0 - 0.1)
+    assert target.x == pytest.approx(0.1 + 2.15)
+    assert target.y == pytest.approx(2.15 - 0.1)
     assert target.rz == pytest.approx(-90.0)
     assert target.z == pytest.approx(BASE.z)
 
 
 def test_corner_90_left_is_mirror() -> None:
     target = join_pose(BASE, WALL, WALL, corner(side=JoinSide.LEFT))
-    assert target.x == pytest.approx(-2.1)
-    assert target.y == pytest.approx(1.9)
+    assert target.x == pytest.approx(-2.25)
+    assert target.y == pytest.approx(2.05)
     assert target.rz == pytest.approx(90.0)
 
 
@@ -65,14 +65,14 @@ def test_corner_uses_both_sizes() -> None:
     """Вторая деталь другой длины и толщины встаёт своим углом в угол первой."""
     target = join_pose(BASE, WALL, FENCE, corner())
     assert target.x == pytest.approx(0.1 + 1.0)
-    assert target.y == pytest.approx(2.0 - 0.05)
+    assert target.y == pytest.approx(2.15 - 0.05)
 
 
 def test_corner_45_touches_corner_exactly() -> None:
     target = join_pose(BASE, WALL, WALL, corner(MITRE_ANGLE))
     x, y = near_corner(WALL, target, MITRE_ANGLE, JoinSide.RIGHT, BASE.rz)
     assert x == pytest.approx(0.1)
-    assert y == pytest.approx(2.0)
+    assert y == pytest.approx(2.15)
 
 
 def test_corner_custom_angle_touches_corner_exactly() -> None:
@@ -80,14 +80,14 @@ def test_corner_custom_angle_touches_corner_exactly() -> None:
         target = join_pose(BASE, WALL, FENCE, corner(angle))
         x, y = near_corner(FENCE, target, angle, JoinSide.RIGHT, BASE.rz)
         assert x == pytest.approx(0.1), angle
-        assert y == pytest.approx(2.0), angle
+        assert y == pytest.approx(2.15), angle
 
 
 def test_corner_keeps_contact_for_rotated_base() -> None:
     base = Pose(x=250.0, y=-810.0, z=30.0, rz=37.0)
     target = join_pose(base, WALL, FENCE, corner(MITRE_ANGLE))
     radians = math.radians(base.rz)
-    corner_x, corner_y = 0.1, 2.0
+    corner_x, corner_y = 0.1, 2.15
     expected = (
         base.x + corner_x * math.cos(radians) - corner_y * math.sin(radians),
         base.y + corner_x * math.sin(radians) + corner_y * math.cos(radians),
@@ -123,19 +123,50 @@ def test_second_object_never_overlaps_first() -> None:
     assert target.y > 1.0
 
 
-def test_join_can_use_thickness_as_across_size() -> None:
+def test_join_uses_thickness_by_default() -> None:
+    """Тонкая грань — то, чем детали сходятся: по умолчанию поперёк берётся толщина."""
+    target = join_pose(BASE, WALL, WALL, corner())
+    assert target.x == pytest.approx(0.1 + 2.15)
+
+
+def test_join_can_use_width_as_across_size() -> None:
     target = join_pose(
-        BASE, WALL, WALL, JoinRequest(scheme=JoinScheme.CORNER, across=AcrossField.THICKNESS)
+        BASE, WALL, WALL, JoinRequest(scheme=JoinScheme.CORNER, across=AcrossField.WIDTH)
     )
-    # толщина 3.0 вместо ширины 0.2: B отходит от оси A дальше
-    assert target.x == pytest.approx(3.0 / 2.0 + 2.0)
-    assert target.y == pytest.approx(2.0 - 3.0 / 2.0)
+    # ширина 2.5 вместо толщины 0.2: B отходит от оси A дальше
+    assert target.x == pytest.approx(2.5 / 2.0 + 2.15)
+    assert target.y == pytest.approx(2.15 - 2.5 / 2.0)
 
 
 def test_join_requires_measured_across_size() -> None:
     plate = ObjectSpec(name="Плита", length=4.0, width=0.2)
     with pytest.raises(ValidationError, match="толщина"):
         join_pose(BASE, plate, plate, JoinRequest(across=AcrossField.THICKNESS))
+
+
+def test_corner_follows_rotated_base() -> None:
+    """На карте предмет повёрнут «для ровности» — стык идёт по его граням."""
+    base = Pose(x=-1847.342, y=420.077, z=128.316, rz=70.0)
+    target = join_pose(base, WALL, WALL, corner(90.0, JoinSide.LEFT))
+    radians = math.radians(base.rz)
+    local_x, local_y = -(0.2 / 2.0) - 4.3 / 2.0, 4.3 / 2.0 - 0.2 / 2.0
+    assert target.x == pytest.approx(
+        base.x + local_x * math.cos(radians) - local_y * math.sin(radians)
+    )
+    assert target.y == pytest.approx(
+        base.y + local_x * math.sin(radians) + local_y * math.cos(radians)
+    )
+    assert target.rz == pytest.approx(160.0)
+
+
+def test_tilt_moves_second_object_vertically() -> None:
+    """Наклон A (RX/RY) учитывается: смещение идёт по всем трём осям."""
+    base = Pose(x=0.0, y=0.0, z=10.0, rx=15.0)
+    target = join_pose(base, WALL, WALL, corner())
+    assert target.z != pytest.approx(base.z)
+    distance = math.dist((target.x, target.y, target.z), (base.x, base.y, base.z))
+    local = math.hypot(0.2 / 2.0 + 4.3 / 2.0, 4.3 / 2.0 - 0.2 / 2.0)
+    assert distance == pytest.approx(local)
 
 
 def test_angles_are_normalized() -> None:
@@ -161,10 +192,10 @@ def test_unmeasured_object_is_rejected() -> None:
         join_pose(BASE, bare, WALL, corner())
 
 
-def test_missing_width_is_rejected() -> None:
+def test_missing_width_is_rejected_when_width_is_chosen() -> None:
     thin = ObjectSpec(name="Линия", length=2.0)
     with pytest.raises(ValidationError, match="ширина"):
-        join_pose(BASE, WALL, thin, corner())
+        join_pose(BASE, WALL, thin, JoinRequest(across=AcrossField.WIDTH))
 
 
 def test_local_offset_is_planar_and_finite() -> None:

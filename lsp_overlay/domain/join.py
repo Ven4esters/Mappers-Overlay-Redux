@@ -1,9 +1,13 @@
 """Стык двух предметов: буква Г (торец к торцу) и буква Т (торец в бок).
 
-Стык считается в плане: объект ``A`` стоит там, где сейчас проп, объект ``B``
+Стык считается по осям объекта ``A``: объект ``A`` стоит там, где сейчас проп, объект ``B``
 приставляется к нему так, чтобы грани сошлись точно — без щели и без наложения.
 Опорная точка — угол ``A`` на выбранной стороне: и торец ``B``, и его боковая грань
 проходят через этот угол, поэтому координаты получаются точными, а не «на глаз».
+
+Угол ``A`` учитывается целиком (``RX``, ``RY``, ``RZ``): на карте предмет часто повёрнут
+не по осям мира — его ставят ровно по месту, и стык должен идти вдоль его собственных
+граней, а не вдоль севера.
 
 Локальные оси ``A``: ``X`` — поперёк (поперечный габарит), ``Y`` — вдоль длины,
 ``Z`` вверх. Угол отсчитывается против часовой стрелки, как и ``RZ``.
@@ -29,15 +33,20 @@ ACROSS_EPSILON = 1e-9
 
 
 class AcrossField(StrEnum):
-    """Какой габарит считать поперечным размером при стыке."""
+    """Какой габарит считать поперечным размером при стыке.
 
-    WIDTH = "width"
+    По умолчанию — толщина: детали сходятся тонкими гранями, и именно толщина задаёт,
+    насколько вторая деталь отходит от оси первой. Ширина нужна для плоских плит,
+    которые стыкуются всей плоскостью.
+    """
+
     THICKNESS = "thickness"
+    WIDTH = "width"
 
     @property
     def dimension(self) -> Dimension:
         """Габарит, из которого берётся поперечный размер."""
-        return Dimension.WIDTH if self is AcrossField.WIDTH else Dimension.THICKNESS
+        return Dimension.THICKNESS if self is AcrossField.THICKNESS else Dimension.WIDTH
 
     @property
     def label(self) -> str:
@@ -83,7 +92,7 @@ class JoinRequest:
     scheme: JoinScheme = JoinScheme.CORNER
     angle: float = CORNER_ANGLE
     side: JoinSide = JoinSide.RIGHT
-    across: AcrossField = AcrossField.WIDTH
+    across: AcrossField = AcrossField.THICKNESS
 
     def validated(self) -> JoinRequest:
         """Проверяет угол и приводит его к допустимому диапазону."""
@@ -98,7 +107,7 @@ class JoinRequest:
         return self
 
 
-def across_of(spec: ObjectSpec, field: AcrossField = AcrossField.WIDTH) -> float:
+def across_of(spec: ObjectSpec, field: AcrossField = AcrossField.THICKNESS) -> float:
     """Поперечный размер предмета: он определяет, насколько глубоко деталь встаёт в стык."""
     return spec.dimension(field.dimension)
 
@@ -155,12 +164,13 @@ def join_pose(
     """Поза ``B``, приставленного к ``A`` без щели и наложения."""
     request = request.validated()
     offset_x, offset_y = local_offset(first, second, request)
-    offset = transform((offset_x, offset_y, 0.0), rotation_matrix(0.0, 0.0, base.rz))
+    # поворот берём целиком: RZ поворачивает стык в плане, RX/RY — наклон предмета
+    offset = transform((offset_x, offset_y, 0.0), rotation_matrix(*base.angles))
     turned = base.turned(Axis.YAW, request.side.turn * request.angle)
     return Pose(
         x=base.x + offset[0],
         y=base.y + offset[1],
-        z=base.z,
+        z=base.z + offset[2],
         rx=turned.rx,
         ry=turned.ry,
         rz=turned.rz,
