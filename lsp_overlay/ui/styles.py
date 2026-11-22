@@ -161,8 +161,8 @@ QTabBar::tab {{
     border-bottom: none;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
-    padding: 5px 10px;
-    margin-right: 2px;
+    padding: 4px 7px;
+    margin-right: 1px;
     color: {MUTED};
 }}
 QTabBar::tab:selected {{
@@ -171,5 +171,24 @@ QTabBar::tab:selected {{
 }}
 QScrollArea {{
     border: none;
+}}
+QTableWidget {{
+    background-color: {SURFACE};
+    alternate-background-color: {SURFACE_ALT};
+    gridline-color: {BORDER};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    selection-background-color: {ACCENT};
+    selection-color: #ffffff;
+}}
+QTableWidget::item {{
+    padding: 3px 6px;
+}}
+QHeaderView::section {{
+    background-color: {SURFACE_ALT};
+    color: {MUTED};
+    border: none;
+    border-bottom: 1px solid {BORDER};
+    padding: 4px 6px;
 }}
 """

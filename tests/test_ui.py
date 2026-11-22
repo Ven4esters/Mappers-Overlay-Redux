@@ -10,9 +10,11 @@ pytest.importorskip("PySide6.QtWidgets", reason="PySide6 недоступен")
 
 from lsp_overlay.application.session import MappingSession  # noqa: E402
 from lsp_overlay.config import Settings  # noqa: E402
+from lsp_overlay.domain.catalog import Catalog, Dimension, ObjectSpec  # noqa: E402
 from lsp_overlay.domain.directions import Direction  # noqa: E402
 from lsp_overlay.domain.fields import FieldKey  # noqa: E402
 from lsp_overlay.domain.pose import Pose  # noqa: E402
+from lsp_overlay.infrastructure.catalog_store import CatalogStore  # noqa: E402
 from lsp_overlay.infrastructure.config_store import ConfigStore  # noqa: E402
 from lsp_overlay.ui.overlay import OverlayWindow  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
@@ -36,15 +38,27 @@ def make_window(
         confirm_key=settings.confirm_key,
     )
     session = MappingSession(panel, settings)
-    window = OverlayWindow(session, ConfigStore(tmp_path / "settings.json"), settings)
+    window = OverlayWindow(
+        session,
+        ConfigStore(tmp_path / "settings.json"),
+        settings,
+        CatalogStore(tmp_path / "objects.json"),
+    )
     window.action_capture()
     return window, panel
 
 
-def test_window_has_five_tabs(tmp_path: Path, qt_app: object) -> None:
+def test_window_has_six_tabs(tmp_path: Path, qt_app: object) -> None:
     window, _panel = make_window(tmp_path, qt_app)
     titles = [window.tabs.tabText(index) for index in range(window.tabs.count())]
-    assert titles == ["Движение", "Повороты", "Рулетка", "Калибровка", "Настройки"]
+    assert titles == [
+        "Движение",
+        "Повороты",
+        "Рулетка",
+        "Объекты",
+        "Калибровка",
+        "Настройки",
+    ]
 
 
 def test_capture_fills_coordinate_editors(tmp_path: Path, qt_app: object) -> None:
@@ -241,3 +255,81 @@ def test_plain_arrow_does_nothing(tmp_path: Path, qt_app: object) -> None:
     window, _panel = make_window(tmp_path, qt_app)
     press_key(window, Qt.Key.Key_8, Qt.KeyboardModifier.NoModifier)
     assert window._session.pending_fields() == ()
+
+
+def measure_fence(window: OverlayWindow) -> None:
+    """Меряет длину 4.5 м вдоль локальной оси Y и записывает её в габарит."""
+    window.action_remember_point("a")
+    window.movement_tab.field_edited.emit(FieldKey.Y.value, START.y + 4.5)
+    window.action_remember_point("b")
+    window.action_measure_dimension(Dimension.LENGTH.value)
+
+
+def test_measure_dimension_writes_length_in_local_axes(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    measure_fence(window)
+    assert window.objects_tab.dimension_text(Dimension.LENGTH) == "4.500 м"
+    assert window.lbl_status.property("level") == "success"
+
+
+def test_measure_dimension_respects_rotation(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=90.0))
+    window.action_remember_point("a")
+    window.movement_tab.field_edited.emit(FieldKey.X.value, 4.5)
+    window.action_remember_point("b")
+    window.action_measure_dimension(Dimension.LENGTH.value)
+    assert window.objects_tab.dimension_text(Dimension.LENGTH) == "4.500 м"
+
+
+def test_measure_dimension_needs_two_points(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.action_measure_dimension(Dimension.WIDTH.value)
+    assert window.objects_tab.dimension_text(Dimension.WIDTH) == "—"
+    assert window.lbl_status.property("level") == "warning"
+
+
+def test_object_saved_to_table_and_file(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    measure_fence(window)
+    window.objects_tab.edit_name.setText("Забор бетонный")
+    window.objects_tab.btn_save.click()
+    assert window.objects_tab.table.rowCount() == 1
+    assert window.objects_tab.table.item(0, 0).text() == "Забор бетонный"
+    assert window.objects_tab.table.item(0, 1).text() == "4.50 м"
+    raw = (tmp_path / "objects.json").read_text(encoding="utf-8")
+    assert "Забор бетонный" in raw
+    assert window.objects_tab.dimension_text(Dimension.LENGTH) == "—"
+
+
+def test_object_search_filters_table(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    for name, length in (("Забор бетонный", 4.5), ("Барьер", 2.0)):
+        window.action_save_object(ObjectSpec(name=name, length=length))
+    assert window.objects_tab.table.rowCount() == 2
+    window.objects_tab.edit_search.setText("бар")
+    assert window.objects_tab.table.rowCount() == 1
+    assert window.objects_tab.table.item(0, 0).text() == "Барьер"
+
+
+def test_object_step_from_table(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.action_save_object(ObjectSpec(name="Забор", length=4.5, width=0.25, height=1.2))
+    assert window.objects_tab.select_name("Забор")
+    window.objects_tab.btn_step.click()
+    assert window.movement_tab.current_step() == pytest.approx(4.5)
+
+
+def test_object_delete_removes_row_and_file(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.action_save_object(ObjectSpec(name="Забор", length=4.5))
+    assert window.objects_tab.select_name("Забор")
+    window.objects_tab.btn_delete.click()
+    assert window.objects_tab.table.rowCount() == 0
+    assert "Забор" not in (tmp_path / "objects.json").read_text(encoding="utf-8")
+
+
+def test_objects_are_loaded_on_start(tmp_path: Path, qt_app: object) -> None:
+    store = CatalogStore(tmp_path / "objects.json")
+    store.save(Catalog().upsert(ObjectSpec(name="Забор", length=4.5)))
+    window, _panel = make_window(tmp_path, qt_app)
+    assert window.objects_tab.table.rowCount() == 1

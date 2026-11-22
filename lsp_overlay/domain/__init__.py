@@ -3,24 +3,35 @@
 Модули слоя не знают ни про интерфейс, ни про ввод, ни про файлы.
 """
 
+from lsp_overlay.domain.catalog import Catalog, Dimension, ObjectSpec
 from lsp_overlay.domain.directions import DiagonalMode, Direction
 from lsp_overlay.domain.errors import DomainError, JumpTooLargeError
-from lsp_overlay.domain.geometry import Vec3, rotation_matrix, transform, wrap_angle
+from lsp_overlay.domain.geometry import (
+    Vec3,
+    inverse_transform,
+    rotation_matrix,
+    transform,
+    wrap_angle,
+)
 from lsp_overlay.domain.measure import MeasureSlot, MeasureTape, Span
 from lsp_overlay.domain.movement import move, rotate
 from lsp_overlay.domain.pose import Axis, Pose
 
 __all__ = [
     "Axis",
+    "Catalog",
     "DiagonalMode",
+    "Dimension",
     "Direction",
     "DomainError",
     "JumpTooLargeError",
     "MeasureSlot",
     "MeasureTape",
+    "ObjectSpec",
     "Pose",
     "Span",
     "Vec3",
+    "inverse_transform",
     "move",
     "rotate",
     "rotation_matrix",

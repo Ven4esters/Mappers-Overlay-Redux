@@ -11,6 +11,7 @@ from pathlib import Path
 from lsp_overlay import __version__
 from lsp_overlay.application.session import MappingSession
 from lsp_overlay.config import Settings
+from lsp_overlay.infrastructure.catalog_store import CatalogStore
 from lsp_overlay.infrastructure.clipboard import SystemClipboard
 from lsp_overlay.infrastructure.config_store import ConfigStore
 from lsp_overlay.infrastructure.panel import ClipboardPanel
@@ -75,7 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     application = QApplication(sys.argv[:1])
     application.setApplicationName("LSP Mapper Overlay")
-    window = OverlayWindow(session, store, settings)
+    window = OverlayWindow(session, store, settings, CatalogStore())
     window.show()
     _write_ready_marker(args.log_dir)
     LOGGER.info(

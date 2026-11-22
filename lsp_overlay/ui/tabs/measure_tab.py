@@ -1,10 +1,11 @@
-"""Вкладка «Рулетка»: длина объекта по двум замерам и шаг для стыковки."""
+"""Вкладка «Рулетка»: замер габаритов объекта по двум точкам."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
+    QComboBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lsp_overlay.domain.catalog import Dimension
 from lsp_overlay.domain.formatting import format_angle, format_length
 from lsp_overlay.domain.measure import MeasureSlot, Span
 from lsp_overlay.domain.pose import Pose
@@ -21,17 +23,19 @@ from lsp_overlay.ui.widgets import make_button, make_label
 LABEL_WIDTH = 132
 EMPTY_TEXT = "—"
 HINT = (
-    "Поставьте проп у одного края объекта и нажмите «Точка A», затем у другого — "
-    "«Точка B». Разница координат и есть длина объекта."
+    "Поставьте проп у одного края объекта и нажмите «Точка A», затем у другого — «Точка B». "
+    "Выберите габарит и нажмите «В размер». Длина и ширина считаются вдоль осей самого "
+    "предмета, высота — по вертикали. Измеренные габариты ждут на вкладке «Объекты»."
 )
 
 
 class MeasureTab(QWidget):
-    """Рулетка: два замера, расстояние и перенос длины в шаг сдвига."""
+    """Рулетка: два замера, расстояние и запись габарита."""
 
     remember_requested = Signal(str)
     reset_requested = Signal()
     step_requested = Signal(float)
+    dimension_requested = Signal(str)
     status_message = Signal(str, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -42,10 +46,9 @@ class MeasureTab(QWidget):
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(6)
         layout.addWidget(self._build_points())
-        layout.addWidget(self._build_result())
+        layout.addWidget(self._build_result(), 1)
         layout.addWidget(self._build_actions())
         layout.addWidget(make_label(HINT, muted=True, wrap=True))
-        layout.addStretch(1)
 
     # ------------------------------------------------------------------ сборка
     def _build_points(self) -> QGroupBox:
@@ -95,6 +98,7 @@ class MeasureTab(QWidget):
             value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self._value_labels[key] = value
             grid.addWidget(value, row, 1)
+        grid.setRowStretch(len(rows), 1)
         return group
 
     def _build_actions(self) -> QWidget:
@@ -117,6 +121,21 @@ class MeasureTab(QWidget):
         for button in (self.btn_step, self.btn_copy, self.btn_reset):
             row.addWidget(button, 1)
         column.addLayout(row)
+        second = QHBoxLayout()
+        second.setSpacing(4)
+        second.addWidget(make_label("Габарит", muted=True))
+        self.combo_dimension = QComboBox()
+        for dimension in Dimension:
+            self.combo_dimension.addItem(dimension.label, dimension.value)
+        self.combo_dimension.setToolTip("Каким габаритом считать текущий замер")
+        second.addWidget(self.combo_dimension, 1)
+        self.btn_dimension = make_button(
+            "В размер",
+            "Записать текущий замер в выбранный габарит и передать его на вкладку «Объекты»",
+        )
+        self.btn_dimension.clicked.connect(self._on_dimension_clicked)
+        second.addWidget(self.btn_dimension)
+        column.addLayout(second)
         return holder
 
     # ------------------------------------------------------------------ события
@@ -125,6 +144,9 @@ class MeasureTab(QWidget):
             self.status_message.emit("Сначала сделайте два разных замера", "warning")
             return
         self.step_requested.emit(self._span.length_for_step())
+
+    def _on_dimension_clicked(self) -> None:
+        self.dimension_requested.emit(str(self.combo_dimension.currentData()))
 
     def _on_copy_clicked(self) -> None:
         text = self.result_text()
@@ -145,6 +167,7 @@ class MeasureTab(QWidget):
         self._update_values(span)
         self.btn_step.setEnabled(span is not None and not span.is_degenerate)
         self.btn_copy.setEnabled(span is not None)
+        self.btn_dimension.setEnabled(span is not None and not span.is_degenerate)
 
     def _update_values(self, span: Span | None) -> None:
         if span is None:

@@ -6,8 +6,9 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 
+from lsp_overlay.domain.catalog import Dimension
 from lsp_overlay.domain.errors import ValidationError
-from lsp_overlay.domain.geometry import Vec3
+from lsp_overlay.domain.geometry import Vec3, inverse_transform, rotation_matrix
 from lsp_overlay.domain.pose import Pose
 
 FULL_TURN = 360.0
@@ -84,6 +85,21 @@ class Span:
         if index not in (0, 1, 2):
             raise ValidationError("ось измерения — только 0, 1 или 2")
         return abs(self.delta[index])
+
+    def local_offsets(self, angles: Vec3) -> Vec3:
+        """Смещение в осях предмета: ``X`` вправо, ``Y`` вперёд, ``Z`` вверх."""
+        return inverse_transform(self.delta, rotation_matrix(*angles))
+
+    def dimension_value(self, dimension: Dimension, angles: Vec3) -> float:
+        """Длина предмета по одному габариту.
+
+        ``Длина`` и ``Ширина`` берутся вдоль локальных осей предмета (поэтому поворот
+        пропа не мешает), ``Высота`` — по вертикали мира.
+        """
+        if dimension is Dimension.HEIGHT:
+            return self.vertical
+        index = 1 if dimension is Dimension.LENGTH else 0
+        return abs(self.local_offsets(angles)[index])
 
     def length_for_step(self) -> float:
         """Шаг для стыковки вплотную: длина в плане, а если она нулевая — по прямой."""

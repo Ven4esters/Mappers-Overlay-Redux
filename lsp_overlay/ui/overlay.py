@@ -16,26 +16,30 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lsp_overlay import __version__
 from lsp_overlay.application.session import MappingSession
 from lsp_overlay.config import Calibration, Settings
+from lsp_overlay.domain.catalog import Dimension, ObjectSpec
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.errors import DomainError
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.formatting import format_length
 from lsp_overlay.domain.measure import MeasureSlot
 from lsp_overlay.domain.pose import Axis, Pose
+from lsp_overlay.infrastructure.catalog_store import CatalogStore
 from lsp_overlay.infrastructure.config_store import ConfigStore
 from lsp_overlay.ui.keymap import NumpadAction, NumpadIntent, numpad_action
 from lsp_overlay.ui.styles import STYLESHEET
 from lsp_overlay.ui.tabs.calibration_tab import CalibrationTab
 from lsp_overlay.ui.tabs.measure_tab import MeasureTab
 from lsp_overlay.ui.tabs.movement_tab import STEP_MAX, STEP_MIN, MovementTab
+from lsp_overlay.ui.tabs.objects_tab import ObjectsTab
 from lsp_overlay.ui.tabs.rotate_tab import RotateTab
 from lsp_overlay.ui.tabs.settings_tab import SettingsTab
 from lsp_overlay.ui.widgets import make_button
 
 LOGGER = logging.getLogger(__name__)
-WINDOW_TITLE = "LSP Mapper Overlay 2.0"
+WINDOW_TITLE = f"LSP Mapper Overlay {__version__}"
 MINIMUM_WIDTH = 380
 MINIMUM_HEIGHT = 320
 HALF = 0.5
@@ -50,17 +54,20 @@ class OverlayWindow(QWidget):
         session: MappingSession,
         config_store: ConfigStore,
         settings: Settings,
+        catalog_store: CatalogStore | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._session = session
         self._store = config_store
         self._settings = settings
+        self._catalog_store = catalog_store
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(MINIMUM_WIDTH, MINIMUM_HEIGHT)
         self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._apply_window_options()
+        self._load_catalog()
         self._refresh()
 
     # ------------------------------------------------------------------ сборка
@@ -73,11 +80,13 @@ class OverlayWindow(QWidget):
         self.movement_tab = MovementTab(self._settings)
         self.rotate_tab = RotateTab()
         self.measure_tab = MeasureTab()
+        self.objects_tab = ObjectsTab()
         self.calibration_tab = CalibrationTab(self._settings.calibration)
         self.settings_tab = SettingsTab(self._settings)
         self.tabs.addTab(self.movement_tab, "Движение")
         self.tabs.addTab(self.rotate_tab, "Повороты")
         self.tabs.addTab(self.measure_tab, "Рулетка")
+        self.tabs.addTab(self.objects_tab, "Объекты")
         self.tabs.addTab(self.calibration_tab, "Калибровка")
         self.tabs.addTab(self.settings_tab, "Настройки")
         root.addWidget(self.tabs, 1)
@@ -121,7 +130,12 @@ class OverlayWindow(QWidget):
         self.measure_tab.remember_requested.connect(self.action_remember_point)
         self.measure_tab.reset_requested.connect(self.action_clear_tape)
         self.measure_tab.step_requested.connect(self.action_measure_step)
+        self.measure_tab.dimension_requested.connect(self.action_measure_dimension)
         self.measure_tab.status_message.connect(self._set_status)
+        self.objects_tab.step_requested.connect(self.action_measure_step)
+        self.objects_tab.delete_requested.connect(self.action_delete_object)
+        self.objects_tab.object_saved.connect(self.action_save_object)
+        self.objects_tab.status_message.connect(self._set_status)
         self.calibration_tab.calibration_changed.connect(self.action_calibration_changed)
         self.calibration_tab.status_message.connect(self._set_status)
         self.calibration_tab.diagnostics_requested.connect(self.action_diagnostics)
@@ -211,6 +225,36 @@ class OverlayWindow(QWidget):
                 "success",
             )
         self._refresh()
+
+    def action_measure_dimension(self, dimension: str) -> None:
+        """Записывает текущий замер в выбранный габарит предмета."""
+        target = Dimension(dimension)
+        value = self._session.record_dimension(target)
+        if value is None:
+            self._set_status("Сначала сделайте два разных замера", "warning")
+            return
+        self._refresh_objects()
+        self._set_status(
+            f"{target.label}: {format_length(value, 3)} м — на вкладке «Объекты»", "success"
+        )
+
+    def action_save_object(self, spec: object) -> None:
+        """Сохраняет предмет в каталог и в файл."""
+        if not isinstance(spec, ObjectSpec):
+            return
+        self._session.save_object(spec)
+        self._session.clear_pending_dimensions()
+        self._save_catalog()
+        self.objects_tab.clear_form()
+        self._refresh_objects()
+        self._set_status(f"«{spec.name}» сохранён в таблицу предметов", "success")
+
+    def action_delete_object(self, name: str) -> None:
+        """Удаляет предмет из каталога."""
+        self._session.remove_object(name)
+        self._save_catalog()
+        self._refresh_objects()
+        self._set_status(f"«{name}» удалён из таблицы", "info")
 
     def action_clear_tape(self) -> None:
         """Сбрасывает оба замера."""
@@ -321,6 +365,21 @@ class OverlayWindow(QWidget):
 
     def _refresh_tape(self) -> None:
         self.measure_tab.update_tape(self._session.tape_points(), self._session.span)
+
+    def _refresh_objects(self) -> None:
+        self.objects_tab.set_pending(self._session.pending_dimensions)
+        self.objects_tab.show_catalog(self._session.catalog)
+
+    def _load_catalog(self) -> None:
+        if self._catalog_store is not None:
+            self._session.set_catalog(self._catalog_store.load())
+        self._refresh_objects()
+
+    def _save_catalog(self) -> None:
+        if self._catalog_store is None:
+            return
+        with contextlib.suppress(OSError):
+            self._catalog_store.save(self._session.catalog)
 
 
 def _with_calibration(settings: Settings, calibration: Calibration) -> Settings:

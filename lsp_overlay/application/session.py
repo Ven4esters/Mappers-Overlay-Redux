@@ -9,6 +9,7 @@ from lsp_overlay.application.errors import PanelUnavailableError
 from lsp_overlay.application.ports import GamePanelPort
 from lsp_overlay.application.writer import ApplyResult, FieldWriter
 from lsp_overlay.config import Calibration, PanelTimings, Settings
+from lsp_overlay.domain.catalog import Catalog, Dimension, ObjectSpec
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.fields import FIELD_ORDER, FieldKey, get_field
 from lsp_overlay.domain.measure import MeasureSlot, MeasureTape, Span
@@ -28,13 +29,20 @@ class MappingSession:
     попадают в :meth:`apply`.
     """
 
-    def __init__(self, panel: GamePanelPort, settings: Settings) -> None:
+    def __init__(
+        self,
+        panel: GamePanelPort,
+        settings: Settings,
+        catalog: Catalog | None = None,
+    ) -> None:
         self._panel = panel
         self._settings = settings
         self._writer = FieldWriter(panel, verify=settings.verify_after_paste)
         self._pose = Pose()
         self._panel_pose: Pose | None = None
         self._tape = MeasureTape()
+        self._catalog = catalog or Catalog()
+        self._pending_dimensions: dict[Dimension, float] = {}
 
     @property
     def pose(self) -> Pose:
@@ -71,6 +79,50 @@ class MappingSession:
             length_decimals=length_decimals,
             confirm_key=confirm_key,
         )
+
+    @property
+    def catalog(self) -> Catalog:
+        """Каталог предметов с габаритами."""
+        return self._catalog
+
+    def set_catalog(self, catalog: Catalog) -> None:
+        """Заменяет каталог (загрузка из файла)."""
+        self._catalog = catalog
+
+    def save_object(self, spec: ObjectSpec) -> Catalog:
+        """Добавляет или обновляет предмет в каталоге."""
+        self._catalog = self._catalog.upsert(spec)
+        LOGGER.info("Предмет сохранён в каталог: %s", spec.name)
+        return self._catalog
+
+    def remove_object(self, name: str) -> Catalog:
+        """Удаляет предмет по названию."""
+        self._catalog = self._catalog.remove(name)
+        LOGGER.info("Предмет удалён из каталога: %s", name)
+        return self._catalog
+
+    @property
+    def pending_dimensions(self) -> dict[Dimension, float]:
+        """Измеренные габариты, ещё не сохранённые в каталог."""
+        return dict(self._pending_dimensions)
+
+    def record_dimension(self, dimension: Dimension) -> float | None:
+        """Запоминает текущий замер как габарит предмета."""
+        value = self.measurement(dimension)
+        if value is not None:
+            self._pending_dimensions[dimension] = value
+        return value
+
+    def clear_pending_dimensions(self) -> None:
+        """Забывает измеренные габариты после сохранения предмета."""
+        self._pending_dimensions.clear()
+
+    def measurement(self, dimension: Dimension) -> float | None:
+        """Значение измеренного габарита по последним двум точкам."""
+        span = self._tape.span()
+        if span is None or span.is_degenerate:
+            return None
+        return round(span.dimension_value(dimension, self._pose.angles), 3)
 
     @property
     def span(self) -> Span | None:

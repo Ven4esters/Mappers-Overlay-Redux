@@ -84,6 +84,18 @@ def transform(vector: Vec3, matrix: Matrix3) -> Vec3:
     )
 
 
+def inverse_transform(vector: Vec3, matrix: Matrix3) -> Vec3:
+    """Переводит мировой вектор в локальные оси предмета.
+
+    Матрица поворота ортогональна, поэтому обратная к ней — транспонированная.
+    """
+    return (
+        matrix[0][0] * vector[0] + matrix[1][0] * vector[1] + matrix[2][0] * vector[2],
+        matrix[0][1] * vector[0] + matrix[1][1] * vector[1] + matrix[2][1] * vector[2],
+        matrix[0][2] * vector[0] + matrix[1][2] * vector[1] + matrix[2][2] * vector[2],
+    )
+
+
 def length(vector: Vec3) -> float:
     """Длина вектора."""
     return math.sqrt(sum(component * component for component in vector))
