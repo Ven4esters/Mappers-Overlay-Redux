@@ -108,10 +108,9 @@ def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
 
     Наклон предмета — это ``RX`` (именно по нему интерфейс предупреждает о наклоне).
 
-    1. **Наклона нет** (``RX = 0``) — обычная диагональ в горизонтали: вектор
-       ``(ax, ay)/√2`` поворачивается на ``RZ``, ``Z`` не меняется, длина — шаг.
-       Так было задумано с 1.0: ``Num 9`` уводит вперёд-вправо, а не поднимает.
-       ``RY`` здесь не участвует.
+    1. **Наклона нет** (``RX = 0``) — диагональ 45° в плоскости экрана ``Y/Z``:
+       ``ΔY = ay·(шаг/√2)``, ``ΔZ = ax·(шаг/√2)``, ``ΔX = 0``. ``Num 9`` уводит
+       вправо (``−Y``) и вверх (``+Z``) на 45°; ``RZ`` и ``RY`` здесь не участвуют.
     2. **Наклонён только ``RX``** (``RX ≠ 0``, ``RY = 0``) — поворот в плоскости
        ``Y/Z``, ``X`` не меняется (формула 1.5.4, ``k = шаг/√2``):
 
@@ -134,20 +133,28 @@ def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
     """
     ax, ay = direction.axes
     if pose.rx == 0.0:
-        return _flat_diagonal(ax, ay, pose.rz)
+        return _flat_diagonal(ax, ay)
     if pose.ry == 0.0:
         return _rx_diagonal(ax, ay, pose.rx)
     return _rx_ry_diagonal(ax, ay, pose.rx, pose.ry)
 
 
-def _flat_diagonal(ax: int, ay: int, rz_degrees: float) -> tuple[float, float, float]:
-    """Случай 1 (``RX = 0``): диагональ в горизонтали, повёрнутая на ``RZ``.
+def _flat_diagonal(ax: int, ay: int) -> tuple[float, float, float]:
+    """Случай 1 (``RX = 0``): диагональ 45° в плоскости экрана ``Y/Z``.
 
-    ``Δ = Rz(RZ) · (ax, ay)/√2``, ``ΔZ = 0``. Длина шага ровно ``шаг``.
+    ```Delta
+    ΔX = 0,   ΔY = ay · (шаг/√2),   ΔZ = ax · (шаг/√2)
+    ```
+
+    Вправо на экране — это ``−Y``, вверх — ``+Z``, поэтому ``Num 9`` (``ax = +1``,
+    ``ay = −1``) уводит вправо и вверх ровно на 45°. ``X`` (глубина) не меняется,
+    длина шага — ``шаг``. ``RZ`` в эту формулу не входит.
+
+    Эталон заказчика: ``RZ = RY = RX = 0``, шаг 3.0, `Num 9` из
+    ``(−1849.342, 416.528, 129.816)`` → ``(−1849.342, 414.407, 131.937)``.
     """
     arm = 1.0 / math.hypot(ax, ay)
-    world_dx, world_dy = _rotate(ax * arm, ay * arm, rz_degrees)
-    return round(world_dx, 12), round(world_dy, 12), 0.0
+    return 0.0, round(ay * arm, 12), round(ax * arm, 12)
 
 
 def _rx_diagonal(ax: int, ay: int, rx: float) -> tuple[float, float, float]:

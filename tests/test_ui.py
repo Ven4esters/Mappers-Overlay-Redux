@@ -425,30 +425,30 @@ def test_numpad_directions_match_the_game(
     assert panel.pose().y == pytest.approx(START.y + expected_dy)
 
 
-QUARTER = 0.5 / 2**0.5  # плечо диагонали в горизонтали при шаге 0.5 м
+QUARTER = 0.5 / 2**0.5  # плечо диагонали при шаге 0.5 м
 
 
 @pytest.mark.parametrize(
-    ("vk", "expected_dx", "expected_dy"),
+    ("vk", "expected_dy", "expected_dz"),
     [
-        (0x67, QUARTER, QUARTER),  # Num 7 — вперёд-влево
-        (0x69, QUARTER, -QUARTER),  # Num 9 — вперёд-вправо
-        (0x61, -QUARTER, QUARTER),  # Num 1 — назад-влево
-        (0x63, -QUARTER, -QUARTER),  # Num 3 — назад-вправо
+        (0x67, QUARTER, QUARTER),  # Num 7 — влево и вверх
+        (0x69, -QUARTER, QUARTER),  # Num 9 — вправо и вверх
+        (0x61, QUARTER, -QUARTER),  # Num 1 — влево и вниз
+        (0x63, -QUARTER, -QUARTER),  # Num 3 — вправо и вниз
     ],
 )
-def test_numpad_diagonals_at_zero_are_horizontal(
-    qt_app: QApplication, vk: int, expected_dx: float, expected_dy: float
+def test_numpad_diagonals_at_zero_are_forty_five_degrees(
+    qt_app: QApplication, vk: int, expected_dy: float, expected_dz: float
 ) -> None:
-    """При ``RX = 0`` диагональ горизонтальна: ``X`` и ``Y``, ``Z`` не меняется."""
+    """При ``RX = 0`` диагональ идёт 45° в плоскости экрана: ``Y`` и ``Z``, ``X`` тот же."""
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
     window.movement.press_capture()
     hotkeys.press(vk)
     hotkeys.release(vk)
-    assert panel.pose().x == pytest.approx(START.x + expected_dx, abs=0.001)
+    assert panel.pose().x == pytest.approx(START.x, abs=0.0005)
     assert panel.pose().y == pytest.approx(START.y + expected_dy, abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z, abs=0.0005)
+    assert panel.pose().z == pytest.approx(START.z + expected_dz, abs=0.001)
 
 
 def test_numpad_diagonal_at_37_rotates_the_step(qt_app: QApplication) -> None:
@@ -540,9 +540,9 @@ def test_alt_keeps_diagonals_working(qt_app: QApplication) -> None:
     toggle_tilt(hotkeys)
     hotkeys.press(NUMPAD9)
     hotkeys.release(NUMPAD9)
-    assert panel.pose().x == pytest.approx(START.x + QUARTER, abs=0.001)
+    assert panel.pose().x == pytest.approx(START.x, abs=0.0005)
     assert panel.pose().y == pytest.approx(START.y - QUARTER, abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z, abs=0.0005)
+    assert panel.pose().z == pytest.approx(START.z + QUARTER, abs=0.001)
 
 
 def test_alt_toggles_the_mode(qt_app: QApplication) -> None:
