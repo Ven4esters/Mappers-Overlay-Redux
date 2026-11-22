@@ -6,7 +6,12 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from map_overlay.application.ports import CursorPort, PanelAutomation, SettingsStore
+from map_overlay.application.ports import (
+    CursorPort,
+    HotkeySource,
+    PanelAutomation,
+    SettingsStore,
+)
 from map_overlay.application.session import MappingSession
 from map_overlay.application.writer import PoseWriter
 from map_overlay.config import Settings
@@ -28,11 +33,13 @@ class AppContext:
         store: SettingsStore,
         cursor: CursorPort,
         panel_factory: PanelFactory,
+        hotkeys: HotkeySource,
         config_path: Path | None = None,
     ) -> None:
         self._store = store
         self._cursor = cursor
         self._panel_factory = panel_factory
+        self._hotkeys = hotkeys
         self._config_path = config_path
         self.settings_error: str | None = None
         try:
@@ -51,6 +58,11 @@ class AppContext:
     def config_path(self) -> Path | None:
         """Где лежит файл настроек (для подсказки во вкладке)."""
         return self._config_path
+
+    @property
+    def hotkeys(self) -> HotkeySource:
+        """Источник глобальных горячих клавиш."""
+        return self._hotkeys
 
     @property
     def cursor(self) -> CursorPort:

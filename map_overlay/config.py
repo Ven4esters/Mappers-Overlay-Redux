@@ -6,13 +6,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
+from map_overlay.domain.actions import DEFAULT_HOTKEYS, Action
 from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.formatting import MAX_DECIMALS, MIN_DECIMALS
+from map_overlay.domain.keynames import is_valid_vk
 from map_overlay.domain.movement import validate_step
 from map_overlay.domain.point import Point
 from map_overlay.errors import ConfigError
 
-SCHEMA_VERSION: Final = 1
+SCHEMA_VERSION: Final = 2
 DEFAULT_STEP: Final = 0.5
 DEFAULT_DECIMALS: Final = 3
 
@@ -57,6 +59,8 @@ class Settings:
     verify_writes: bool = True
     default_step: float = DEFAULT_STEP
     calibration: Mapping[Field, Point] = field(default_factory=dict)
+    empty_point: Point | None = None
+    hotkeys: Mapping[Action, int | None] = field(default_factory=lambda: dict(DEFAULT_HOTKEYS))
 
     def __post_init__(self) -> None:
         if not MIN_DECIMALS <= self.decimals <= MAX_DECIMALS:
@@ -71,8 +75,10 @@ class Settings:
         for field_name, point in self.calibration.items():
             if field_name not in PANEL_ORDER:
                 raise ConfigError(f"Неизвестное поле в калибровке: {field_name}")
-            if point.x < 0 or point.y < 0:
-                raise ConfigError(f"Координаты поля {field_name} не могут быть отрицательными")
+            _check_point(point, field_name.value)
+        if self.empty_point is not None:
+            _check_point(self.empty_point, "empty")
+        _check_hotkeys(self.hotkeys)
 
     def missing_points(self) -> tuple[Field, ...]:
         """Поля, для которых ещё не задана точка."""
@@ -88,6 +94,27 @@ class Settings:
         """Копия настроек с целой картой калибровки."""
         return replace(self, calibration=dict(calibration))
 
+    def with_empty_point(self, point: Point | None) -> Settings:
+        """Копия настроек с точкой «пустое место панели»."""
+        return replace(self, empty_point=point)
+
+    def with_hotkey(self, action: Action, vk: int | None) -> Settings:
+        """Копия настроек с новой клавишей действия.
+
+        Если клавиша уже занята другим действием, старая привязка снимается:
+        две команды на одну клавишу — источник путаницы.
+        """
+        hotkeys = {
+            bound_action: (None if bound_key == vk else bound_key)
+            for bound_action, bound_key in self.hotkeys.items()
+        }
+        hotkeys[action] = vk
+        return replace(self, hotkeys=hotkeys)
+
+    def has_confirmation_point(self) -> bool:
+        """Есть ли точка для клика перед клавишей F."""
+        return self.empty_point is not None
+
     def to_dict(self) -> dict[str, Any]:
         """Данные для записи в JSON."""
         return {
@@ -99,6 +126,10 @@ class Settings:
             "calibration": {
                 field_name.value: {"x": point.x, "y": point.y}
                 for field_name, point in self.calibration.items()
+            },
+            "empty_point": _point_to_dict(self.empty_point),
+            "hotkeys": {
+                action.value: key for action, key in self.hotkeys.items() if key is not None
             },
         }
 
@@ -125,6 +156,8 @@ class Settings:
             paste=_as_float(delays_raw.get("paste", defaults.paste), "задержка вставки"),
         )
         calibration = _parse_calibration(raw.get("calibration", {}))
+        empty_point = _parse_optional_point(raw.get("empty_point"), "empty_point")
+        hotkeys = _parse_hotkeys(raw.get("hotkeys"))
         return cls(
             schema_version=version,
             delays=delays,
@@ -132,6 +165,8 @@ class Settings:
             verify_writes=_as_bool(raw.get("verify_writes", True), "verify_writes"),
             default_step=_as_float(raw.get("default_step", DEFAULT_STEP), "шаг по умолчанию"),
             calibration=calibration,
+            empty_point=empty_point,
+            hotkeys=hotkeys,
         )
 
 
@@ -157,6 +192,59 @@ def _as_bool(value: object, name: str) -> bool:
     if not isinstance(value, bool):
         raise ConfigError(f"Поле «{name}» должно быть true или false")
     return value
+
+
+def _check_point(point: Point, name: str) -> None:
+    if point.x < 0 or point.y < 0:
+        raise ConfigError(f"Координаты точки «{name}» не могут быть отрицательными")
+
+
+def _check_hotkeys(hotkeys: Mapping[Action, int | None]) -> None:
+    used: dict[int, Action] = {}
+    for action, vk in hotkeys.items():
+        if action not in Action:
+            raise ConfigError(f"Неизвестное действие в горячих клавишах: {action}")
+        if vk is None:
+            continue
+        if not is_valid_vk(vk):
+            raise ConfigError(f"Клавиша для «{action}» имеет недопустимый код {vk!r}")
+        if vk in used:
+            raise ConfigError(f"Клавиша {vk} назначена дважды: «{used[vk]}» и «{action}»")
+        used[vk] = action
+
+
+def _point_to_dict(point: Point | None) -> dict[str, int] | None:
+    if point is None:
+        return None
+    return {"x": point.x, "y": point.y}
+
+
+def _parse_hotkeys(value: object) -> dict[Action, int | None]:
+    if value is None:
+        return dict(DEFAULT_HOTKEYS)
+    raw = _as_mapping(value, "hotkeys")
+    hotkeys: dict[Action, int | None] = {}
+    for key, vk in raw.items():
+        try:
+            action = Action(key)
+        except ValueError as exc:
+            raise ConfigError(f"Неизвестное действие в горячих клавишах: {key}") from exc
+        if vk is not None and not is_valid_vk(vk):
+            raise ConfigError(f"Клавиша для «{key}» имеет недопустимый код {vk!r}")
+        hotkeys[action] = vk
+    for action, default_vk in DEFAULT_HOTKEYS.items():
+        hotkeys.setdefault(action, default_vk)
+    return hotkeys
+
+
+def _parse_optional_point(value: object, name: str) -> Point | None:
+    if value is None:
+        return None
+    raw = _as_mapping(value, name)
+    return Point(
+        x=_as_int(raw.get("x"), f"x точки {name}"),
+        y=_as_int(raw.get("y"), f"y точки {name}"),
+    )
 
 
 def _parse_calibration(value: object) -> dict[Field, Point]:

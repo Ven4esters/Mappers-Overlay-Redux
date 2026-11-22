@@ -76,9 +76,10 @@ def test_diagonal_step_writes_both_axes() -> None:
     session.capture()
     panel.writes.clear()
     result = session.step(Direction.BACK_RIGHT, 1.0)
+    step_component = 1.0 / 2**0.5
     assert result.written == (Field.X, Field.Y)
-    assert result.pose.x == pytest.approx(START.x + 1.0)
-    assert result.pose.y == pytest.approx(START.y + 1.0)
+    assert result.pose.x == pytest.approx(START.x + step_component, abs=0.001)
+    assert result.pose.y == pytest.approx(START.y + step_component, abs=0.001)
 
 
 def test_step_keeps_height_and_angles() -> None:
@@ -97,6 +98,22 @@ def test_step_is_validated(step: float) -> None:
     session.capture()
     with pytest.raises(ValidationError):
         session.step(Direction.FORWARD, step)
+
+
+def test_confirm_requires_empty_point() -> None:
+    panel = FakePanel(START)
+    panel.has_empty_point = False
+    with pytest.raises(NotCalibratedError, match="пустое место"):
+        make_session(panel).confirm()
+
+
+def test_confirm_presses_f_without_reading() -> None:
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.confirm()
+    assert panel.confirm_calls == 1
+    assert panel.reads == []
+    assert panel.writes == []
 
 
 def test_failed_write_keeps_previous_pose() -> None:

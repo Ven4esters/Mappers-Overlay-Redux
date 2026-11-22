@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Collection, Mapping
 
 from map_overlay.config import Settings
+from map_overlay.domain.actions import Action
 from map_overlay.domain.fields import Field
 from map_overlay.domain.formatting import format_value
 from map_overlay.domain.point import Point
@@ -49,19 +50,23 @@ class FakeInput:
         self._point_to_field = {point: field for field, point in field_points.items()}
         self._cursor = Point(0, 0)
         self.clicked: list[Field] = []
+        self.clicks: list[Point] = []
         self.keys: list[str] = []
         self.moved: list[Point] = []
         self.reject_paste: set[Field] = set()
+        self.f_pressed = 0
 
     @property
     def last_field(self) -> Field:
+        if not self.clicked:
+            raise AssertionError("Клик был не по полю панели")
         return self.clicked[-1]
 
     def click(self, point: Point) -> None:
+        self.clicks.append(point)
         field = self._point_to_field.get(point)
-        if field is None:
-            raise AssertionError(f"Клик мимо поля панели: {point}")
-        self.clicked.append(field)
+        if field is not None:
+            self.clicked.append(field)
         self._cursor = point
 
     def select_all(self) -> None:
@@ -76,6 +81,10 @@ class FakeInput:
         if self.last_field in self.reject_paste:
             return
         self._values[self.last_field] = self._clipboard.text
+
+    def press_f(self) -> None:
+        self.keys.append("f")
+        self.f_pressed += 1
 
     def cursor_position(self) -> Point:
         return self._cursor
@@ -109,6 +118,8 @@ class FakePanel:
         self.reject: set[Field] = set()
         self.bad_read: set[Field] = set()
         self.decimals = decimals
+        self.confirm_calls = 0
+        self.has_empty_point = True
 
     def read_field(self, field: Field) -> str:
         self.reads.append(field)
@@ -123,6 +134,12 @@ class FakePanel:
 
     def missing_points(self) -> tuple[Field, ...]:
         return self.missing
+
+    def confirm(self) -> None:
+        self.confirm_calls += 1
+
+    def has_confirmation_point(self) -> bool:
+        return self.has_empty_point
 
     @property
     def written_fields(self) -> list[Field]:
@@ -170,3 +187,45 @@ FULL_CALIBRATION: Mapping[Field, Point] = {
     Field.RY: Point(300, 260),
     Field.RZ: Point(500, 260),
 }
+
+
+class FakeHotkeySource:
+    """Горячие клавиши в памяти: тест сам «нажимает» клавиши."""
+
+    def __init__(self, *, available: bool = True, num_lock: bool | None = True) -> None:
+        self._callback: Callable[[int, bool], None] | None = None
+        self.bound_keys: Collection[int] = ()
+        self.learning = False
+        self.started = False
+        self._available = available
+        self._num_lock = num_lock
+
+    def start_listening(self, on_key: Callable[[int, bool], None]) -> None:
+        self._callback = on_key
+        self.started = True
+
+    def stop_listening(self) -> None:
+        self.started = False
+        self._callback = None
+
+    def configure(self, *, bound_keys: Collection[int], learning: bool) -> None:
+        self.bound_keys = frozenset(bound_keys)
+        self.learning = learning
+
+    def num_lock_enabled(self) -> bool | None:
+        return self._num_lock
+
+    def is_available(self) -> bool:
+        return self._available
+
+    def press(self, vk: int, *, is_down: bool = True) -> None:
+        """Имитировать нажатие клавиши."""
+        if self._callback is not None:
+            self._callback(vk, is_down)
+
+    def release(self, vk: int) -> None:
+        self.press(vk, is_down=False)
+
+
+def bindings_of(settings: Settings) -> dict[Action, int | None]:
+    return dict(settings.hotkeys)

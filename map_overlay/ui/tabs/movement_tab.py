@@ -22,6 +22,7 @@ class MovementTab(QWidget):
     """Считать координаты и двигать предмет стрелками."""
 
     capture_requested = Signal()
+    confirm_requested = Signal()
     move_requested = Signal(object, float)
 
     def __init__(self, *, default_step: float, parent: QWidget | None = None) -> None:
@@ -40,7 +41,14 @@ class MovementTab(QWidget):
         row = QHBoxLayout()
         self._capture_button = button("Считать", widget_role="primary")
         self._capture_button.clicked.connect(self.capture_requested.emit)
+        self._capture_button.setToolTip("Прочитать все шесть полей панели")
+        self._confirm_button = button("Сохранить F")
+        self._confirm_button.clicked.connect(self.confirm_requested.emit)
+        self._confirm_button.setToolTip(
+            "Вставить значения, кликнуть в пустое место панели и нажать F"
+        )
         row.addWidget(self._capture_button)
+        row.addWidget(self._confirm_button)
         row.addStretch(1)
         pose_card.add_layout(row)
         layout.addWidget(pose_card)
@@ -68,8 +76,8 @@ class MovementTab(QWidget):
 
         move_card.add(
             label(
-                "Одна стрелка — один шаг. В панель пишутся только изменившиеся поля, "
-                "после вставки значение проверяется.",
+                "Одна стрелка — один шаг; те же действия есть на Numpad. В панель пишутся "
+                "только изменившиеся поля, после вставки значение проверяется.",
                 widget_role="muted",
             )
         )
@@ -127,9 +135,14 @@ class MovementTab(QWidget):
         self._grid.set_pose(pose)
         self._pad.set_enabled(pose is not None)
 
+    def press_confirm(self) -> None:
+        """Нажать «Сохранить F» (для тестов)."""
+        self._confirm_button.click()
+
     def set_busy(self, busy: bool) -> None:
         """Заблокировать управление на время обмена с панелью."""
         self._capture_button.setEnabled(not busy)
+        self._confirm_button.setEnabled(not busy)
         self._pad.set_enabled(not busy and self._pose is not None)
 
     def arrow(self, direction: object) -> QPushButton:

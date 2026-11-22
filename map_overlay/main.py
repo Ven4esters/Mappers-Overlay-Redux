@@ -11,13 +11,14 @@ from collections.abc import Sequence
 from PySide6.QtWidgets import QApplication
 
 from map_overlay import __version__
-from map_overlay.application.ports import PanelAutomation
+from map_overlay.application.ports import HotkeySource, PanelAutomation
 from map_overlay.config import Settings
 from map_overlay.context import AppContext
 from map_overlay.domain.fields import PANEL_ORDER
 from map_overlay.errors import AppError, ConfigError
 from map_overlay.infrastructure.clipboard import SystemClipboard
 from map_overlay.infrastructure.clock import SystemClock
+from map_overlay.infrastructure.hotkeys import WindowsHotkeySource
 from map_overlay.infrastructure.panel import CalibratedPanel
 from map_overlay.infrastructure.settings_store import JsonSettingsStore
 from map_overlay.infrastructure.win32_input import WindowsInput, enable_dpi_awareness
@@ -56,6 +57,7 @@ def _run_window() -> int:
 
     store = JsonSettingsStore(settings_path())
     input_port = WindowsInput()
+    hotkey_source: HotkeySource = WindowsHotkeySource()
 
     def panel_factory(settings: Settings) -> PanelAutomation:
         return CalibratedPanel(
@@ -64,12 +66,14 @@ def _run_window() -> int:
             clock=SystemClock(),
             points=settings.calibration,
             delays=settings.delays,
+            empty_point=settings.empty_point,
         )
 
     context = AppContext(
         store=store,
         cursor=input_port,
         panel_factory=panel_factory,
+        hotkeys=hotkey_source,
         config_path=store.path,
     )
     window = MainWindow(context)
@@ -88,7 +92,8 @@ def _check_only() -> int:
         print(f"Настройки не читаются: {exc}")
         return 2
     calibrated = len([field for field in PANEL_ORDER if field in settings.calibration])
-    print(f"Калибровка: {calibrated}/{len(PANEL_ORDER)}")
+    empty = "есть" if settings.has_confirmation_point() else "нет"
+    print(f"Калибровка: {calibrated}/{len(PANEL_ORDER)} · точка для F: {empty}")
     print(f"Журнал: {log_path()}")
     return 0
 

@@ -53,3 +53,17 @@ def test_windows_input_refuses_other_platforms() -> None:
 @pytest.mark.skipif(sys.platform == "win32", reason="DPI включается только в Windows")
 def test_dpi_awareness_is_false_off_windows() -> None:
     assert enable_dpi_awareness() is False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="проверяем поведение вне Windows")
+def test_windows_hotkey_source_refuses_other_platforms() -> None:
+    from map_overlay.infrastructure.hotkeys import WindowsHotkeySource
+
+    events: list[tuple[int, bool]] = []
+    source = WindowsHotkeySource()
+    source.start_listening(lambda vk, is_down: events.append((vk, is_down)))
+    assert source.failed is True
+    assert source.is_available() is False
+    assert source.num_lock_enabled() is None
+    source.stop_listening()
+    assert events == []

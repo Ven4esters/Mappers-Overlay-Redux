@@ -34,17 +34,34 @@ class CalibratedPanel:
         clock: Clock,
         points: Mapping[Field, Point],
         delays: Delays,
+        empty_point: Point | None = None,
     ) -> None:
         self._input = input_port
         self._clipboard = clipboard
         self._clock = clock
         self._points = dict(points)
         self._delays = delays
+        self._empty_point = empty_point
         self._expected_cursor: Point | None = None
 
     def missing_points(self) -> tuple[Field, ...]:
         """Поля без точки калибровки."""
         return tuple(field for field in PANEL_ORDER if field not in self._points)
+
+    def has_confirmation_point(self) -> bool:
+        """Задана ли точка «пустое место панели»."""
+        return self._empty_point is not None
+
+    def confirm(self) -> None:
+        """Кликнуть в пустое место панели и нажать ``F``."""
+        if self._empty_point is None:
+            raise NotCalibratedError(
+                "Точка «пустое место панели» не задана — клик перед F невозможен"
+            )
+        self._click_point(self._empty_point)
+        self._clock.sleep(self._delays.click)
+        self._input.press_f()
+        logger.info("Нажато F в точке %s", self._empty_point)
 
     def read_field(self, field: Field) -> str:
         """Прочитать поле: клик → ``Ctrl+A`` → ``Ctrl+C`` → буфер."""
@@ -70,6 +87,9 @@ class CalibratedPanel:
         point = self._points.get(field)
         if point is None:
             raise NotCalibratedError(f"Поле {field.label} не откалибровано")
+        self._click_point(point)
+
+    def _click_point(self, point: Point) -> None:
         self._check_cursor_still()
         self._input.click(point)
         self._expected_cursor = point

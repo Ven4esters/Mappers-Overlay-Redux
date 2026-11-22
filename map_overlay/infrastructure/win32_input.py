@@ -10,6 +10,7 @@ from map_overlay.domain.point import Point
 from map_overlay.errors import InputError, UnsupportedPlatformError
 
 VK_CONTROL: Final = 0x11
+VK_F: Final = 0x46
 VK_A: Final = 0x41
 VK_C: Final = 0x43
 VK_V: Final = 0x56
@@ -118,6 +119,10 @@ class WindowsInput:
     def paste(self) -> None:
         """Нажать ``Ctrl+V``."""
         self._send_combo(VK_V)
+
+    def press_f(self) -> None:
+        """Нажать ``F``."""
+        self._send_keys(((VK_F, True), (VK_F, False)))
 
     def cursor_position(self) -> Point:
         """Текущая позиция курсора в физических пикселях."""

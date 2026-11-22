@@ -1,4 +1,4 @@
-"""Сдвиг позы и сравнение полей."""
+"""Сдвиг позы с учётом поворота и сравнение полей."""
 
 from __future__ import annotations
 
@@ -38,15 +38,36 @@ def validate_step(step: float) -> float:
 def shifted(pose: Pose, direction: Direction, step: float) -> Pose:
     """Сдвинуть позу в направлении на шаг.
 
+    Направление поворачивается на ``RZ``: ``+RZ`` — против часовой стрелки,
+    ``−RZ`` — по часовой (так задано в игре). Поэтому при ``RZ = 90°`` «вперёд»
+    ведёт туда, куда повёрнут предмет, а при нулевых углах правило простое:
+    вперёд — ``X`` в минус, влево — ``Y`` в минус.
+
+    Диагональ — это шаг по прямой: вектор ``(±1, ±1)`` нормализуется, поэтому
+    предмет проходит ровно ``step`` метров, а не ``step · √2``.
+
     Меняются только ``X`` и ``Y``; ``Z`` и углы остаются как были.
     """
     validate_step(step)
-    dx, dy = direction.axes
+    dx, dy = _normalize(direction)
+    world_dx, world_dy = _rotate(dx, dy, pose.rz)
     return replace(
         pose,
-        x=rounded(pose.x + dx * step, COORD_DECIMALS),
-        y=rounded(pose.y + dy * step, COORD_DECIMALS),
+        x=rounded(pose.x + world_dx * step, COORD_DECIMALS),
+        y=rounded(pose.y + world_dy * step, COORD_DECIMALS),
     )
+
+
+def _normalize(direction: Direction) -> tuple[float, float]:
+    dx, dy = direction.axes
+    length = math.hypot(dx, dy)
+    return dx / length, dy / length
+
+
+def _rotate(dx: float, dy: float, rz_degrees: float) -> tuple[float, float]:
+    angle = math.radians(rz_degrees)
+    cos_a, sin_a = math.cos(angle), math.sin(angle)
+    return dx * cos_a - dy * sin_a, dx * sin_a + dy * cos_a
 
 
 def changed_fields(before: Pose, after: Pose, *, tolerance: float = TOLERANCE) -> tuple[Field, ...]:

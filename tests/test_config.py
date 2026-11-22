@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from map_overlay.config import SCHEMA_VERSION, Delays, Settings
+from map_overlay.domain.actions import DEFAULT_HOTKEYS, Action
 from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.point import Point
 from map_overlay.errors import ConfigError
@@ -81,6 +82,63 @@ def test_default_step_is_validated(step: float) -> None:
 def test_delays_are_validated(delay: float) -> None:
     with pytest.raises(ConfigError):
         Delays(click=delay)
+
+
+def test_hotkeys_roundtrip() -> None:
+    settings = Settings().with_hotkey(Action.CAPTURE, 0x70)
+    restored = Settings.from_dict(settings.to_dict())
+    assert restored.hotkeys[Action.CAPTURE] == 0x70
+    assert restored == settings
+
+
+def test_hotkey_takes_the_key_from_another_action() -> None:
+    settings = Settings()
+    previous_owner = Action.MOVE_FORWARD
+    taken = settings.hotkeys[previous_owner]
+    updated = settings.with_hotkey(Action.CAPTURE, taken)
+    assert updated.hotkeys[Action.CAPTURE] == taken
+    assert updated.hotkeys[previous_owner] is None
+    keys = [key for key in updated.hotkeys.values() if key is not None]
+    assert len(keys) == len(set(keys))
+
+
+def test_hotkey_can_be_cleared() -> None:
+    settings = Settings().with_hotkey(Action.CONFIRM, None)
+    assert settings.hotkeys[Action.CONFIRM] is None
+
+
+def test_duplicate_hotkeys_are_rejected() -> None:
+    with pytest.raises(ConfigError):
+        Settings(hotkeys={Action.CAPTURE: 0x70, Action.CONFIRM: 0x70})
+
+
+@pytest.mark.parametrize("vk", [0, 0xFF, "F1", -5])
+def test_invalid_hotkey_code_is_rejected(vk: object) -> None:
+    with pytest.raises(ConfigError):
+        Settings(hotkeys={Action.CAPTURE: vk})  # type: ignore[dict-item]
+
+
+def test_unknown_action_in_hotkeys_is_rejected() -> None:
+    with pytest.raises(ConfigError):
+        Settings.from_dict({"schema_version": 2, "hotkeys": {"teleport": 0x70}})
+
+
+def test_old_schema_gets_default_hotkeys() -> None:
+    settings = Settings.from_dict({"schema_version": 1})
+    assert settings.hotkeys == DEFAULT_HOTKEYS
+    assert settings.empty_point is None
+
+
+def test_empty_point_roundtrip() -> None:
+    settings = Settings().with_empty_point(Point(640, 480))
+    restored = Settings.from_dict(settings.to_dict())
+    assert restored.empty_point == Point(640, 480)
+    assert restored.has_confirmation_point()
+
+
+def test_negative_empty_point_is_rejected() -> None:
+    with pytest.raises(ConfigError):
+        Settings(empty_point=Point(-1, 0))
 
 
 def test_negative_calibration_point_is_rejected() -> None:

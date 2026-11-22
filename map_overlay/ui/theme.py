@@ -63,6 +63,11 @@ QPushButton[role="primary"]:disabled {{
     border-color: #26324a;
     color: #55627a;
 }}
+QPushButton[role="small"] {{
+    padding: 4px 10px;
+    min-height: 0;
+    font-size: 12px;
+}}
 QPushButton[role="arrow"] {{
     font-size: 20px;
     padding: 0;
@@ -105,6 +110,12 @@ QCheckBox::indicator {{
     background: {SURFACE_RAISED};
 }}
 QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+QScrollArea {{ background: transparent; border: none; }}
+QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px; }}
+QScrollBar::handle:vertical {{ background: #2c3a55; border-radius: 4px; min-height: 32px; }}
+QScrollBar::handle:vertical:hover {{ background: #3a4a6b; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
 QStatusBar {{ background: {BACKGROUND}; }}
 QStatusBar::item {{ border: none; }}
 QToolTip {{

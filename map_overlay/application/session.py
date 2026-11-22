@@ -94,6 +94,20 @@ class MappingSession:
         logger.info("Считано из панели: %s", pose)
         return pose
 
+    def confirm(self) -> None:
+        """Зафиксировать текущее положение в игре: клик в пустое место и ``F``.
+
+        Raises:
+            NotCalibratedError: если точка «пустое место панели» не задана.
+        """
+        if not self._panel.has_confirmation_point():
+            raise NotCalibratedError(
+                "Не задана точка «пустое место панели»: без неё некуда кликнуть перед F. "
+                "Откройте вкладку «Калибровка»."
+            )
+        self._panel.confirm()
+        logger.info("Положение подтверждено клавишей F")
+
     def step(self, direction: Direction, step: float) -> StepResult:
         """Сдвинуть предмет на шаг в направлении и записать изменения.
 

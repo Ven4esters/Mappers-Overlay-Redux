@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Collection
 from typing import Protocol
 
 from map_overlay.config import Settings
@@ -24,6 +25,14 @@ class PanelAutomation(Protocol):
         """Поля без точки калибровки."""
         ...
 
+    def has_confirmation_point(self) -> bool:
+        """Задана ли точка для клика перед клавишей F."""
+        ...
+
+    def confirm(self) -> None:
+        """Кликнуть в пустое место панели и нажать F."""
+        ...
+
 
 class InputPort(Protocol):
     """Клавиатура и мышь Windows."""
@@ -42,6 +51,10 @@ class InputPort(Protocol):
 
     def paste(self) -> None:
         """``Ctrl+V``."""
+        ...
+
+    def press_f(self) -> None:
+        """Нажать ``F`` (подтверждение положения в редакторе)."""
         ...
 
     def cursor_position(self) -> Point:
@@ -82,6 +95,30 @@ class Clock(Protocol):
 
     def sleep(self, seconds: float) -> None:
         """Подождать указанное время."""
+        ...
+
+
+class HotkeySource(Protocol):
+    """Глобальные горячие клавиши."""
+
+    def start_listening(self, on_key: Callable[[int, bool], None]) -> None:
+        """Начать слушать клавиатуру; ``on_key`` получает код клавиши и нажатие/отпускание."""
+        ...
+
+    def stop_listening(self) -> None:
+        """Перестать слушать клавиатуру."""
+        ...
+
+    def configure(self, *, bound_keys: Collection[int], learning: bool) -> None:
+        """Сказать источнику, какие клавиши перехватывать и идёт ли запись новой привязки."""
+        ...
+
+    def num_lock_enabled(self) -> bool | None:
+        """Включён ли NumLock (``None``, если проверить нельзя)."""
+        ...
+
+    def is_available(self) -> bool:
+        """Удалось ли перехватывать клавиши."""
         ...
 
 

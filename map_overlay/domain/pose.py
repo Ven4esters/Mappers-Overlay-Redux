@@ -37,6 +37,6 @@ class Pose:
         return {field: self.value(field) for field in Field}
 
     @property
-    def is_rotated(self) -> bool:
-        """Есть ли ненулевые углы (стрелки в 1.0.0 их не учитывают)."""
-        return any(abs(self.value(field)) > 1e-9 for field in (Field.RX, Field.RY, Field.RZ))
+    def has_tilt(self) -> bool:
+        """Есть ли наклон по ``RX``/``RY``: его движение пока не учитывает."""
+        return any(abs(self.value(field)) > 1e-9 for field in (Field.RX, Field.RY))

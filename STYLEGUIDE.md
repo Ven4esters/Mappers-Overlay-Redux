@@ -27,6 +27,9 @@ domain/        чистая логика: поза, направления, фо
 infrastructure/ Win32, буфер обмена, файлы настроек. Реализует порты.
 ```
 
+Горячие клавиши разложены так же: `Action` и `keynames` — домен, `HotkeyRouter` —
+приложение, `WindowsHotkeySource` — инфраструктура.
+
 Зависимости идут только внутрь: `ui → application → domain`,
 `infrastructure → application/domain`. Домен ничего не импортирует из соседних слоёв.
 

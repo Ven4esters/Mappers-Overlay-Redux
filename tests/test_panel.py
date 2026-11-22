@@ -18,6 +18,7 @@ def make_panel(
     *,
     points: dict[Field, Point] | None = None,
     delays: Delays | None = None,
+    empty_point: Point | None = None,
 ) -> tuple[CalibratedPanel, FakeInput, FakeClipboard, FakeClock]:
     clipboard = FakeClipboard()
     input_port = FakeInput(clipboard=clipboard, values=dict(VALUES), field_points=FULL_CALIBRATION)
@@ -28,6 +29,7 @@ def make_panel(
         clock=clock,
         points=FULL_CALIBRATION if points is None else points,
         delays=delays or Delays(),
+        empty_point=empty_point,
     )
     return panel, input_port, clipboard, clock
 
@@ -67,7 +69,7 @@ def test_uncalibrated_field_cannot_be_used() -> None:
     panel, input_port, _clipboard, _clock = make_panel(points={})
     with pytest.raises(NotCalibratedError, match="X"):
         panel.read_field(Field.X)
-    assert input_port.clicked == []
+    assert input_port.clicks == []
 
 
 def test_cursor_drift_stops_the_exchange() -> None:
@@ -92,3 +94,30 @@ def test_rejected_paste_leaves_value_unchanged() -> None:
     input_port.reject_paste.add(Field.RY)
     panel.write_field(Field.RY, "45.000")
     assert input_port.panel_value(Field.RY) == VALUES[Field.RY]
+
+
+def test_confirm_clicks_empty_spot_and_presses_f() -> None:
+    empty = Point(900, 900)
+    panel, input_port, _clipboard, clock = make_panel(empty_point=empty)
+    assert panel.has_confirmation_point()
+    panel.confirm()
+    assert input_port.clicks == [empty]
+    assert input_port.f_pressed == 1
+    assert clock.sleeps == [Delays().click]
+
+
+def test_confirm_without_point_is_refused() -> None:
+    panel, input_port, _clipboard, _clock = make_panel()
+    assert not panel.has_confirmation_point()
+    with pytest.raises(NotCalibratedError, match="пустое место"):
+        panel.confirm()
+    assert input_port.f_pressed == 0
+
+
+def test_confirm_respects_cursor_guard() -> None:
+    panel, input_port, _clipboard, _clock = make_panel(empty_point=Point(900, 900))
+    panel.read_field(Field.X)
+    input_port.force_cursor(Point(1, 1))
+    with pytest.raises(CursorMovedError):
+        panel.confirm()
+    assert input_port.f_pressed == 0
