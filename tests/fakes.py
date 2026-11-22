@@ -57,6 +57,8 @@ class FakeInput:
         self.f_pressed = 0
         self.modifiers = 0
         """Сколько первых проверок ``modifier_down`` ответить «зажато»."""
+        self.ignore_copy = False
+        """Сделать вид, что клавиша ``Ctrl+C`` до панели не дошла."""
 
     def modifier_down(self) -> bool:
         if self.modifiers > 0:
@@ -82,6 +84,8 @@ class FakeInput:
 
     def copy(self) -> None:
         self.keys.append("ctrl+c")
+        if self.ignore_copy:
+            return
         self._clipboard.text = self._values[self.last_field]
 
     def paste(self) -> None:

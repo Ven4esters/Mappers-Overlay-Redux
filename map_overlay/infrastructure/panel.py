@@ -10,7 +10,7 @@ from map_overlay.application.ports import ClipboardPort, Clock, InputPort
 from map_overlay.config import Delays
 from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.point import Point
-from map_overlay.errors import NotCalibratedError
+from map_overlay.errors import ClipboardError, NotCalibratedError
 
 logger = logging.getLogger(__name__)
 
@@ -70,16 +70,31 @@ class CalibratedPanel:
         logger.info("Нажато F в точке %s", self._empty_point)
 
     def read_field(self, field: Field) -> str:
-        """Прочитать поле: клик → ``Ctrl+A`` → ``Ctrl+C`` → буфер."""
+        """Прочитать поле: клик → ``Ctrl+A`` → ``Ctrl+C`` → буфер.
+
+        Перед копированием буфер очищается. Без этого несостоявшееся копирование
+        возвращало бы то, что оверлей сам же в буфер и положил (например при записи),
+        и проверка «значение принято?» подтверждала бы несуществующий успех.
+
+        Raises:
+            ClipboardError: если панель не отдала значение — буфер остался пустым.
+        """
         logger.debug("Читаю поле %s", field.label)
         self._wait_modifiers_released()
+        self._clipboard.set("")
         self._click(field)
         self._clock.sleep(self._delays.click)
         self._input.select_all()
         self._clock.sleep(self._delays.select)
         self._input.copy()
         self._clock.sleep(self._delays.copy)
-        return self._clipboard.get()
+        text = self._clipboard.get()
+        if not text.strip():
+            raise ClipboardError(
+                f"Поле {field.label} не отдало значение: панель не получила Ctrl+C. "
+                "Проверьте, что окно панели на экране и не перекрыто"
+            )
+        return text
 
     def write_field(self, field: Field, text: str) -> None:
         """Записать поле: буфер → клик → ``Ctrl+A`` → ``Ctrl+V``."""

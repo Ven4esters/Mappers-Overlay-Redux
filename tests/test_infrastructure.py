@@ -231,3 +231,27 @@ def test_freeze_is_lifted_after_the_limit() -> None:
     hook.source._frozen_at -= 60.0
     assert hook.send(0x41, True) == 0
     assert hook.source._frozen is False
+
+
+def test_frozen_hook_passes_its_own_keys_through() -> None:
+    """Ctrl+A/Ctrl+V оверлея обязаны дойти до панели, даже когда клавиатура заморожена.
+
+    Именно на этом сломался 1.4.1: заморозка съедала собственные клавиши, поле не
+    менялось, а проверка читала буфер, который оверлей сам же и положил.
+    """
+    hook = _HookHarness()
+    hook.source.freeze(True)
+    assert hook.send(0x11, True, injected=True) == 0  # Ctrl
+    assert hook.send(0x41, True, injected=True) == 0  # A
+    assert hook.send(0x41, False, injected=True) == 0
+    assert hook.send(0x56, True, injected=True) == 0  # V
+    assert hook.send(0x11, False, injected=True) == 0
+    assert hook.events == []
+
+
+def test_frozen_hook_still_blocks_live_keys_next_to_its_own() -> None:
+    hook = _HookHarness()
+    hook.source.freeze(True)
+    assert hook.send(0x11, True, injected=True) == 0
+    assert hook.send(0x41, True) == 1
+    assert hook.send(0x41, False) == 1

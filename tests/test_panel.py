@@ -6,7 +6,7 @@ import pytest
 from map_overlay.config import Delays
 from map_overlay.domain.fields import Field
 from map_overlay.domain.point import Point
-from map_overlay.errors import NotCalibratedError
+from map_overlay.errors import ClipboardError, NotCalibratedError
 from map_overlay.infrastructure.panel import (
     MODIFIER_POLL_S,
     MODIFIER_WAIT_S,
@@ -80,6 +80,23 @@ def test_custom_delays_are_used() -> None:
     panel, _input_port, _clipboard, clock = make_panel(delays=delays)
     panel.read_field(Field.X)
     assert clock.sleeps == [0.2, 0.3, 0.4]
+
+
+def test_read_field_fails_loudly_when_copy_did_not_arrive() -> None:
+    """Если панель не получила ``Ctrl+C``, чтение не должно возвращать свой же буфер."""
+    panel, input_port, _clipboard, _clock = make_panel()
+    input_port.ignore_copy = True
+    with pytest.raises(ClipboardError):
+        panel.read_field(Field.X)
+
+
+def test_read_field_clears_the_old_clipboard_before_copying() -> None:
+    """Значение из прошлого обмена не должно выдаваться за прочитанное."""
+    panel, input_port, clipboard, _clock = make_panel()
+    clipboard.text = "999.999"
+    input_port.ignore_copy = True
+    with pytest.raises(ClipboardError):
+        panel.read_field(Field.Y)
 
 
 def test_missing_points_lists_uncalibrated_fields() -> None:
