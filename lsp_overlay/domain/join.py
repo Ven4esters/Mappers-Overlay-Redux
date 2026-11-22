@@ -30,6 +30,8 @@ MIN_JOIN_ANGLE = 5.0
 MAX_JOIN_ANGLE = 175.0
 TEE_ANGLE = 90.0
 ACROSS_EPSILON = 1e-9
+DEEP_ACROSS = 0.75
+PLAIN_ACROSS = 0.02
 
 
 class AcrossField(StrEnum):
@@ -123,6 +125,24 @@ def _ensure_measurable(spec: ObjectSpec, field: AcrossField) -> None:
     # Ноль допустим: плоская стена без толщины стыкуется торец в торец по своей плоскости.
 
 
+def _ensure_across_fits(spec: ObjectSpec, field: AcrossField) -> None:
+    """Ловит перепутанный габарит: у стены ширина — это высота, а не глубина.
+
+    Если в стык берут ширину, а толщина при этом не измерена, «поперёк» почти наверняка
+    означает высоту: вторая деталь отъедет на метр-другой от угла, и это будет выглядеть
+    как «опять мимо». Лучше остановиться и попросить толщину.
+    """
+    if field is not AcrossField.WIDTH:
+        return
+    across = spec.dimension(field.dimension)
+    if across < DEEP_ACROSS or spec.dimension(Dimension.THICKNESS) > PLAIN_ACROSS:
+        return
+    raise ValidationError(
+        f"у «{spec.name}» ширина {across:.3f} м, а толщина не измерена — похоже, ширина это "
+        "высота. Для стыка нужна толщина: измерьте её или выберите «Поперёк: Толщина»."
+    )
+
+
 def local_offset(
     first: ObjectSpec,
     second: ObjectSpec,
@@ -132,6 +152,8 @@ def local_offset(
     request = request.validated()
     _ensure_measurable(first, request.across)
     _ensure_measurable(second, request.across)
+    _ensure_across_fits(first, request.across)
+    _ensure_across_fits(second, request.across)
     side = request.side.turn
     half_across_first = across_of(first, request.across) / 2.0
     half_across_second = across_of(second, request.across) / 2.0

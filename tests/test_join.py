@@ -214,6 +214,21 @@ def test_unmeasured_object_is_rejected() -> None:
         join_pose(BASE, bare, WALL, corner())
 
 
+def test_width_is_refused_when_it_is_obviously_the_height() -> None:
+    """Стена 2.73 × 2.50 × 0.00: ширина — это высота, стык «по ширине» отъехал бы на 2.6 м."""
+    wall = ObjectSpec(name="Стена March 0-64", length=2.73, width=2.5, thickness=0.0)
+    with pytest.raises(ValidationError, match="ширина это высота"):
+        join_pose(BASE, wall, wall, JoinRequest(across=AcrossField.WIDTH))
+
+
+def test_width_is_allowed_when_thickness_is_known() -> None:
+    """У плоской плиты толщина измерена — ширина как глубина законна."""
+    slab = ObjectSpec(name="Плита", length=4.0, width=2.5, thickness=0.1)
+    x, y = local_offset(slab, slab, JoinRequest(across=AcrossField.WIDTH))
+    assert x == pytest.approx(1.25 + 2.0)
+    assert y == pytest.approx(2.0 - 1.25)
+
+
 def test_join_requires_measured_length() -> None:
     point = ObjectSpec(name="Точка", length=0.0, width=2.0, thickness=0.1)
     with pytest.raises(ValidationError, match="длина"):

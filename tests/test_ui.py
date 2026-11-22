@@ -299,6 +299,29 @@ def test_join_switches_across_to_width(tmp_path: Path, qt_app: object) -> None:
     assert panel.pose.x == pytest.approx(250.5 + 1.25 + 2.0)
 
 
+def test_across_choices_show_values(tmp_path: Path, qt_app: object) -> None:
+    """В списке «Поперёк» видны значения габаритов, а не только названия."""
+    window, _panel = make_window(tmp_path, qt_app)
+    window.action_save_object(ObjectSpec(name="Стена March", length=2.73, width=2.5, thickness=0.1))
+    window.join_tab.combo_first.setCurrentIndex(0)
+    window.join_tab.combo_second.setCurrentIndex(0)
+    texts = [window.join_tab.combo_across.itemText(index) for index in range(2)]
+    assert texts[0] == "Толщина · 0.100 м"
+    assert texts[1] == "Ширина · 2.500 м"
+
+
+def test_join_refuses_width_when_it_is_the_height(tmp_path: Path, qt_app: object) -> None:
+    """Ширина 2.5 при неизмеренной толщине — стык не ставится, есть подсказка."""
+    window, panel = make_window(tmp_path, qt_app)
+    window.action_save_object(ObjectSpec(name="Стена March", length=2.73, width=2.5, thickness=0.0))
+    window.join_tab.combo_first.setCurrentIndex(0)
+    window.join_tab.combo_second.setCurrentIndex(0)
+    window.join_tab.combo_across.setCurrentIndex(window.join_tab.combo_across.findData("width"))
+    window.join_tab.place_requested.emit()
+    assert not panel.writes
+    assert "ширина это высота" in window.lbl_status.text()
+
+
 def test_dimension_labels_in_objects_tab_have_thickness(tmp_path: Path, qt_app: object) -> None:
     window, _panel = make_window(tmp_path, qt_app)
     headers = [

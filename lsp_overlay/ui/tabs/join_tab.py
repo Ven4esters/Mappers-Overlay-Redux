@@ -138,7 +138,8 @@ class JoinTab(QWidget):
         across_row.addWidget(make_label("Поперёк", muted=True))
         self.combo_across = QComboBox()
         self.combo_across.setToolTip(
-            "Ширина — обычный поперечный габарит; толщина — если стыкуете плиты по толщине"
+            "Глубина детали в стыке: толщина у стен и панелей, ширина — у плоских плит. "
+            "Рядом с названием видно значение из таблицы предметов."
         )
         for field in AcrossField:
             self.combo_across.addItem(field.label, field.value)
@@ -347,8 +348,20 @@ class JoinTab(QWidget):
             tail = "A из последнего «Считать» — панель не перечитывается, в ней сейчас B"
         self.lbl_base.setText(f"A сейчас: {where} — {tail}")
 
+    def _update_across_choices(self, spec: ObjectSpec | None) -> None:
+        """Показывает значения габаритов прямо в списке: видно, что именно пойдёт в стык."""
+        for index in range(self.combo_across.count()):
+            field = AcrossField(self.combo_across.itemData(index))
+            value = (
+                EMPTY_TEXT
+                if spec is None
+                else f"{format_length(spec.dimension(field.dimension), 3)} м"
+            )
+            self.combo_across.setItemText(index, f"{field.label} · {value}")
+
     def _update_across_value(self, first: ObjectSpec | None, second: ObjectSpec | None) -> None:
         field = AcrossField(self.combo_across.currentData())
+        self._update_across_choices(first or second)
         spec = first or second
         if spec is None:
             self.lbl_across.setText(EMPTY_TEXT)
