@@ -101,8 +101,13 @@ class Clock(Protocol):
 class HotkeySource(Protocol):
     """Глобальные горячие клавиши."""
 
-    def start_listening(self, on_key: Callable[[int, bool], None]) -> None:
-        """Начать слушать клавиатуру; ``on_key`` получает код клавиши и нажатие/отпускание."""
+    def start_listening(self, on_key: Callable[[int, bool, bool], None]) -> None:
+        """Начать слушать клавиатуру.
+
+        ``on_key`` получает код клавиши, нажатие/отпускание и признак свежего
+        нажатия: ``False`` для автоповтора, пока клавиша зажата. Источник знает
+        это точно — поэтому интерфейсу не нужно угадывать по своему состоянию.
+        """
         ...
 
     def stop_listening(self) -> None:

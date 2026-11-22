@@ -71,6 +71,9 @@ _SPECIAL_NAMES: Final[dict[int, str]] = {
     VK_DECIMAL: "Num .",
     VK_DIVIDE: "Num /",
     VK_NUMLOCK: "NumLock",
+    VK_MENU: "Alt",
+    0x10: "Shift",
+    0x11: "Ctrl",
 }
 _SPECIAL_NAMES.update({VK_NUMPAD0 + digit: f"Num {digit}" for digit in range(10)})
 _SPECIAL_NAMES.update({VK_F1 + index: f"F{index + 1}" for index in range(12)})

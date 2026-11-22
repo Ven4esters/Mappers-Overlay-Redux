@@ -199,7 +199,7 @@ class FakeHotkeySource:
         num_lock: bool | None = True,
         alt: bool = False,
     ) -> None:
-        self._callback: Callable[[int, bool], None] | None = None
+        self._callback: Callable[[int, bool, bool], None] | None = None
         self.bound_keys: Collection[int] = ()
         self.learning = False
         self.enabled = True
@@ -209,7 +209,7 @@ class FakeHotkeySource:
         self._num_lock = num_lock
         self._down: set[int] = set()
 
-    def start_listening(self, on_key: Callable[[int, bool], None]) -> None:
+    def start_listening(self, on_key: Callable[[int, bool, bool], None]) -> None:
         self._callback = on_key
         self.started = True
 
@@ -237,13 +237,18 @@ class FakeHotkeySource:
         return vk in self._down
 
     def press(self, vk: int, *, is_down: bool = True) -> None:
-        """Имитировать нажатие клавиши."""
+        """Имитировать нажатие клавиши.
+
+        Автоповтор отличается так же, как в хуке: «свежее» нажатие — то, после
+        которого клавишу ещё не отпускали.
+        """
+        fresh = is_down and vk not in self._down
         if is_down:
             self._down.add(vk)
         else:
             self._down.discard(vk)
         if self._callback is not None:
-            self._callback(vk, is_down)
+            self._callback(vk, is_down, fresh)
 
     def release(self, vk: int) -> None:
         self.press(vk, is_down=False)

@@ -20,7 +20,7 @@ from typing import ClassVar, Final
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from map_overlay.domain.keynames import VK_MENU, VK_NUMLOCK
+from map_overlay.domain.keynames import VK_MENU, VK_NUMLOCK, key_name
 
 logger = logging.getLogger(__name__)
 
@@ -94,14 +94,14 @@ class WindowsHotkeySource(QThread):
     потоке (Qt ставит его в очередь), поэтому интерфейс обновляется безопасно.
     """
 
-    key_event = Signal(int, bool)
+    key_event = Signal(int, bool, bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._bound: frozenset[int] = frozenset()
         self._learning = False
         self._enabled = True
-        self._callback: Callable[[int, bool], None] | None = None
+        self._callback: Callable[[int, bool, bool], None] | None = None
         self._thread_id = 0
         self._hook: int | None = None
         self._proc: object | None = None
@@ -113,7 +113,7 @@ class WindowsHotkeySource(QThread):
         self._error_logged = False
         self.failed = False
 
-    def start_listening(self, on_key: Callable[[int, bool], None]) -> None:
+    def start_listening(self, on_key: Callable[[int, bool, bool], None]) -> None:
         """Запустить хук и доставлять нажатия в ``on_key``."""
         self._callback = on_key
         self.key_event.connect(self._deliver)
@@ -222,9 +222,9 @@ class WindowsHotkeySource(QThread):
         self._owner_of = owner
         self._own_pid = ctypes.windll.kernel32.GetCurrentProcessId
 
-    def _deliver(self, vk: int, is_down: bool) -> None:
+    def _deliver(self, vk: int, is_down: bool, fresh: bool) -> None:
         if self._callback is not None:
-            self._callback(vk, is_down)
+            self._callback(vk, is_down, fresh)
 
     def _handle(self, code: int, wparam: int, lparam: int) -> int:
         try:
@@ -252,13 +252,18 @@ class WindowsHotkeySource(QThread):
             overlay_active=self._foreground_is_ours(),
             swallowed=self._swallowed,
         )
+        fresh = is_down and block and vk not in self._swallowed
         if is_down and block:
             self._swallowed.add(vk)
         elif is_up:
             self._swallowed.discard(vk)
         if not block:
+            if is_down and vk in self._bound:
+                logger.debug("Клавиша %s пропущена: перехват выключен", key_name(vk))
             return self._pass_through(code, wparam, lparam)
-        self.key_event.emit(vk, is_down)
+        if fresh:
+            logger.info("Хук забрал клавишу %s", key_name(vk))
+        self.key_event.emit(vk, is_down, fresh)
         return 1
 
     def _foreground_is_ours(self) -> bool:

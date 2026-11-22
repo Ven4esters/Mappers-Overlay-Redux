@@ -61,7 +61,7 @@ def test_windows_hotkey_source_refuses_other_platforms() -> None:
 
     events: list[tuple[int, bool]] = []
     source = WindowsHotkeySource()
-    source.start_listening(lambda vk, is_down: events.append((vk, is_down)))
+    source.start_listening(lambda vk, is_down, fresh: events.append((vk, is_down)))
     assert source.failed is True
     assert source.is_available() is False
     assert source.num_lock_enabled() is None
@@ -76,3 +76,34 @@ def test_modifier_state_off_windows_is_off() -> None:
     source = WindowsHotkeySource()
     assert source.alt_down() is False
     assert source.key_down(0x68) is False
+
+
+def test_hook_decides_fresh_press_and_autorepeat(
+    qt_app: object, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Решение хука: первое нажатие свежее, автоповтор — нет, отпускание — нет."""
+    import ctypes
+
+    from map_overlay.infrastructure.hotkeys import (
+        WM_KEYDOWN,
+        WM_KEYUP,
+        WindowsHotkeySource,
+        _KeyboardHookData,
+    )
+
+    source = WindowsHotkeySource()
+    source._bound = frozenset({0x68})
+    source._enabled = True
+    source._call_next = lambda *args: 0
+    events: list[tuple[int, bool, bool]] = []
+    source.key_event.connect(lambda vk, down, fresh: events.append((vk, down, fresh)))
+    data = _KeyboardHookData(vk=0x68, scan=0, flags=0, time=0, extra=None)
+    lparam = ctypes.addressof(data)
+
+    with caplog.at_level("INFO"):
+        assert source._decide(0, WM_KEYDOWN, lparam) == 1
+        assert source._decide(0, WM_KEYDOWN, lparam) == 1
+        assert source._decide(0, WM_KEYUP, lparam) == 1
+    assert events == [(0x68, True, True), (0x68, True, False), (0x68, False, False)]
+    # В журнал попадает только само нажатие: автоповтор и отпускание молчат.
+    assert caplog.text.count("Хук забрал клавишу Num 8") == 1

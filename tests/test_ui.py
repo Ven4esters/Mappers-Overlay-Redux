@@ -521,9 +521,81 @@ def test_hold_stops_when_the_keyup_was_lost(qt_app: QApplication) -> None:
     window.movement.press_capture()
     hotkeys.press(NUMPAD8)
     hotkeys.forget(NUMPAD8)
-    window._hold_tick()
+    for _ in range(3):
+        window._hold_tick()
     assert not window._hold_timer.isActive()
     assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
+
+
+def test_quick_tap_still_makes_the_step(
+    qt_app: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Клавишу отпустили раньше, чем окно обработало нажатие: шаг всё равно нужен."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    monkeypatch.setattr(hotkeys, "key_down", lambda _vk: False)
+    hotkeys.press(NUMPAD8)
+    assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
+    for _ in range(3):
+        window._hold_tick()
+    assert not window._hold_timer.isActive()
+    assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
+
+
+def test_lost_release_does_not_kill_the_key(qt_app: QApplication) -> None:
+    """Отпускание потерялось — следующее нажатие всё равно двигает предмет."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(NUMPAD8)
+    hotkeys.forget(NUMPAD8)  # keyup до оверлея не дошёл
+    hotkeys.press(NUMPAD8)
+    assert panel.pose().x == pytest.approx(START.x + 1.0, abs=0.001)
+
+
+def test_press_is_written_to_the_log(
+    qt_app: QApplication, caplog: pytest.LogCaptureFixture
+) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    with caplog.at_level("INFO"):
+        hotkeys.press(NUMPAD8)
+    assert "Клавиша Num 8" in caplog.text
+    assert "Вперёд" in caplog.text
+
+
+def test_step_without_capture_is_written_to_the_log(
+    qt_app: QApplication, caplog: pytest.LogCaptureFixture
+) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    with caplog.at_level("INFO"):
+        hotkeys.press(NUMPAD8)
+    assert "координаты не считаны" in caplog.text
+
+
+def test_num_lock_timer_runs(qt_app: QApplication) -> None:
+    window, _panel, _store, _cursor = make_window(qt_app)
+    assert window._num_lock_timer.isActive()
+
+
+def test_num_lock_switched_off_is_reported(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    assert window.status_text() != ""
+    hotkeys._num_lock = False  # пользователь выключил NumLock во время работы
+    window._check_num_lock()
+    assert "NumLock выключен" in window.status_text()
+
+
+def test_num_lock_warning_is_not_repeated(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource(num_lock=False)
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window._set_status("прежний текст")
+    window._check_num_lock()
+    assert window.status_text() == "прежний текст"
 
 
 def test_hold_waits_while_the_panel_is_busy(qt_app: QApplication) -> None:

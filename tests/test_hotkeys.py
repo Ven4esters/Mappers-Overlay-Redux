@@ -105,3 +105,29 @@ def test_paused_source_keeps_settings_but_reports_state() -> None:
     assert source.enabled is False
     source.set_enabled(True)
     assert source.enabled is True
+
+
+def test_autorepeat_from_the_hook_is_not_an_action() -> None:
+    router = HotkeyRouter(BINDINGS)
+    assert router.handle(VK_NUMPAD8, True, True) is Action.MOVE_FORWARD
+    assert router.handle(VK_NUMPAD8, True, False) is None
+    assert router.handle(VK_NUMPAD8, True, False) is None
+    assert router.handle(VK_NUMPAD8, False, False) is None
+    assert router.handle(VK_NUMPAD8, True, True) is Action.MOVE_FORWARD
+
+
+def test_fresh_press_clears_a_lost_release() -> None:
+    router = HotkeyRouter(BINDINGS)
+    assert router.handle(VK_NUMPAD8, True, True) is Action.MOVE_FORWARD
+    # Отпускание до роутера не дошло: он считает клавишу зажатой.
+    assert router.is_pressed(VK_NUMPAD8) is True
+    # Настоящее нажатие всё равно срабатывает — иначе клавиша «умерла» бы.
+    assert router.handle(VK_NUMPAD8, True, True) is Action.MOVE_FORWARD
+
+
+def test_reset_forgets_stuck_keys() -> None:
+    router = HotkeyRouter(BINDINGS)
+    router.handle(VK_NUMPAD8, True, True)
+    router.reset()
+    assert router.is_pressed(VK_NUMPAD8) is False
+    assert router.handle(VK_NUMPAD8, True, None) is Action.MOVE_FORWARD

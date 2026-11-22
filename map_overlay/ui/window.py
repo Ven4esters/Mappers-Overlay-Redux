@@ -59,6 +59,12 @@ BUSY_TICK_MS = 500
 STUCK_HINT_S = 5.0
 HOLD_REPEAT_MS = 150
 """Как часто повторять шаг, пока направление на Numpad зажато."""
+
+HOLD_MISS_LIMIT = 3
+"""Сколько тактов подряд клавиша может считаться отжатой, прежде чем удержание снимется."""
+
+NUM_LOCK_CHECK_MS = 3000
+"""Как часто проверять NumLock: без него Numpad посылает другие клавиши."""
 LEARN_TIMEOUT_MS = 10_000
 
 
@@ -75,6 +81,8 @@ class MainWindow(QMainWindow):
         self._router = HotkeyRouter(context.settings.hotkeys)
         self._busy_text = ""
         self._held: tuple[Action, int] | None = None
+        self._hold_misses = 0
+        self._num_lock_state: bool | None = None
         self._learn_timer = QTimer(self)
         self._learn_timer.setSingleShot(True)
         self._learn_timer.timeout.connect(self._learning_expired)
@@ -142,6 +150,10 @@ class MainWindow(QMainWindow):
         self._hold_timer = QTimer(self)
         self._hold_timer.setInterval(HOLD_REPEAT_MS)
         self._hold_timer.timeout.connect(self._hold_tick)
+        self._num_lock_timer = QTimer(self)
+        self._num_lock_timer.setInterval(NUM_LOCK_CHECK_MS)
+        self._num_lock_timer.timeout.connect(self._check_num_lock)
+        self._num_lock_timer.start()
 
         self.movement.capture_requested.connect(self._capture)
         self.movement.confirm_requested.connect(self._confirm)
@@ -284,9 +296,11 @@ class MainWindow(QMainWindow):
             ``True``, если задача поставлена: ``False`` — шаг невозможен.
         """
         if self._runner.is_busy():
+            logger.info("Шаг не начат: занято другим действием")
             return False
         session = self._session
         if session is None or session.pose is None or self._pose is None:
+            logger.warning("Шаг не начат: координаты не считаны")
             self._set_status(
                 "Сначала нажмите «Считать»: без координат шаг не посчитать", STATUS_WARN
             )
@@ -354,17 +368,21 @@ class MainWindow(QMainWindow):
 
     # --- горячие клавиши --------------------------------------------------
 
-    def _on_hotkey(self, vk: int, is_down: bool) -> None:
+    def _on_hotkey(self, vk: int, is_down: bool, fresh: bool = True) -> None:
+        """Событие клавиатуры: сюда приходит даже автоповтор зажатой клавиши."""
         if not self.settings_tab.hotkeys_enabled():
+            logger.debug("Клавиша %s: перехват выключен", key_name(vk))
             return
         if self._learning is not None:
             if is_down:
                 self._finish_learning(vk)
             return
-        action = self._router.handle(vk, is_down)
+        action = self._router.handle(vk, is_down, fresh)
         if action is not None:
+            logger.info("Клавиша %s → %s", key_name(vk), action.label)
             self._dispatch(action, vk)
-        elif not is_down:
+            return
+        if not is_down:
             self._release_key(vk)
 
     def _dispatch(self, action: Action, vk: int) -> None:
@@ -384,10 +402,15 @@ class MainWindow(QMainWindow):
         self._stop_hold()
         self._held = (action, vk)
         self._hold_timer.start(HOLD_REPEAT_MS)
-        self._hold_tick()
+        self._hold_tick(force=True)
 
-    def _hold_tick(self) -> None:
+    def _hold_tick(self, *, force: bool = False) -> None:
         """Повторить шаг, пока клавиша зажата.
+
+        ``force`` — такт вызван самим нажатием: событие уже доказывает, что клавишу
+        нажали, поэтому состояние клавиши не перепроверяется. Без этого быстрое
+        нажатие (отпустили раньше, чем интерфейс обработал событие) не давало шага
+        вовсе — «Numpad не реагирует».
 
         Пропускает такт, если панель ещё занята предыдущим шагом: очередь шагов
         не копится, иначе оверлей «уезжал» бы после отпускания клавиши.
@@ -397,9 +420,17 @@ class MainWindow(QMainWindow):
             self._hold_timer.stop()
             return
         action, vk = held
-        if not self.settings_tab.hotkeys_enabled() or not self._hotkeys.key_down(vk):
+        if not self.settings_tab.hotkeys_enabled():
             self._stop_hold()
             return
+        if not force:
+            if not self._hotkeys.key_down(vk):
+                self._hold_misses += 1
+                if self._hold_misses >= HOLD_MISS_LIMIT:
+                    logger.debug("Удержание %s снято: клавиша не нажата", action.label)
+                    self._stop_hold()
+                return
+            self._hold_misses = 0
         if self._runner.is_busy():
             return
         if not self._step_once(action, tilt=self._hotkeys.alt_down()):
@@ -412,6 +443,7 @@ class MainWindow(QMainWindow):
         try:
             step = self.movement.current_step()
         except ValidationError as exc:
+            logger.warning("Шаг не начат: %s", exc)
             self._set_status(str(exc), STATUS_WARN)
             return False
         return self._move(direction, step, tilt=tilt)
@@ -424,6 +456,7 @@ class MainWindow(QMainWindow):
     def _stop_hold(self) -> None:
         self._hold_timer.stop()
         self._held = None
+        self._hold_misses = 0
 
     def _start_learning(self, action: object) -> None:
         self._stop_hold()
@@ -458,6 +491,7 @@ class MainWindow(QMainWindow):
     def _set_hotkeys_enabled(self, enabled: bool) -> None:
         """Включить или приостановить перехват клавиш без перезапуска."""
         self._stop_hold()
+        self._router.reset()
         self._hotkeys.set_enabled(enabled)
         if enabled:
             self._set_status("Перехват клавиш включён: Numpad снова забран у игры.")
@@ -507,18 +541,24 @@ class MainWindow(QMainWindow):
 
     def _apply_hotkeys(self, hotkeys: Mapping[Action, int | None]) -> None:
         self._router.bind(hotkeys)
+        self._router.reset()
         self._hotkeys.configure(
             bound_keys=self._router.bound_keys, learning=self._learning is not None
         )
         self.settings_tab.set_hotkeys(hotkeys)
 
     def _check_num_lock(self) -> None:
+        """Следить за NumLock: без него Numpad посылает «стрелки», а не цифры."""
         state = self._hotkeys.num_lock_enabled()
+        if state == self._num_lock_state:
+            return
+        self._num_lock_state = state
         if state is False:
             warning = (
                 "NumLock выключен: цифровой блок работает как навигация, "
                 "горячие клавиши не сработают."
             )
+            logger.warning("NumLock выключен: Numpad посылает другие клавиши")
             self.settings_tab.set_num_lock_warning(warning)
             self._set_status(warning, STATUS_WARN)
         else:
@@ -591,6 +631,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - имя из Qt
         """Снять хук и дождаться фоновой задачи, чтобы не оставить поток висеть."""
         self._heartbeat.stop()
+        self._num_lock_timer.stop()
         self._hold_timer.stop()
         self._held = None
         self._hotkeys.stop_listening()
