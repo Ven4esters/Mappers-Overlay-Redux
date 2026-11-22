@@ -98,7 +98,7 @@ class MovementTab(QWidget):
         self._tilt_box.toggled.connect(self.tilt_toggled.emit)
         mode_row.addWidget(self._tilt_box)
         mode_row.addStretch(1)
-        self._mode_label = label("по горизонтали", widget_role="muted")
+        self._mode_label = label("по горизонтали · диагонали по экрану", widget_role="muted")
         self._mode_label.setWordWrap(False)
         mode_row.addWidget(self._mode_label)
         move_card.add_layout(mode_row)
@@ -114,9 +114,10 @@ class MovementTab(QWidget):
             label(
                 "Одно нажатие Alt включает режим по экрану: шаг идёт в плоскости экрана — "
                 "Num 8 вверх-вправо, Num 4 вверх-влево, Num 2 вниз-влево, Num 6 вниз-вправо, "
-                "а диагонали клавиш дают чистые вверх, вниз, влево и вправо. X при этом не "
-                "меняется. Ещё одно нажатие — выключить. Держать Alt не нужно: пока он "
-                "зажат, игра не применяет правки панели.",
+                "X при этом не меняется. Диагональные клавиши в этом режиме не работают: они "
+                "и без Alt ведут по экрану (Num 9 вверх-вправо, Num 7 вверх-влево, Num 1 "
+                "вниз-влево, Num 3 вниз-вправо). Ещё одно нажатие — выключить. Держать Alt не "
+                "нужно: пока он зажат, игра не применяет правки панели.",
                 widget_role="muted",
             )
         )
@@ -197,7 +198,7 @@ class MovementTab(QWidget):
 
     def _mode_text(self) -> str:
         if not self._tilt:
-            return "по горизонтали"
+            return "по горизонтали · диагонали по экрану"
         return f"по экрану · {screen_hint()}"
 
     def press_confirm(self) -> None:

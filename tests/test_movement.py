@@ -21,10 +21,15 @@ EXPECTED = {
     Direction.BACK: (1845.0, 1850.0),
     Direction.LEFT: (1850.0, 1855.0),
     Direction.RIGHT: (1850.0, 1845.0),
-    Direction.FORWARD_LEFT: (1850.0 + DIAGONAL, 1850.0 + DIAGONAL),
-    Direction.FORWARD_RIGHT: (1850.0 + DIAGONAL, 1850.0 - DIAGONAL),
-    Direction.BACK_LEFT: (1850.0 - DIAGONAL, 1850.0 + DIAGONAL),
-    Direction.BACK_RIGHT: (1850.0 - DIAGONAL, 1850.0 - DIAGONAL),
+}
+
+#: Диагональные клавиши в обычном режиме повторяют направления режима по экрану:
+#: ``(ΔY, ΔZ)`` при шаге 5 м.
+DIAGONAL_SCREEN = {
+    Direction.FORWARD_RIGHT: (1850.0 - DIAGONAL, 100.0 + DIAGONAL),  # Num 9 — вверх-вправо
+    Direction.FORWARD_LEFT: (1850.0 + DIAGONAL, 100.0 + DIAGONAL),  # Num 7 — вверх-влево
+    Direction.BACK_LEFT: (1850.0 + DIAGONAL, 100.0 - DIAGONAL),  # Num 1 — вниз-влево
+    Direction.BACK_RIGHT: (1850.0 - DIAGONAL, 100.0 - DIAGONAL),  # Num 3 — вниз-вправо
 }
 
 
@@ -35,11 +40,29 @@ def test_step_matches_user_table(direction: Direction, expected: tuple[float, fl
     assert result.y == pytest.approx(expected[1], abs=0.001)
 
 
-@pytest.mark.parametrize("direction", list(Direction))
+@pytest.mark.parametrize(("direction", "expected"), DIAGONAL_SCREEN.items())
+def test_diagonal_keys_repeat_the_screen_mode(
+    direction: Direction, expected: tuple[float, float]
+) -> None:
+    """Диагонали в обычном режиме идут по экрану: ``Y`` и ``Z``, ``X`` на месте."""
+    result = shifted(BASE, direction, 5.0)
+    assert result.x == BASE.x
+    assert result.y == pytest.approx(expected[0], abs=0.001)
+    assert result.z == pytest.approx(expected[1], abs=0.001)
+
+
+@pytest.mark.parametrize("direction", [d for d in Direction if not d.is_diagonal])
 def test_height_and_angles_never_change(direction: Direction) -> None:
     pose = Pose(x=10.0, y=20.0, z=30.0, rx=1.0, ry=2.0, rz=3.0)
     result = shifted(pose, direction, 1.0)
     assert result.z == 30.0
+    assert (result.rx, result.ry, result.rz) == (1.0, 2.0, 3.0)
+
+
+@pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
+def test_diagonal_keeps_angles(direction: Direction) -> None:
+    pose = Pose(x=10.0, y=20.0, z=30.0, rx=1.0, ry=2.0, rz=3.0)
+    result = shifted(pose, direction, 1.0)
     assert (result.rx, result.ry, result.rz) == (1.0, 2.0, 3.0)
 
 
@@ -51,11 +74,21 @@ def test_result_is_rounded_to_millimetres() -> None:
 
 
 @pytest.mark.parametrize("step", [0.5, 1.0, 2.0, 5.0])
-@pytest.mark.parametrize("direction", [Direction.FORWARD_LEFT, Direction.BACK_RIGHT])
+@pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
 def test_diagonal_is_one_step_along_the_line(direction: Direction, step: float) -> None:
     result = shifted(BASE, direction, step)
-    distance = math.hypot(result.x - BASE.x, result.y - BASE.y)
+    distance = math.hypot(result.y - BASE.y, result.z - BASE.z)
     assert distance == pytest.approx(step, abs=0.001)
+    assert result.x == BASE.x
+
+
+@pytest.mark.parametrize("rz", [0.0, 45.0, 90.0, 180.0])
+def test_diagonal_does_not_depend_on_rotation(rz: float) -> None:
+    """Диагонали повторяют экранные направления, поэтому ``RZ`` их не крутит."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, rz=rz)
+    result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
+    assert result.y == pytest.approx(-0.707, abs=0.001)
+    assert result.z == pytest.approx(0.707, abs=0.001)
 
 
 @pytest.mark.parametrize(
@@ -68,7 +101,7 @@ def test_diagonal_is_one_step_along_the_line(direction: Direction, step: float) 
         (0.0, Direction.LEFT, 0.0, 1.0),
         (90.0, Direction.LEFT, -1.0, 0.0),
         (-90.0, Direction.LEFT, 1.0, 0.0),
-        (45.0, Direction.BACK_RIGHT, 0.0, -1.0),
+        (45.0, Direction.BACK, -0.707, -0.707),
     ],
 )
 def test_rotation_turns_the_direction(
@@ -83,7 +116,7 @@ def test_rotation_turns_the_direction(
 @pytest.mark.parametrize("rz", [-120.0, -45.0, 0.0, 30.0, 90.0, 175.0])
 def test_step_length_does_not_depend_on_rotation(rz: float) -> None:
     pose = Pose(x=0.0, y=0.0, rz=rz)
-    result = shifted(pose, Direction.BACK_LEFT, 2.5)
+    result = shifted(pose, Direction.LEFT, 2.5)
     assert math.hypot(result.x, result.y) == pytest.approx(2.5, abs=0.001)
 
 
@@ -108,7 +141,7 @@ def test_changed_fields_lists_only_real_differences() -> None:
     forward = shifted(BASE, Direction.FORWARD, 0.5)
     assert changed_fields(BASE, forward) == (Field.X,)
     diagonal = shifted(BASE, Direction.FORWARD_LEFT, 0.5)
-    assert changed_fields(BASE, diagonal) == (Field.X, Field.Y)
+    assert changed_fields(BASE, diagonal) == (Field.Y, Field.Z)
 
 
 def test_changed_fields_ignores_submillimetre_noise() -> None:

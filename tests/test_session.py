@@ -70,16 +70,18 @@ def test_forward_step_moves_x_plus_and_writes_x_only() -> None:
     assert session.pose == result.pose
 
 
-def test_diagonal_step_writes_both_axes() -> None:
+def test_diagonal_step_goes_down_right_on_screen() -> None:
+    """``Num 3`` в обычном режиме: ``Y`` в минус, ``Z`` в минус, ``X`` на месте."""
     panel = FakePanel(START)
     session = make_session(panel)
     session.capture()
     panel.writes.clear()
     result = session.step(Direction.BACK_RIGHT, 1.0)
     step_component = 1.0 / 2**0.5
-    assert result.written == (Field.X, Field.Y)
-    assert result.pose.x == pytest.approx(START.x - step_component, abs=0.001)
+    assert result.written == (Field.Y, Field.Z)
+    assert result.pose.x == START.x
     assert result.pose.y == pytest.approx(START.y - step_component, abs=0.001)
+    assert result.pose.z == pytest.approx(START.z - step_component, abs=0.001)
 
 
 def test_step_keeps_height_and_angles() -> None:

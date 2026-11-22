@@ -56,8 +56,13 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     * длина шага сохраняется: ``√(ΔY² + ΔZ²) = step``, диагональ тоже.
 
     Углы ``RX``/``RY``/``RZ`` на этот режим не влияют: экранные оси заданы
-    камерой, а не поворотом предмета. Без ``tilt`` меняются только ``X`` и ``Y``,
-    ``Z`` и углы остаются как были.
+    камерой, а не поворотом предмета.
+
+    **Диагональные клавиши в обычном режиме** повторяют направления режима по
+    экрану, только наоборот: ``Num 9`` — вверх-вправо, ``Num 7`` — вверх-влево,
+    ``Num 1`` — вниз-влево, ``Num 3`` — вниз-вправо (``ΔY = dy · step``,
+    ``ΔZ = dx · step``). Прямые клавиши ``Num 8/2/4/6`` по-прежнему идут по
+    горизонтали и поворачиваются вместе с ``RZ``.
     """
     validate_step(step)
     if tilt and direction.is_diagonal:
@@ -65,6 +70,8 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     dx, dy = _normalize(direction)
     if tilt:
         world_dx, world_dy, world_dz = _from_screen(dx, dy)
+    elif direction.is_diagonal:
+        world_dx, world_dy, world_dz = _diagonal_on_screen(dx, dy)
     else:
         world_dx, world_dy = _rotate(dx, dy, pose.rz)
         world_dz = 0.0
@@ -98,6 +105,17 @@ def _from_screen(dx: float, dy: float) -> tuple[float, float, float]:
     world_dy = (-dx + dy) / root
     world_dz = (dx + dy) / root
     return 0.0, world_dy, world_dz
+
+
+def _diagonal_on_screen(dx: float, dy: float) -> tuple[float, float, float]:
+    """Единичный шаг диагональной клавиши в обычном режиме.
+
+    Диагонали повторяют направления режима по экрану (камера смотрит вдоль ``X``):
+    ``Num 9`` — вверх-вправо, ``Num 7`` — вверх-влево, ``Num 1`` — вниз-влево,
+    ``Num 3`` — вниз-вправо. На экране вправо — это ``−Y``, вверх — ``+Z``,
+    поэтому ``ΔY = dy``, ``ΔZ = dx``; ``X`` не меняется, длина шага сохраняется.
+    """
+    return 0.0, dy, dx
 
 
 def _normalize(direction: Direction) -> tuple[float, float]:
