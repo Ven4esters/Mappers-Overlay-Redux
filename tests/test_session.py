@@ -146,6 +146,20 @@ def test_tilted_step_writes_height_and_marks_result() -> None:
     assert result.delta_z == pytest.approx(1.0, abs=0.001)
 
 
+def test_tilted_step_follows_ry() -> None:
+    """При ``RY = 18°`` режим высоты пишет ``X`` и ``Z``, ``Y`` остаётся."""
+    tilted = Pose(x=10.0, y=20.0, z=30.0, ry=18.0)
+    panel = FakePanel(tilted)
+    session = make_session(panel)
+    session.capture()
+    result = session.step(Direction.FORWARD, 2.0, tilt=True)
+    angle = math.radians(18.0)
+    assert result.written == (Field.X, Field.Z)
+    assert result.pose.x == pytest.approx(10.0 + 2.0 * math.sin(angle), abs=0.001)
+    assert result.pose.y == pytest.approx(20.0, abs=0.001)
+    assert result.pose.z == pytest.approx(30.0 + 2.0 * math.cos(angle), abs=0.001)
+
+
 def test_alt_mode_keeps_the_diagonal_step() -> None:
     """Диагональ в режиме высоты идёт как обычно: поворот ``Y/Z``, без подмены на ``Z``."""
     tilted = Pose(x=10.0, y=20.0, z=30.0, rx=30.0)

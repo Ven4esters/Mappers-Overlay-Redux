@@ -47,8 +47,9 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     длина шага равна шагу, а не ``step · √2``.
 
     С ``tilt=True`` (в интерфейсе — режим высоты, клавиша ``Alt``) меняется только
-    смысл клавиш «вперёд-назад»: ``Num 8`` поднимает предмет (``Z`` в плюс),
-    ``Num 2`` опускает (``Z`` в минус). Остальные клавиши работают как обычно:
+    смысл клавиш «вперёд-назад»: ``Num 8`` поднимает предмет по локальной оси ``Z``
+    (с учётом ``RY``: ``ΔX = ±sin RY``, ``ΔZ = ±cos RY``), ``Num 2`` опускает.
+    Остальные клавиши работают как обычно:
     ``Num 4/6`` — по горизонтали с поворотом от ``RZ``, диагонали — поворот в
     плоскости ``Y/Z`` (``P_new = P + Rx(RX) · Δ_local``, ``X`` не меняется), поэтому
     они идут «линия к линии» при любом угле наклона, а не только при ``45°``.
@@ -57,9 +58,8 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     validate_step(step)
     dx, dy = _normalize(direction)
     if tilt and direction in (Direction.FORWARD, Direction.BACK):
-        # Режим высоты: «вперёд-назад» превращается в «вверх-вниз» по Z.
-        world_dx, world_dy = 0.0, 0.0
-        world_dz = 1.0 if direction is Direction.FORWARD else -1.0
+        # Режим высоты: шаг по локальной оси Z, повёрнутой на RY (плоскость X/Z).
+        world_dx, world_dy, world_dz = _height_step(direction, pose)
     elif direction.is_diagonal:
         world_dx, world_dy, world_dz = _diagonal(direction, pose)
     else:
@@ -73,6 +73,32 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     if world_dz:
         moved = replace(moved, z=rounded(pose.z + world_dz * step, COORD_DECIMALS))
     return moved
+
+
+def _height_step(direction: Direction, pose: Pose) -> tuple[float, float, float]:
+    """Шаг режима высоты: локальная ось ``Z``, повёрнутая на ``RY``.
+
+    ``Δ_local = (0, 0, ±1)`` — «вверх/вниз» в осях предмета. Поворот вокруг ``Y``
+    переводит его в мир в плоскости ``X/Z``:
+
+    ```
+    Ry(RY) = |  cos RY   0   sin RY |
+             |    0      1      0   |
+             | −sin RY   0   cos RY |
+
+    ΔX = ±sin RY,   ΔY = 0,   ΔZ = ±cos RY
+    ```
+
+    Проверка на примере: ``RY = 10°``, шаг 3.0 →
+    ``Δ = (3·sin 10°, 0, 3·cos 10°) = (0.5209, 0, 2.9544)``.
+
+    При ``RY = 0`` это прежний шаг строго по ``Z``. ``RX`` и ``RZ`` на высоту не влияют:
+    поворот вокруг ``X`` не меняет ``Z``-ось по величине, а ``RZ`` в формуле высоты не
+    участвует.
+    """
+    sign = 1.0 if direction is Direction.FORWARD else -1.0
+    angle = math.radians(pose.ry)
+    return sign * math.sin(angle), 0.0, sign * math.cos(angle)
 
 
 def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
@@ -143,7 +169,7 @@ ALT_TITLES: Final[dict[Direction, str]] = {
 
 def alt_hint() -> str:
     """Подсказка режима высоты: что делают клавиши при нажатом ``Alt``."""
-    return "8 \u2191 вверх · 2 \u2193 вниз"
+    return "8 \u2191 вверх · 2 \u2193 вниз (ось Z, поворот RY)"
 
 
 def changed_fields(before: Pose, after: Pose, *, tolerance: float = TOLERANCE) -> tuple[Field, ...]:

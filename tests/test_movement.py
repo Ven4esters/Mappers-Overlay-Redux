@@ -223,8 +223,35 @@ def test_alt_keeps_the_diagonals_working() -> None:
     assert with_alt.z == pytest.approx(50.0 + HALF * COS37, abs=0.001)
 
 
-@pytest.mark.parametrize("angles", [(0.0, 0.0, 0.0), (30.0, 20.0, 10.0), (-60.0, 45.0, 90.0)])
-def test_alt_height_does_not_depend_on_the_angles(angles: tuple[float, float, float]) -> None:
+def test_alt_step_follows_ry() -> None:
+    """Эталон заказчика: ``RY = 10°``, шаг 3.0 → ``(0.520944533, 0, 2.954423259)``."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, ry=10.0)
+    result = shifted(pose, Direction.FORWARD, 3.0, tilt=True)
+    assert result.x == pytest.approx(0.520944533, abs=0.001)
+    assert result.y == 0.0
+    assert result.z == pytest.approx(2.954423259, abs=0.001)
+
+
+@pytest.mark.parametrize("ry", [-60.0, -37.0, -10.0, 0.0, 10.0, 37.0, 60.0, 90.0])
+def test_alt_step_keeps_the_step_length(ry: float) -> None:
+    """Поворот вокруг ``Y`` сохраняет длину: ``sin² + cos² = 1``."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, ry=ry)
+    result = shifted(pose, Direction.FORWARD, 2.0, tilt=True)
+    assert math.hypot(result.x, result.z) == pytest.approx(2.0, abs=0.002)
+
+
+@pytest.mark.parametrize("ry", [-45.0, 0.0, 10.0, 37.0, 60.0])
+def test_alt_forward_and_back_are_opposite(ry: float) -> None:
+    pose = Pose(x=0.0, y=0.0, z=0.0, ry=ry)
+    up = shifted(pose, Direction.FORWARD, 2.0, tilt=True)
+    down = shifted(pose, Direction.BACK, 2.0, tilt=True)
+    assert up.x == pytest.approx(-down.x, abs=0.002)
+    assert up.z == pytest.approx(-down.z, abs=0.002)
+
+
+@pytest.mark.parametrize("angles", [(0.0, 0.0, 0.0), (30.0, 0.0, 10.0), (-60.0, 0.0, 90.0)])
+def test_alt_height_does_not_depend_on_rx_and_rz(angles: tuple[float, float, float]) -> None:
+    """``RX`` и ``RZ`` на высоту не влияют: ось ``Z`` задаёт только ``RY``."""
     pose = replace(ALT, rx=angles[0], ry=angles[1], rz=angles[2])
     result = shifted(pose, Direction.FORWARD, 1.0, tilt=True)
     assert result.z == pytest.approx(pose.z + 1.0, abs=0.001)
@@ -232,10 +259,13 @@ def test_alt_height_does_not_depend_on_the_angles(angles: tuple[float, float, fl
 
 
 @pytest.mark.parametrize("direction", [Direction.FORWARD, Direction.BACK])
-def test_alt_never_touches_the_ground_axes(direction: Direction) -> None:
-    result = shifted(ALT, direction, 2.5, tilt=True)
-    assert (result.x, result.y) == (ALT.x, ALT.y)
-    assert abs(result.z - ALT.z) == pytest.approx(2.5, abs=0.001)
+def test_alt_never_touches_y(direction: Direction) -> None:
+    """Высота меняет ``X`` и ``Z``, но не ``Y``."""
+    pose = replace(ALT, ry=25.0)
+    result = shifted(pose, direction, 2.5, tilt=True)
+    assert result.y == pose.y
+    assert result.x != pose.x
+    assert abs(result.z - pose.z) == pytest.approx(2.5 * math.cos(math.radians(25.0)), abs=0.01)
 
 
 def test_tilt_is_rounded_to_millimetres() -> None:

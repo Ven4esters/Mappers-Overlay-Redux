@@ -11,6 +11,7 @@ from map_overlay.context import AppContext
 from map_overlay.domain.actions import Action
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import Field
+from map_overlay.domain.movement import alt_hint
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
 from map_overlay.errors import ValidationError
@@ -490,6 +491,22 @@ def test_alt_back_goes_down(qt_app: QApplication) -> None:
     assert panel.written_fields == [Field.Z]
 
 
+def test_alt_forward_follows_ry(qt_app: QApplication) -> None:
+    """При ``RY = 10°`` подъём идёт в плоскости ``X/Z``: пишутся ``X`` и ``Z``."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, ry=10.0)
+    )
+    window.movement.press_capture()
+    toggle_tilt(hotkeys)
+    hotkeys.press(NUMPAD8)
+    hotkeys.release(NUMPAD8)
+    assert panel.written_fields == [Field.X, Field.Z]
+    assert panel.pose().x == pytest.approx(START.x + 0.5 * math.sin(math.radians(10.0)), abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z + 0.5 * math.cos(math.radians(10.0)), abs=0.001)
+
+
 def test_alt_keeps_left_and_right_as_they_were(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(
@@ -520,7 +537,7 @@ def test_alt_toggles_the_mode(qt_app: QApplication) -> None:
     window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
     assert window.movement.mode_text() == "8/2 — вперёд/назад"
     toggle_tilt(hotkeys)
-    assert window.movement.mode_text() == "8 \u2191 вверх · 2 \u2193 вниз"
+    assert window.movement.mode_text() == alt_hint()
     assert "Режим высоты включён" in window.status_text()
     toggle_tilt(hotkeys)
     assert window.movement.mode_text() == "8/2 — вперёд/назад"
@@ -550,7 +567,7 @@ def test_tilt_checkbox_switches_the_mode(qt_app: QApplication) -> None:
     window.movement.press_capture()
     box = window.movement._tilt_box
     box.click()
-    assert window.movement.mode_text() == "8 \u2191 вверх · 2 \u2193 вниз"
+    assert window.movement.mode_text() == alt_hint()
     hotkeys.press(NUMPAD8)
     hotkeys.release(NUMPAD8)
     assert panel.pose().z == pytest.approx(START.z + 0.5, abs=0.001)
@@ -612,7 +629,7 @@ def test_alt_held_still_turns_the_mode_on(qt_app: QApplication) -> None:
     window.movement.press_capture()
     hotkeys.hold_alt()
     hotkeys.press(NUMPAD4)
-    assert window.movement.mode_text() == "8 \u2191 вверх · 2 \u2193 вниз"
+    assert window.movement.mode_text() == alt_hint()
     assert panel.pose().z == pytest.approx(START.z, abs=0.001)
     assert panel.pose().y == pytest.approx(START.y + 0.5, abs=0.001)
 
