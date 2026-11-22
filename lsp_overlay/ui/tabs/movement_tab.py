@@ -19,6 +19,7 @@ from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.formatting import format_angle, format_length
 from lsp_overlay.domain.pose import Pose
+from lsp_overlay.ui.keymap import NUMPAD_HINT
 from lsp_overlay.ui.widgets import make_button, make_label, make_number_editor
 
 PAD_BUTTON_WIDTH = 40
@@ -95,6 +96,7 @@ class MovementTab(QWidget):
                 wrap=True,
             )
         )
+        column.addWidget(make_label(NUMPAD_HINT, muted=True, wrap=True))
         return group
 
     def _build_step_row(self) -> QWidget:
@@ -118,7 +120,7 @@ class MovementTab(QWidget):
             ("×2", DOUBLE, "Увеличить шаг вдвое"),
         ):
             button = make_button(title, tip, object_name="stepButton")
-            button.clicked.connect(lambda _checked=False, value=factor: self._scale_step(value))
+            button.clicked.connect(lambda _checked=False, value=factor: self.scale_step(value))
             row.addWidget(button)
         return holder
 
@@ -168,7 +170,8 @@ class MovementTab(QWidget):
         self.set_step(clamped)
         self.step_changed.emit(clamped)
 
-    def _scale_step(self, factor: float) -> None:
+    def scale_step(self, factor: float) -> None:
+        """Умножает шаг на ``factor`` в допустимых пределах."""
         self.set_step(min(max(self._step * factor, STEP_MIN), STEP_MAX))
         self.step_changed.emit(self._step)
 

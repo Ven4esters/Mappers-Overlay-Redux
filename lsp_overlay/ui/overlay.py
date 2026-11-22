@@ -7,6 +7,7 @@ import logging
 from dataclasses import replace
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -24,6 +25,7 @@ from lsp_overlay.domain.formatting import format_length
 from lsp_overlay.domain.measure import MeasureSlot
 from lsp_overlay.domain.pose import Axis, Pose
 from lsp_overlay.infrastructure.config_store import ConfigStore
+from lsp_overlay.ui.keymap import NumpadAction, NumpadIntent, numpad_action
 from lsp_overlay.ui.styles import STYLESHEET
 from lsp_overlay.ui.tabs.calibration_tab import CalibrationTab
 from lsp_overlay.ui.tabs.measure_tab import MeasureTab
@@ -36,6 +38,8 @@ LOGGER = logging.getLogger(__name__)
 WINDOW_TITLE = "LSP Mapper Overlay 2.0"
 MINIMUM_WIDTH = 380
 MINIMUM_HEIGHT = 320
+HALF = 0.5
+DOUBLE = 2.0
 
 
 class OverlayWindow(QWidget):
@@ -123,6 +127,29 @@ class OverlayWindow(QWidget):
         self.calibration_tab.diagnostics_requested.connect(self.action_diagnostics)
         self.settings_tab.settings_saved.connect(self.action_settings_saved)
         self.settings_tab.status_message.connect(self._set_status)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - переопределение Qt
+        """Numpad: движение и быстрые команды (стрелки заняты игрой)."""
+        action = numpad_action(event.key(), event.modifiers())
+        if action is None:
+            super().keyPressEvent(event)
+            return
+        self._run_numpad(action)
+        event.accept()
+
+    def _run_numpad(self, action: NumpadAction) -> None:
+        if action.intent is NumpadIntent.MOVE and action.direction is not None:
+            self.action_move(action.direction.value, self.movement_tab.current_step())
+        elif action.intent is NumpadIntent.CAPTURE:
+            self.action_capture()
+        elif action.intent is NumpadIntent.COMMIT:
+            self.action_apply(commit=True)
+        elif action.intent is NumpadIntent.APPLY:
+            self.action_apply(commit=False)
+        elif action.intent is NumpadIntent.STEP_UP:
+            self.movement_tab.scale_step(DOUBLE)
+        elif action.intent is NumpadIntent.STEP_DOWN:
+            self.movement_tab.scale_step(HALF)
 
     # ----------------------------------------------------------------- действия
     def action_capture(self) -> None:

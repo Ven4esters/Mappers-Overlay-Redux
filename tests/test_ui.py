@@ -15,9 +15,11 @@ from lsp_overlay.domain.fields import FieldKey  # noqa: E402
 from lsp_overlay.domain.pose import Pose  # noqa: E402
 from lsp_overlay.infrastructure.config_store import ConfigStore  # noqa: E402
 from lsp_overlay.ui.overlay import OverlayWindow  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
 
 from fakes import FakeGamePanel, build_calibration  # noqa: E402
+from test_keymap import press_key  # noqa: E402
 
 START = Pose(x=250.5, y=-810.25, z=31.0, rz=0.0)
 
@@ -196,3 +198,46 @@ def test_measure_copy_puts_text_on_clipboard(tmp_path: Path, qt_app: object) -> 
     window.measure_tab.btn_copy.click()
     assert "Замер" in window.measure_tab.result_text()
     assert QGuiApplication.clipboard().text() == window.measure_tab.result_text()
+
+
+def test_numpad_moves_prop_forward(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_8)
+    assert window._session.pose.y == pytest.approx(START.y + 0.1)
+    assert window._session.pending_fields() == (FieldKey.Y,)
+
+
+def test_numpad_diagonal_moves_two_axes(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_9)
+    half = 0.1 / 2**0.5
+    assert window._session.pose.x == pytest.approx(START.x + half)
+    assert window._session.pose.y == pytest.approx(START.y + half)
+
+
+def test_numpad_five_saves_changes(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_6)
+    press_key(window, Qt.Key.Key_5)
+    assert panel.pose.x == pytest.approx(START.x + 0.1)
+    assert panel.commits == 1
+
+
+def test_numpad_enter_applies_without_confirm(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_6)
+    press_key(window, Qt.Key.Key_Enter)
+    assert panel.pose.x == pytest.approx(START.x + 0.1)
+    assert panel.commits == 0
+
+
+def test_numpad_plus_doubles_step(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_Plus)
+    assert window.movement_tab.current_step() == pytest.approx(0.2)
+
+
+def test_plain_arrow_does_nothing(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_8, Qt.KeyboardModifier.NoModifier)
+    assert window._session.pending_fields() == ()
