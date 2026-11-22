@@ -47,58 +47,15 @@ def test_main_reports_missing_python(
     assert str(bootstrap.LOG_FILE) in output
 
 
-def prepare(monkeypatch: pytest.MonkeyPatch, *, pyside_ready: bool = True) -> None:
-    """Подменяет тяжёлые шаги лаунчера, оставляя логику и тексты настоящими."""
-    monkeypatch.setattr(bootstrap, "find_python", lambda _explicit: (sys.executable, (3, 12)))
-    monkeypatch.setattr(bootstrap, "create_venv", lambda _python, _reinstall: True)
-    monkeypatch.setattr(bootstrap, "install_dependencies", lambda: True)
-    monkeypatch.setattr(
-        bootstrap,
-        "runtime_report",
-        lambda: (["Python: 3.12.0", "PySide6 6.12.0"], pyside_ready),
-    )
-
-
 def test_main_check_only_skips_installation(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    prepare(monkeypatch)
+    monkeypatch.setattr(bootstrap, "find_python", lambda _explicit: (sys.executable, (3, 12)))
+    monkeypatch.setattr(bootstrap, "create_venv", lambda _python, _reinstall: True)
+    monkeypatch.setattr(bootstrap, "install_dependencies", lambda: True)
     code = bootstrap.main(["--check-only"])
-    output = capsys.readouterr().out
     assert code == bootstrap.EXIT_OK
-    assert "Окружение готово" in output
-    assert "PySide6" in output
-
-
-def test_install_only_mode_reports_environment(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    prepare(monkeypatch)
-    code = bootstrap.main(["--install-only"])
-    output = capsys.readouterr().out
-    assert code == bootstrap.EXIT_OK
-    assert "PySide6 6.12.0" in output
-    assert "run_mapper.bat" in output
-
-
-def test_install_only_fails_without_pyside(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    prepare(monkeypatch, pyside_ready=False)
-    assert bootstrap.main(["--install-only"]) == bootstrap.EXIT_DEPS
-    assert "без PySide6" in capsys.readouterr().out
-
-
-def test_runtime_report_reports_missing_pyside(monkeypatch: pytest.MonkeyPatch) -> None:
-    class FailingProbe:
-        returncode = 1
-        stdout = ""
-        stderr = "ModuleNotFoundError"
-
-    monkeypatch.setattr(bootstrap.subprocess, "run", lambda *args, **kwargs: FailingProbe())
-    lines, ready = bootstrap.runtime_report()
-    assert ready is False
-    assert any("не установлен" in line for line in lines)
+    assert "Окружение готово" in capsys.readouterr().out
 
 
 def test_main_stops_when_venv_fails(

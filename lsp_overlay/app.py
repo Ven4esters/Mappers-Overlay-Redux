@@ -11,17 +11,11 @@ from pathlib import Path
 from lsp_overlay import __version__
 from lsp_overlay.application.session import MappingSession
 from lsp_overlay.config import Settings
-from lsp_overlay.infrastructure.catalog_store import CatalogStore
 from lsp_overlay.infrastructure.clipboard import SystemClipboard
 from lsp_overlay.infrastructure.config_store import ConfigStore
-from lsp_overlay.infrastructure.global_keys import NullKeyHook, Win32KeyHook
+from lsp_overlay.infrastructure.global_keys import Win32KeyHook
 from lsp_overlay.infrastructure.panel import ClipboardPanel
-from lsp_overlay.infrastructure.win32_input import (
-    NullKeyState,
-    Win32InputBackend,
-    Win32KeyState,
-    enable_dpi_awareness,
-)
+from lsp_overlay.infrastructure.win32_input import Win32InputBackend, Win32KeyState
 from lsp_overlay.logging_setup import setup_logging
 
 LOGGER = logging.getLogger(__name__)
@@ -70,11 +64,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.check:
         return _check(settings, store)
 
-    if enable_dpi_awareness():
-        LOGGER.info("Включён режим Per-Monitor V2 DPI (координаты кликов — физические пиксели)")
-    else:
-        LOGGER.info("DPI awareness не включён (не Windows или старая версия)")
-
     session = build_session(settings)
     from PySide6.QtWidgets import QApplication  # noqa: PLC0415 - --check работает без Qt
 
@@ -82,19 +71,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     application = QApplication(sys.argv[:1])
     application.setApplicationName("LSP Mapper Overlay")
-    key_state = Win32KeyState() if sys.platform == "win32" else NullKeyState()
-    if not key_state.is_ready():
-        LOGGER.info("Живой режим: чтение клавиш недоступно (не Windows)")
-    elif not key_state.num_lock_enabled():
-        LOGGER.warning("NumLock выключен: живой режим не увидит Numpad")
-    key_hook = Win32KeyHook() if key_state.is_ready() else NullKeyHook()
     window = OverlayWindow(
         session,
         store,
         settings,
-        catalog_store=CatalogStore(),
-        key_state=key_state,
-        key_hook=key_hook,
+        key_state=Win32KeyState(),
+        key_hook=Win32KeyHook(),
     )
     window.show()
     _write_ready_marker(args.log_dir)

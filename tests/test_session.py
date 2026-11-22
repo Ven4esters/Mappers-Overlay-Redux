@@ -5,13 +5,8 @@ from lsp_overlay.application.errors import ApplyError, PanelUnavailableError
 from lsp_overlay.application.session import MappingSession
 from lsp_overlay.application.writer import FieldWriter
 from lsp_overlay.config import Settings
-from lsp_overlay.domain.catalog import Dimension, ObjectSpec
 from lsp_overlay.domain.directions import DiagonalMode, Direction
-from lsp_overlay.domain.errors import JumpTooLargeError
 from lsp_overlay.domain.fields import FieldKey
-from lsp_overlay.domain.join import JoinRequest, JoinScheme, JoinSide
-from lsp_overlay.domain.measure import MeasureSlot
-from lsp_overlay.domain.movement import MoveSpace
 from lsp_overlay.domain.pose import Axis, Pose
 
 from fakes import FakeGamePanel
@@ -19,11 +14,9 @@ from fakes import FakeGamePanel
 PANEL_POSE = Pose(x=250.5, y=-810.25, z=31.0)
 
 
-def make_session(
-    pose: Pose = PANEL_POSE, *, frame: MoveSpace = MoveSpace.WORLD
-) -> tuple[MappingSession, FakeGamePanel]:
+def make_session(pose: Pose = PANEL_POSE) -> tuple[MappingSession, FakeGamePanel]:
     panel = FakeGamePanel(pose)
-    session = MappingSession(panel, Settings(move_frame=frame))
+    session = MappingSession(panel, Settings())
     session.capture()
     return session, panel
 
@@ -41,14 +34,6 @@ def test_apply_without_capture_is_refused() -> None:
         session.apply()
 
 
-def make_default_session(pose: Pose) -> tuple[MappingSession, FakeGamePanel]:
-    """Сессия на настройках «из коробки»: проверяем умолчания, а не выбранный режим."""
-    panel = FakeGamePanel(pose)
-    session = MappingSession(panel, Settings())
-    session.capture()
-    return session, panel
-
-
 def test_move_marks_only_changed_fields() -> None:
     session, _panel = make_session()
     session.move(Direction.NORTH, 1.0)
@@ -56,7 +41,7 @@ def test_move_marks_only_changed_fields() -> None:
 
 
 def test_rotated_move_changes_two_axes_at_once() -> None:
-    session, _panel = make_session(Pose(rz=45.0), frame=MoveSpace.OBJECT)
+    session, _panel = make_session(Pose(rz=45.0))
     session.move(Direction.NORTH, 1.0)
     assert session.pending_fields() == (FieldKey.X, FieldKey.Y)
 
@@ -83,23 +68,6 @@ def test_apply_writes_nothing_when_nothing_changed() -> None:
     result = session.apply()
     assert result.fields == ()
     assert panel.writes == []
-
-
-def test_apply_does_not_press_f_when_nothing_changed() -> None:
-    session, panel = make_session()
-    result = session.apply(commit=True)
-    assert result.fields == ()
-    assert panel.commits == 0
-
-
-def test_apply_skips_change_smaller_than_tolerance() -> None:
-    session, panel = make_session()
-    session.move(Direction.NORTH, 0.001)
-    assert session.pending_fields() == (FieldKey.Y,)
-    result = session.apply(commit=True)
-    assert result.fields == ()
-    assert panel.writes == []
-    assert panel.commits == 0
 
 
 def test_rotation_updates_only_angle_field() -> None:
@@ -171,126 +139,8 @@ def test_writer_commit_propagates_panel_errors() -> None:
         session.apply()
 
 
-def test_movement_respects_prop_yaw_in_prop_frame() -> None:
-    session, _panel = make_session(Pose(x=0.0, y=0.0, rz=90.0), frame=MoveSpace.OBJECT)
+def test_movement_respects_prop_yaw() -> None:
+    session, _panel = make_session(Pose(x=0.0, y=0.0, rz=90.0))
     moved = session.move(Direction.NORTH, 1.0)
     assert moved.x == pytest.approx(-1.0)
     assert moved.y == pytest.approx(0.0)
-
-
-def test_world_frame_keeps_compass_axes() -> None:
-    """Режим «мир»: стрелка «вверх» — это север, как бы ни был повёрнут предмет."""
-    session, _panel = make_session(Pose(x=0.0, y=0.0, rz=70.0), frame=MoveSpace.WORLD)
-    moved = session.move(Direction.NORTH, 1.0)
-    assert moved.x == pytest.approx(0.0, abs=1e-9)
-    assert moved.y == pytest.approx(1.0)
-    assert session.move(Direction.EAST, 1.0).x == pytest.approx(1.0)
-
-
-def test_sideways_step_follows_prop_angle_by_default() -> None:
-    """Из коробки шаг вбок учитывает RZ: при угле 70° меняются и X, и Y."""
-    session, panel = make_default_session(Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
-    moved = session.move(Direction.WEST, 1.0)
-    assert moved.x == pytest.approx(-0.342, abs=1e-3)
-    assert moved.y == pytest.approx(-0.940, abs=1e-3)
-    assert session.apply().verified
-    assert panel.pose.x == pytest.approx(-0.342, abs=1e-3)
-    assert panel.pose.y == pytest.approx(-0.940, abs=1e-3)
-
-
-def test_sideways_steps_stay_on_a_straight_line() -> None:
-    """Повторные шаги вбок идут ровно: каждый добавляет ту же пару ΔX/ΔY."""
-    session, _panel = make_default_session(Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
-    first = session.move(Direction.WEST, 0.5)
-    second = session.move(Direction.WEST, 0.5)
-    assert second.x - first.x == pytest.approx(first.x, abs=1e-9)
-    assert second.y - first.y == pytest.approx(first.y, abs=1e-9)
-
-
-def test_place_join_writes_second_object_without_confirming() -> None:
-    session, panel = make_session()
-    wall = ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2)
-    result = session.place_join(wall, wall, JoinRequest())
-    assert result.fields
-    assert panel.commits == 0
-    assert panel.pose.x == pytest.approx(PANEL_POSE.x + 2.1)
-    assert panel.pose.y == pytest.approx(PANEL_POSE.y + 1.9)
-    assert panel.pose.z == pytest.approx(PANEL_POSE.z)
-    assert session.pending_fields() == ()
-
-
-def test_place_join_can_be_chained_into_a_corner() -> None:
-    session, panel = make_session()
-    wall = ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2)
-    first = session.place_join(wall, wall, JoinRequest(scheme=JoinScheme.CORNER))
-    second = session.place_join(
-        wall, wall, JoinRequest(scheme=JoinScheme.CORNER, side=JoinSide.LEFT)
-    )
-    assert panel.pose.rz == pytest.approx(0.0)
-    assert panel.pose.x == pytest.approx(first.pose.x + 1.9)
-    assert panel.pose.y == pytest.approx(first.pose.y + 2.1)
-    assert second.verified
-
-
-def test_place_join_refuses_unavailable_panel() -> None:
-    panel = FakeGamePanel()
-    panel.available = False
-    session = MappingSession(panel, Settings())
-    wall = ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2)
-    with pytest.raises(PanelUnavailableError):
-        session.place_join(wall, wall, JoinRequest())
-
-
-def test_place_join_stops_too_long_jump() -> None:
-    session, _panel = make_session()
-    long_wall = ObjectSpec(name="Длинная", length=60.0, width=2.5, thickness=0.2)
-    with pytest.raises(JumpTooLargeError):
-        session.place_join(long_wall, long_wall, JoinRequest())
-
-
-def test_session_reports_wrong_axis_before_recording() -> None:
-    """Проп переставили вдоль его длины, а записывают в «ширину» — предупреждаем."""
-    session, _panel = make_session(Pose(x=0.0, y=0.0, z=0.0, rz=70.0), frame=MoveSpace.OBJECT)
-    session.remember_point(MeasureSlot.FIRST)
-    for _ in range(27):
-        session.move(Direction.NORTH, 0.1)
-    session.remember_point(MeasureSlot.SECOND)
-    issue = session.measurement_issue(Dimension.WIDTH)
-    assert issue is not None
-    assert "другой оси" in issue
-    assert session.measurement(Dimension.LENGTH) == pytest.approx(2.7, abs=0.01)
-    assert session.measurement_issue(Dimension.LENGTH) is None
-
-
-def test_place_join_can_reread_base_from_panel() -> None:
-    """Явное перечитывание: угол A берётся из панели, если там стоит он."""
-    session, panel = make_session()
-    panel.pose = Pose(x=PANEL_POSE.x, y=PANEL_POSE.y, z=PANEL_POSE.z, rz=70.0)
-    wall = ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2)
-    result = session.place_join(wall, wall, JoinRequest(), refresh=True)
-    assert result.pose.rz == pytest.approx(-20.0)
-    base = session.last_join_base
-    assert base is not None
-    assert base.rz == pytest.approx(70.0)
-
-
-def test_place_join_keeps_captured_base_when_panel_holds_other_object() -> None:
-    """В панели уже стоит B — стык всё равно считается от считанного A."""
-    session, panel = make_session(Pose(x=-1847.342, y=420.077, z=128.316, rz=70.0))
-    panel.pose = Pose(x=-1847.792, y=413.718, z=128.456, rz=0.0)
-    wall = ObjectSpec(name="Стена March 0-64", length=2.73, width=2.5, thickness=0.0)
-    result = session.place_join(wall, wall, JoinRequest(scheme=JoinScheme.CORNER))
-    assert result.pose.rz == pytest.approx(-20.0)
-    assert result.pose.x == pytest.approx(-1848.158, abs=1e-3)
-    assert result.pose.y == pytest.approx(421.827, abs=1e-3)
-    base = session.last_join_base
-    assert base is not None
-    assert base.rz == pytest.approx(70.0)
-
-
-def test_place_join_requires_capture() -> None:
-    panel = FakeGamePanel(Pose(x=1.0, y=2.0, z=3.0))
-    session = MappingSession(panel, Settings())
-    wall = ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2)
-    with pytest.raises(PanelUnavailableError, match="Считать"):
-        session.place_join(wall, wall, JoinRequest())

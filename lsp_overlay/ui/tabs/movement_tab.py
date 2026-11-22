@@ -19,9 +19,7 @@ from lsp_overlay.config import Settings
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.formatting import format_angle, format_length
-from lsp_overlay.domain.movement import MoveSpace, move
 from lsp_overlay.domain.pose import Pose
-from lsp_overlay.ui.keymap import NUMPAD_HINT
 from lsp_overlay.ui.widgets import make_button, make_label, make_number_editor
 
 PAD_BUTTON_WIDTH = 40
@@ -30,11 +28,6 @@ STEP_MIN = 0.0001
 STEP_MAX = 500.0
 HALF = 0.5
 DOUBLE = 2.0
-CAMERA_STEP = 45.0
-CAMERA_HINT = (
-    "Работает в осях мира: если стрелка уводит предмет вбок на экране, подберите угол так, "
-    "чтобы «↑» совпал с «вверх»"
-)
 
 ARROWS: tuple[tuple[Direction, str, int, int], ...] = (
     (Direction.NORTH_WEST, "↖", 0, 0),
@@ -56,15 +49,13 @@ class MovementTab(QWidget):
     field_edited = Signal(str, float)
     live_toggled = Signal(bool)
     delete_clone_requested = Signal()
-    move_rotation_changed = Signal(float)
-    anchor_requested = Signal()
 
     def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
         self._step = settings.step
         self._editors: dict[FieldKey, QDoubleSpinBox] = {}
-        self._direction_buttons: dict[Direction, QPushButton] = {}
+        self._arrow_buttons: dict[Direction, QPushButton] = {}
         self._is_updating = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
@@ -78,8 +69,8 @@ class MovementTab(QWidget):
     # ------------------------------------------------------------------ сборка
     def _build_pad(self) -> QGroupBox:
         group = QGroupBox("Движение")
-        column = QVBoxLayout(group)
-        column.setSpacing(4)
+        row = QHBoxLayout(group)
+        row.setSpacing(6)
         pad = QWidget()
         grid = QGridLayout(pad)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -94,160 +85,47 @@ class MovementTab(QWidget):
             button.clicked.connect(
                 lambda _checked=False, value=direction.value: self._emit_move(value)
             )
-            self._direction_buttons[direction] = button
+            self._arrow_buttons[direction] = button
             grid.addWidget(button, grid_row, grid_column)
         self.lbl_step = QLabel(f"{self._step:g} м")
         self.lbl_step.setObjectName("stepLabel")
         self.lbl_step.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_step.setToolTip("Текущий шаг сдвига")
         grid.addWidget(self.lbl_step, 1, 1)
-        column.addWidget(pad)
-        column.addWidget(
-            make_label(
-                "↑ вперёд · ↓ назад · ← влево · → вправо · диагонали — под 45°. "
-                "Высота — поле Z ниже.",
-                muted=True,
-                wrap=True,
-            )
-        )
-        column.addWidget(make_label(NUMPAD_HINT, muted=True, wrap=True))
-        column.addWidget(self._build_anchor_row())
-        column.addWidget(self._build_camera_row())
-        self.lbl_frame = make_label("", muted=True, wrap=True)
-        column.addWidget(self.lbl_frame)
+        row.addWidget(pad, 1)
+        hint = make_label("Высота — только поле Z ниже", muted=True, wrap=True)
+        column = QVBoxLayout()
+        column.setSpacing(4)
+        column.addStretch(1)
+        column.addWidget(hint)
+        column.addStretch(1)
+        row.addLayout(column)
         return group
 
-    def _build_anchor_row(self) -> QWidget:
-        """Якорь комнаты: базовый угол, по которому идут шаги в режиме «Якорь»."""
+    def _build_live_row(self) -> QWidget:
+        """Живой режим: копия предмета едет в игре сразу, без «Применить»."""
         holder = QWidget()
         row = QHBoxLayout(holder)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
-        row.addWidget(make_label("Якорь", muted=True))
-        self.lbl_anchor = make_label("0°", muted=True)
-        self.lbl_anchor.setToolTip(
-            "Базовый угол комнаты: шаг поворачивается на него, поворот предмета его не меняет"
+        self.btn_live = make_button(
+            "Живой режим (копия)",
+            "Клонировать объект и двигать копию в игре сразу, без «Применить»",
+            object_name="stepButton",
+            checkable=True,
         )
-        button = make_button(
-            "Взять из предмета",
-            "Запомнить текущий угол RZ предмета как базовый угол комнаты",
+        self.btn_live.toggled.connect(self.live_toggled.emit)
+        row.addWidget(self.btn_live, 1)
+        self.btn_delete_clone = make_button(
+            "Убрать копию",
+            "Нажать клавишу удаления копии в игре (только по вашей команде)",
+            object_name="stepButton",
         )
-        button.clicked.connect(lambda _checked=False: self.anchor_requested.emit())
-        row.addWidget(button)
-        row.addWidget(make_label("базовый 0° комнаты", muted=True), 1)
-        row.addWidget(self.lbl_anchor)
+        self.btn_delete_clone.clicked.connect(
+            lambda _checked=False: self.delete_clone_requested.emit()
+        )
+        row.addWidget(self.btn_delete_clone, 1)
         return holder
-
-    def _build_camera_row(self) -> QWidget:
-        """Быстрая подстройка под камеру: одна кнопка на каждый шаг в 45°."""
-        holder = QWidget()
-        row = QHBoxLayout(holder)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
-        row.addWidget(make_label("Камера", muted=True))
-        self._camera_buttons: list[QPushButton] = []
-        self.lbl_rotation = make_label("0°", muted=True)
-        self.lbl_rotation.setToolTip(
-            "Насколько оси движения повёрнуты от севера — поправка на то, куда смотрит камера"
-        )
-        for delta, hint in (
-            (-CAMERA_STEP, "Повернуть оси на 45° по часовой"),
-            (CAMERA_STEP, "Повернуть оси на 45° против часовой"),
-        ):
-            button = make_button(f"{delta:+g}°", f"{hint}. {CAMERA_HINT}")
-            button.clicked.connect(
-                lambda _checked=False, value=delta: self.move_rotation_changed.emit(value)
-            )
-            self._camera_buttons.append(button)
-            row.addWidget(button)
-        row.addWidget(make_label("↑ смотрит «вверх» на экране", muted=True), 1)
-        row.addWidget(self.lbl_rotation)
-        return holder
-
-    def _unit_delta(
-        self,
-        frame: MoveSpace,
-        yaw: float,
-        rotation: float,
-        direction: Direction,
-        *,
-        anchor: float,
-        use_tilt: bool,
-    ) -> tuple[float, float]:
-        """Куда уводит предмет один метр в направлении ``direction`` — в мировых X и Y."""
-        pose = Pose(x=0.0, y=0.0, z=0.0, rz=yaw)
-        result = move(
-            pose,
-            direction,
-            1.0,
-            frame=frame,
-            use_tilt=use_tilt,
-            rotation=rotation,
-            anchor=anchor,
-        )
-        return (result.x, result.y)
-
-    def set_move_frame(
-        self,
-        frame: MoveSpace,
-        yaw: float,
-        rotation: float = 0.0,
-        *,
-        anchor: float = 0.0,
-        use_tilt: bool = False,
-    ) -> None:
-        """Пишет, в каких осях ходят стрелки и насколько шаг задевает X и Y."""
-        north = self._unit_delta(
-            frame, yaw, rotation, Direction.NORTH, anchor=anchor, use_tilt=use_tilt
-        )
-        west = self._unit_delta(
-            frame, yaw, rotation, Direction.WEST, anchor=anchor, use_tilt=use_tilt
-        )
-        arrows = (
-            f"за 1 м: ↑ ΔX {north[0]:+.2f} · ΔY {north[1]:+.2f}, "
-            f"← ΔX {west[0]:+.2f} · ΔY {west[1]:+.2f}."
-        )
-        if frame is MoveSpace.OBJECT:
-            tilt = " · с наклонами RX/RY" if use_tilt else ""
-            text = (
-                f"Оси: предмет (угол {yaw:.1f}°{tilt}) — {arrows} "
-                "Боковой шаг идёт по X и Y сразу: предмет едет ровно поперёк своей стороны."
-            )
-        elif frame is MoveSpace.ANCHOR:
-            text = (
-                f"Оси: якорь комнаты ({anchor:.1f}°) — {arrows} "
-                "Поворот предмета направление не меняет."
-            )
-        elif rotation:
-            text = (
-                f"Оси: мир, повёрнуты на {rotation:g}° — {arrows} Так ↑ смотрит «вверх» на экране."
-            )
-        else:
-            text = (
-                f"Оси: мир — {arrows} Угол детали не учитывается: чтобы ← и → вели поперёк "
-                "неё, выберите «Предмет»."
-            )
-        self.lbl_frame.setText(text)
-        self.lbl_rotation.setText(f"{rotation:g}°")
-        self.lbl_anchor.setText(f"{anchor:g}°")
-        for button in self._camera_buttons:
-            button.setEnabled(frame is MoveSpace.WORLD)
-
-    def camera_controls_enabled(self) -> bool:
-        """Доступны ли кнопки поправки на камеру: они нужны только в осях мира."""
-        return all(button.isEnabled() for button in self._camera_buttons)
-
-    def anchor_text(self) -> str:
-        """Якорь комнаты (для тестов)."""
-        return self.lbl_anchor.text()
-
-    def rotation_text(self) -> str:
-        """Поправка на камеру в градусах (для тестов)."""
-        return self.lbl_rotation.text()
-
-    def frame_text(self) -> str:
-        """Строка про оси движения (для тестов)."""
-        return self.lbl_frame.text()
 
     def _build_step_row(self) -> QWidget:
         holder = QWidget()
@@ -270,29 +148,8 @@ class MovementTab(QWidget):
             ("×2", DOUBLE, "Увеличить шаг вдвое"),
         ):
             button = make_button(title, tip, object_name="stepButton")
-            button.clicked.connect(lambda _checked=False, value=factor: self.scale_step(value))
+            button.clicked.connect(lambda _checked=False, value=factor: self._scale_step(value))
             row.addWidget(button)
-        return holder
-
-    def _build_live_row(self) -> QWidget:
-        holder = QWidget()
-        row = QHBoxLayout(holder)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
-        self.btn_live = make_button(
-            "Живой режим (копия)",
-            "Клонировать объект и двигать копию в игре сразу, без «Применить»",
-            object_name="stepButton",
-            checkable=True,
-        )
-        self.btn_live.toggled.connect(self.live_toggled.emit)
-        row.addWidget(self.btn_live, 1)
-        self.btn_delete_clone = make_button(
-            "Убрать копию",
-            "Нажать клавишу удаления копии (настраивается в «Настройках»)",
-        )
-        self.btn_delete_clone.clicked.connect(self.delete_clone_requested.emit)
-        row.addWidget(self.btn_delete_clone, 1)
         return holder
 
     def _build_coordinates(self) -> QGroupBox:
@@ -321,6 +178,39 @@ class MovementTab(QWidget):
             grid.addWidget(editor, 1, column * 2 + 1)
         return group
 
+    # ------------------------------------------------------------------ живой режим
+    def set_live(self, enabled: bool) -> None:
+        """Показывает, включён ли живой режим (кнопка не дёргает сигнал повторно)."""
+        if self.btn_live.isChecked() != enabled:
+            self.btn_live.blockSignals(True)
+            self.btn_live.setChecked(enabled)
+            self.btn_live.blockSignals(False)
+
+    def current_step(self) -> float:
+        """Текущий шаг крестовины (по нему идут шаги Numpad)."""
+        return self._step
+
+    def scale_step(self, factor: float) -> None:
+        """Меняет шаг множителем: так работают Numpad ``+``/``−``."""
+        self._scale_step(factor)
+
+    def flash_direction(self, direction: Direction) -> None:
+        """Подсвечивает кнопку направления: видно, что команда пришла с Numpad."""
+        button = self._arrow_buttons.get(direction)
+        if button is not None:
+            button.setDown(True)
+
+    def unflash_direction(self, direction: Direction) -> None:
+        """Снимает подсветку с кнопки направления."""
+        button = self._arrow_buttons.get(direction)
+        if button is not None:
+            button.setDown(False)
+
+    def unflash_all(self) -> None:
+        """Снимает подсветку со всех кнопок направления."""
+        for button in self._arrow_buttons.values():
+            button.setDown(False)
+
     # ------------------------------------------------------------------ события
     def _emit_move(self, direction: str) -> None:
         self.move_requested.emit(direction, self._step)
@@ -341,8 +231,7 @@ class MovementTab(QWidget):
         self.set_step(clamped)
         self.step_changed.emit(clamped)
 
-    def scale_step(self, factor: float) -> None:
-        """Умножает шаг на ``factor`` в допустимых пределах."""
+    def _scale_step(self, factor: float) -> None:
         self.set_step(min(max(self._step * factor, STEP_MIN), STEP_MAX))
         self.step_changed.emit(self._step)
 
@@ -352,34 +241,6 @@ class MovementTab(QWidget):
         self.field_edited.emit(key.value, self._editors[key].value())
 
     # ------------------------------------------------------------------- вывод
-    def flash_direction(self, direction: Direction) -> None:
-        """Подсвечивает кнопку направления так, будто её нажали мышью."""
-        button = self._direction_buttons.get(direction)
-        if button is None:
-            return
-        button.setDown(True)
-
-    def unflash_direction(self, direction: Direction) -> None:
-        """Снимает подсветку кнопки направления."""
-        button = self._direction_buttons.get(direction)
-        if button is not None:
-            button.setDown(False)
-
-    def unflash_all(self) -> None:
-        """Снимает подсветку со всех кнопок направлений."""
-        for button in self._direction_buttons.values():
-            button.setDown(False)
-
-    def set_live(self, enabled: bool) -> None:
-        """Показывает состояние живого режима на кнопке."""
-        self.btn_live.blockSignals(True)
-        self.btn_live.setChecked(enabled)
-        self.btn_live.blockSignals(False)
-
-    def current_step(self) -> float:
-        """Текущий шаг сдвига в метрах."""
-        return self._step
-
     def set_step(self, step: float) -> None:
         """Показывает шаг в комбобоксе и по центру крестовины."""
         self._step = step
@@ -411,12 +272,11 @@ class MovementTab(QWidget):
 
     @staticmethod
     def _direction_hint(direction: Direction) -> str:
-        """Человеческое название направления для подсказки кнопки."""
         return {
-            Direction.NORTH: "вперёд (вдоль оси пропа, +Y)",
-            Direction.SOUTH: "назад (против оси пропа, −Y)",
-            Direction.EAST: "вправо (+X)",
-            Direction.WEST: "влево (−X)",
+            Direction.NORTH: "вперёд",
+            Direction.SOUTH: "назад",
+            Direction.EAST: "вправо",
+            Direction.WEST: "влево",
             Direction.NORTH_EAST: "вперёд-вправо",
             Direction.NORTH_WEST: "вперёд-влево",
             Direction.SOUTH_EAST: "назад-вправо",

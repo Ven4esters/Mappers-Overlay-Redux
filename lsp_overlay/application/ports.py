@@ -44,7 +44,7 @@ class GamePanelPort(Protocol):
         """Подтверждает ввод: ЛКМ в пустое место панели и клавиша подтверждения."""
 
     def tap_key(self, key: str) -> None:
-        """Нажимает одиночную клавишу в окне игры (клонирование, удаление копии)."""
+        """Нажимает одиночную клавишу в окне игры (копирование и удаление копии)."""
 
 
 @runtime_checkable
@@ -58,7 +58,7 @@ class KeyStatePort(Protocol):
         """Нажата ли клавиша с виртуальным кодом Windows."""
 
     def num_lock_enabled(self) -> bool:
-        """Включён ли NumLock (иначе Numpad шлёт другие клавиши)."""
+        """Включён ли NumLock (иначе Numpad шлёт не цифры)."""
 
 
 @runtime_checkable

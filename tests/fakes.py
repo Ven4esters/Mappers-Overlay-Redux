@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from lsp_overlay.application.errors import PanelUnavailableError
 from lsp_overlay.config import Calibration, Point
@@ -217,3 +217,56 @@ def build_calibration() -> Calibration:
     for index, key in enumerate(FieldKey):
         calibration = calibration.with_point(key, Point(x=100, y=200 + index * 30))
     return calibration.with_placeholder(Point(x=900, y=900))
+
+
+class FakeKeyState:
+    """Состояние клавиш в памяти: какие виртуальные коды «зажаты»."""
+
+    def __init__(self, *, ready: bool = True, num_lock: bool = True) -> None:
+        self.ready = ready
+        self.num_lock = num_lock
+        self.down: set[int] = set()
+
+    def is_ready(self) -> bool:
+        return self.ready
+
+    def is_down(self, vk_code: int) -> bool:
+        return vk_code in self.down
+
+    def num_lock_enabled(self) -> bool:
+        return self.num_lock
+
+
+class FakeKeyHook:
+    """Хук в памяти: запоминает подписку и позволяет «нажать» клавишу из теста."""
+
+    def __init__(self, *, available: bool = True) -> None:
+        self.available = available
+        self.callback: Callable[[int, bool], None] | None = None
+        self.started = 0
+
+    def is_available(self) -> bool:
+        return self.available
+
+    def start(self, callback: Callable[[int, bool], None]) -> bool:
+        if not self.available:
+            return False
+        self.callback = callback
+        self.started += 1
+        return True
+
+    def stop(self) -> None:
+        self.callback = None
+
+    def press(self, vk_code: int) -> None:
+        """Нажатие перехваченной клавиши."""
+        self._send(vk_code, pressed=True)
+
+    def release(self, vk_code: int) -> None:
+        """Отпускание перехваченной клавиши."""
+        self._send(vk_code, pressed=False)
+
+    def _send(self, vk_code: int, *, pressed: bool) -> None:
+        if self.callback is None:
+            raise AssertionError("хук не поставлен")
+        self.callback(vk_code, pressed)

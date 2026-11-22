@@ -52,7 +52,6 @@ def test_step_matches_the_first_release(row: dict[str, float | str]) -> None:
         float(row["step"]),
         diagonal_mode=DiagonalMode(str(row["mode"])),
         use_tilt=settings.use_tilt,
-        frame=settings.move_frame,
     )
     assert (result.x - pose.x, result.y - pose.y, result.z - pose.z) == pytest.approx(
         (row["dx"], row["dy"], row["dz"]), abs=1e-12

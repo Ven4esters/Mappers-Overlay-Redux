@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -21,13 +20,12 @@ from lsp_overlay.config import (
     CONFIRM_KEYS,
     DEFAULT_CLONE_DELETE_KEY,
     DEFAULT_CLONE_KEY,
-    MAX_ANCHOR,
-    MIN_ANCHOR,
+    MAX_LIVE_HOLD_TIMEOUT,
+    MIN_LIVE_HOLD_TIMEOUT,
     Settings,
     replace_settings,
 )
 from lsp_overlay.domain.directions import DiagonalMode
-from lsp_overlay.domain.movement import MAX_MOVE_ROTATION, MIN_MOVE_ROTATION, MoveSpace
 from lsp_overlay.ui.widgets import make_button, make_label, make_number_editor
 
 OPACITY_SCALE = 100
@@ -48,7 +46,7 @@ class SettingsTab(QWidget):
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(6)
         layout.addWidget(self._build_movement_group())
-        layout.addWidget(self._build_direction_fix_group())
+        layout.addWidget(self._build_live_group())
         layout.addWidget(self._build_protection_group())
         layout.addWidget(self._build_appearance_group())
         row = QHBoxLayout()
@@ -72,58 +70,11 @@ class SettingsTab(QWidget):
         self.combo_diagonal.addItem("Диагональ = шагу (÷√2)", DiagonalMode.SAME_DISTANCE.value)
         self.combo_diagonal.addItem("По шагу на каждую ось", DiagonalMode.SAME_STEP.value)
         form.addRow("Диагонали", self.combo_diagonal)
-        self.combo_frame = QComboBox()
-        for frame in MoveSpace:
-            self.combo_frame.addItem(frame.label, frame.value)
-        self.combo_frame.setToolTip(
-            "Предмет (по умолчанию, как в первой версии): шаг поворачивается на угол RZ — "
-            "боковой шаг меняет X и Y одновременно, предмет едет ровно поперёк своей "
-            "стороны. Якорь комнаты: направление задаёт базовый угол, поворот предмета его "
-            "не меняет. Мир: ↑ север (+Y), → восток (+X)."
-        )
-        form.addRow("Оси движения", self.combo_frame)
-        self.spin_rotation = make_number_editor(
-            0, minimum=MIN_MOVE_ROTATION, maximum=MAX_MOVE_ROTATION
-        )
-        self.spin_rotation.setSuffix(" °")
-        self.spin_rotation.setToolTip(
-            "Поправка на поворот камеры, действует в осях мира: если камера смотрит не на "
-            "север, поставьте здесь угол, под которым «вверх» на экране, — и стрелки "
-            "совпадут с картинкой. 45° — камера развёрнута на северо-восток, 90° — на восток."
-        )
-        form.addRow("Поворот осей, °", self.spin_rotation)
-        self.spin_anchor = make_number_editor(1, minimum=MIN_ANCHOR, maximum=MAX_ANCHOR)
-        self.spin_anchor.setSuffix(" °")
-        self.spin_anchor.setToolTip(
-            "Базовый угол комнаты для осей «Якорь»: на него поворачивается шаг, и поворот "
-            "самого предмета после этого направление не меняет."
-        )
-        form.addRow("Якорь комнаты, °", self.spin_anchor)
         self.chk_tilt = QCheckBox("Учитывать наклоны RX/RY при движении")
         self.chk_tilt.setToolTip(
-            "Выключено, как в первой версии: шаг идёт строго по полу и поворачивается только "
-            "на RZ, высота не меняется. Включайте, только если деталь наклонена и двигать "
-            "нужно по её собственной плоскости."
+            "Выключите, если нужно двигать проп строго по полу, невзирая на его наклон."
         )
         form.addRow(self.chk_tilt)
-        return group
-
-    def _build_direction_fix_group(self) -> QGroupBox:
-        group = QGroupBox("Поправки направлений")
-        grid = QGridLayout(group)
-        self._invert_boxes: dict[str, QCheckBox] = {}
-        for index, (key, title, tip) in enumerate(
-            (
-                ("forward", "↑ вперёд / ↓ назад", "Если «вперёд» уводит назад — включите"),
-                ("right", "→ вправо / ← влево", "Если «вправо» уводит влево — включите"),
-                ("up", "Z вверх / вниз", "Если шаг по высоте идёт в другую сторону"),
-                ("rotate", "Поворот вправо / влево", "Если кнопки поворота крутят наоборот"),
-            )
-        ):
-            box = QCheckBox(title)
-            box.setToolTip(tip)
-            self._invert_boxes[key] = box
-            grid.addWidget(box, index // 2, index % 2)
         return group
 
     def _build_protection_group(self) -> QGroupBox:
@@ -142,21 +93,35 @@ class SettingsTab(QWidget):
         for key in CONFIRM_KEYS:
             self.combo_confirm.addItem(key.upper(), key)
         form.addRow("Клавиша подтверждения", self.combo_confirm)
+        return group
+
+    def _build_live_group(self) -> QGroupBox:
+        """Живой режим: копия предмета и страховки, чтобы объект не «уехал»."""
+        group = QGroupBox("Живой режим")
+        form = QFormLayout(group)
+        self.chk_live_commit = QCheckBox("Подтверждать F в живом режиме")
+        self.chk_live_commit.setToolTip(
+            "Выключено по умолчанию: каждый шаг только пишет координаты, и видно, куда "
+            "предмет встанет. Включите, если хотите, чтобы F нажимался сам."
+        )
+        form.addRow(self.chk_live_commit)
+        self.spin_hold_timeout = make_number_editor(
+            1, minimum=MIN_LIVE_HOLD_TIMEOUT, maximum=MAX_LIVE_HOLD_TIMEOUT
+        )
+        self.spin_hold_timeout.setSuffix(" с")
+        self.spin_hold_timeout.setToolTip(
+            "Страховка от «залипшей» клавиши: если за это время не было ни одного нового "
+            "нажатия, движение останавливается само."
+        )
+        form.addRow("Стоп, если клавиша залипла", self.spin_hold_timeout)
         self.edit_clone_key = QLineEdit()
-        self.edit_clone_key.setMaxLength(20)
-        self.edit_clone_key.setToolTip("Клавиша, которая создаёт копию объекта (обычно C)")
+        self.edit_clone_key.setToolTip("Клавиша, которой игра клонирует предмет (по умолчанию C)")
         form.addRow("Клавиша копии", self.edit_clone_key)
         self.edit_clone_delete_key = QLineEdit()
-        self.edit_clone_delete_key.setMaxLength(20)
         self.edit_clone_delete_key.setToolTip(
             "Клавиша удаления копии — нажимается только по кнопке «Убрать копию»"
         )
         form.addRow("Клавиша удаления копии", self.edit_clone_delete_key)
-        self.chk_live_commit = QCheckBox("Подтверждать F в живом режиме (ставить предмет)")
-        self.chk_live_commit.setToolTip(
-            "Выключено: живой режим только показывает, где окажется предмет, и не нажимает F."
-        )
-        form.addRow(self.chk_live_commit)
         return group
 
     def _build_appearance_group(self) -> QGroupBox:
@@ -190,23 +155,15 @@ class SettingsTab(QWidget):
         index = self.combo_diagonal.findData(settings.diagonal_mode.value)
         self.combo_diagonal.setCurrentIndex(max(index, 0))
         self.chk_tilt.setChecked(settings.use_tilt)
-        self.spin_rotation.setValue(settings.move_rotation)
-        self.spin_anchor.setValue(settings.anchor_rz)
-        self._invert_boxes["forward"].setChecked(settings.invert_forward)
-        self._invert_boxes["right"].setChecked(settings.invert_right)
-        self._invert_boxes["up"].setChecked(settings.invert_up)
-        self._invert_boxes["rotate"].setChecked(settings.invert_rotate)
-        self.combo_frame.setCurrentIndex(
-            max(self.combo_frame.findData(settings.move_frame.value), 0)
-        )
+        self.chk_live_commit.setChecked(settings.live_commit)
+        self.spin_hold_timeout.setValue(settings.live_hold_timeout)
+        self.edit_clone_key.setText(settings.clone_key)
+        self.edit_clone_delete_key.setText(settings.clone_delete_key)
         self.chk_verify.setChecked(settings.verify_after_paste)
         self.spin_max_jump.setValue(settings.max_jump)
         self.combo_confirm.setCurrentIndex(
             max(self.combo_confirm.findData(settings.confirm_key), 0)
         )
-        self.edit_clone_key.setText(settings.clone_key)
-        self.edit_clone_delete_key.setText(settings.clone_delete_key)
-        self.chk_live_commit.setChecked(settings.live_commit)
         self.slider_opacity.setValue(int(round(settings.overlay_opacity * OPACITY_SCALE)))
         self.chk_on_top.setChecked(settings.always_on_top)
 
@@ -224,13 +181,6 @@ class SettingsTab(QWidget):
             step_presets=presets or self._settings.step_presets,
             diagonal_mode=DiagonalMode(self.combo_diagonal.currentData()),
             use_tilt=self.chk_tilt.isChecked(),
-            move_frame=MoveSpace(str(self.combo_frame.currentData())),
-            move_rotation=self.spin_rotation.value(),
-            anchor_rz=self.spin_anchor.value(),
-            invert_forward=self._invert_boxes["forward"].isChecked(),
-            invert_right=self._invert_boxes["right"].isChecked(),
-            invert_up=self._invert_boxes["up"].isChecked(),
-            invert_rotate=self._invert_boxes["rotate"].isChecked(),
             verify_after_paste=self.chk_verify.isChecked(),
             max_jump=self.spin_max_jump.value(),
             confirm_key=self.combo_confirm.currentData(),
@@ -239,6 +189,7 @@ class SettingsTab(QWidget):
                 self.edit_clone_delete_key.text().strip().lower() or DEFAULT_CLONE_DELETE_KEY
             ),
             live_commit=self.chk_live_commit.isChecked(),
+            live_hold_timeout=self.spin_hold_timeout.value(),
             overlay_opacity=self.slider_opacity.value() / OPACITY_SCALE,
             always_on_top=self.chk_on_top.isChecked(),
             timings=self._settings.timings,

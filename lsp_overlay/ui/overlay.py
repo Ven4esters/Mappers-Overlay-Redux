@@ -10,7 +10,6 @@ from dataclasses import replace
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFocusEvent, QKeyEvent
 from PySide6.QtWidgets import (
-    QApplication,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -19,23 +18,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lsp_overlay import __version__
 from lsp_overlay.application.live import LiveMover
 from lsp_overlay.application.ports import KeyHookPort, KeyStatePort
 from lsp_overlay.application.session import MappingSession
 from lsp_overlay.config import Calibration, Settings
-from lsp_overlay.domain.catalog import Dimension, ObjectSpec
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.errors import DomainError
 from lsp_overlay.domain.fields import FieldKey
-from lsp_overlay.domain.formatting import format_length
-from lsp_overlay.domain.measure import MeasureSlot
-from lsp_overlay.domain.movement import MoveSpace
 from lsp_overlay.domain.pose import Axis, Pose
-from lsp_overlay.infrastructure.catalog_store import CatalogStore
 from lsp_overlay.infrastructure.config_store import ConfigStore
 from lsp_overlay.infrastructure.global_keys import NullKeyHook
 from lsp_overlay.ui.keymap import (
+    NUMPAD_HINT,
     NUMPAD_VK,
     NumpadAction,
     NumpadIntent,
@@ -44,41 +38,23 @@ from lsp_overlay.ui.keymap import (
 )
 from lsp_overlay.ui.styles import STYLESHEET
 from lsp_overlay.ui.tabs.calibration_tab import CalibrationTab
-from lsp_overlay.ui.tabs.join_tab import JoinTab
-from lsp_overlay.ui.tabs.measure_tab import MeasureTab
-from lsp_overlay.ui.tabs.movement_tab import STEP_MAX, STEP_MIN, MovementTab
-from lsp_overlay.ui.tabs.objects_tab import ObjectsTab
+from lsp_overlay.ui.tabs.movement_tab import MovementTab
 from lsp_overlay.ui.tabs.rotate_tab import RotateTab
 from lsp_overlay.ui.tabs.settings_tab import SettingsTab
 from lsp_overlay.ui.widgets import make_button
 
 LOGGER = logging.getLogger(__name__)
-WINDOW_TITLE = f"LSP Mapper Overlay {__version__}"
+WINDOW_TITLE = "LSP Mapper Overlay 2.0"
 MINIMUM_WIDTH = 380
 MINIMUM_HEIGHT = 320
 HALF = 0.5
 DOUBLE = 2.0
 REPEAT_INTERVAL_MS = 90
 REPEAT_TIMEOUT_S = 0.6
-MAX_LIVE_STEPS = 300
-MAX_FULL_TURN = 360.0
-ROTATION_HINT_THRESHOLD = 0.5
-BUSY_HINT = "Идёт обмен с панелью — не двигайте мышь"
-MOVE_ARROWS: dict[Direction, str] = {
-    Direction.NORTH: "↑",
-    Direction.NORTH_EAST: "↗",
-    Direction.EAST: "→",
-    Direction.SOUTH_EAST: "↘",
-    Direction.SOUTH: "↓",
-    Direction.SOUTH_WEST: "↙",
-    Direction.WEST: "←",
-    Direction.NORTH_WEST: "↖",
-    Direction.UP: "выше",
-    Direction.DOWN: "ниже",
-}
 LIVE_POLL_MS = 250
 KEYS_POLL_MS = 60
 FLASH_MS = 120
+MAX_LIVE_STEPS = 300
 
 
 class OverlayWindow(QWidget):
@@ -90,7 +66,6 @@ class OverlayWindow(QWidget):
         config_store: ConfigStore,
         settings: Settings,
         *,
-        catalog_store: CatalogStore | None = None,
         key_state: KeyStatePort | None = None,
         key_hook: KeyHookPort | None = None,
         parent: QWidget | None = None,
@@ -99,18 +74,17 @@ class OverlayWindow(QWidget):
         self._session = session
         self._store = config_store
         self._settings = settings
-        self._catalog_store = catalog_store
         self._key_state = key_state
         self._key_hook: KeyHookPort = key_hook or NullKeyHook()
         self._hooked_direction: Direction | None = None
         self._hooked_vk: int | None = None
         self._last_key_time = 0.0
+        self._repeat_direction: Direction | None = None
         self._live = LiveMover(
             session,
             commit=settings.live_commit,
             hold_timeout=settings.live_hold_timeout,
         )
-        self._repeat_direction: Direction | None = None
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(MINIMUM_WIDTH, MINIMUM_HEIGHT)
         self.setStyleSheet(STYLESHEET)
@@ -125,7 +99,6 @@ class OverlayWindow(QWidget):
         self._keys_timer.setInterval(KEYS_POLL_MS)
         self._keys_timer.timeout.connect(self._poll_keys)
         self._apply_window_options()
-        self._load_catalog()
         self._refresh()
 
     # ------------------------------------------------------------------ сборка
@@ -137,22 +110,17 @@ class OverlayWindow(QWidget):
         self.tabs = QTabWidget()
         self.movement_tab = MovementTab(self._settings)
         self.rotate_tab = RotateTab()
-        self.measure_tab = MeasureTab()
-        self.objects_tab = ObjectsTab()
-        self.join_tab = JoinTab()
         self.calibration_tab = CalibrationTab(self._settings.calibration)
         self.settings_tab = SettingsTab(self._settings)
         self.tabs.addTab(self.movement_tab, "Движение")
         self.tabs.addTab(self.rotate_tab, "Повороты")
-        self.tabs.addTab(self.measure_tab, "Рулетка")
-        self.tabs.addTab(self.objects_tab, "Объекты")
-        self.tabs.addTab(self.join_tab, "Стык")
         self.tabs.addTab(self.calibration_tab, "Калибровка")
         self.tabs.addTab(self.settings_tab, "Настройки")
         root.addWidget(self.tabs, 1)
         self.lbl_status = QLabel("Готов. Задайте точки в «Калибровке» и нажмите «Считать из игры».")
         self.lbl_status.setObjectName("statusLabel")
         self.lbl_status.setWordWrap(True)
+        self.lbl_status.setToolTip(NUMPAD_HINT)
         root.addWidget(self.lbl_status)
         self._connect_tabs()
 
@@ -187,28 +155,14 @@ class OverlayWindow(QWidget):
         self.movement_tab.field_edited.connect(self.action_field_edited)
         self.movement_tab.live_toggled.connect(self.action_live_toggled)
         self.movement_tab.delete_clone_requested.connect(self.action_delete_clone)
-        self.movement_tab.move_rotation_changed.connect(self.action_turn_move_axes)
-        self.movement_tab.anchor_requested.connect(self.action_take_anchor)
         self.rotate_tab.rotate_requested.connect(self.action_rotate)
         self.rotate_tab.angle_set_requested.connect(self.action_set_angle)
-        self.measure_tab.remember_requested.connect(self.action_remember_point)
-        self.measure_tab.reset_requested.connect(self.action_clear_tape)
-        self.measure_tab.step_requested.connect(self.action_measure_step)
-        self.measure_tab.dimension_requested.connect(self.action_measure_dimension)
-        self.measure_tab.status_message.connect(self._set_status)
-        self.objects_tab.step_requested.connect(self.action_measure_step)
-        self.objects_tab.delete_requested.connect(self.action_delete_object)
-        self.objects_tab.object_saved.connect(self.action_save_object)
-        self.objects_tab.status_message.connect(self._set_status)
-        self.join_tab.place_requested.connect(self.action_place_join)
-        self.join_tab.swap_requested.connect(self.action_swap_join_objects)
-        self.join_tab.status_message.connect(self._set_status)
         self.calibration_tab.calibration_changed.connect(self.action_calibration_changed)
         self.calibration_tab.status_message.connect(self._set_status)
-        self.calibration_tab.diagnostics_requested.connect(self.action_diagnostics)
         self.settings_tab.settings_saved.connect(self.action_settings_saved)
         self.settings_tab.status_message.connect(self._set_status)
 
+    # --------------------------------------------------------------- numpad
     def focusOutEvent(self, event: QFocusEvent) -> None:  # noqa: N802 - переопределение Qt
         """Фокус ушёл (макрос кликнул в игре) — отпускание клавиши мы уже не увидим."""
         self._stop_repeat()
@@ -288,14 +242,11 @@ class OverlayWindow(QWidget):
     # ----------------------------------------------------------------- действия
     def action_capture(self) -> None:
         """Читает реальные координаты пропа."""
-        self._busy("Считываю координаты — не двигайте мышь")
         try:
             pose = self._session.capture()
         except DomainError as error:
             self._fail(error)
             return
-        finally:
-            self._idle()
         self._set_status(f"Считано: {describe_pose(pose)}", "success")
         self._refresh()
 
@@ -315,27 +266,13 @@ class OverlayWindow(QWidget):
             self._fail(error)
             return
         self._refresh()
-        self._set_status(self._move_report(target, step, before, after), "info")
+        self._set_status(self._move_report(step, before, after), "info")
 
-    def _move_report(self, target: Direction, step: float, before: Pose, after: Pose) -> str:
-        """Показывает, что именно произошло: куда и на сколько сдвинулся предмет."""
-        arrow = MOVE_ARROWS[target]
-        axes = {
-            MoveSpace.OBJECT: f"по углу предмета, RZ {before.rz:.1f}°",
-            MoveSpace.ANCHOR: f"по якорю комнаты, {self._settings.anchor_rz:.1f}°",
-            MoveSpace.WORLD: "по сторонам света",
-        }[self._settings.move_frame]
-        if self._settings.invert.any:
-            axes += " · направления поправлены"
-        elif (
-            self._settings.move_frame is MoveSpace.WORLD
-            and abs(before.rz) > ROTATION_HINT_THRESHOLD
-        ):
-            axes += f" · угол детали {before.rz:.0f}° не учтён"
+    def _move_report(self, step: float, before: Pose, after: Pose) -> str:
+        """Показывает, что именно произошло: сколько прибавилось по каждой оси."""
         return (
-            f"{arrow} шаг {step:g} м ({axes}): "
-            f"ΔX {after.x - before.x:+.3f} · ΔY {after.y - before.y:+.3f} → "
-            f"X {after.x:.3f} · Y {after.y:.3f}"
+            f"шаг {step:g} м: ΔX {after.x - before.x:+.3f} · ΔY {after.y - before.y:+.3f} · "
+            f"ΔZ {after.z - before.z:+.3f} → X {after.x:.3f} · Y {after.y:.3f}"
         )
 
     def action_live_toggled(self, enabled: bool) -> None:
@@ -346,7 +283,6 @@ class OverlayWindow(QWidget):
             self._stop_live()
 
     def _start_live(self) -> None:
-        self._busy("Клонирую объект — не двигайте мышь")
         try:
             self._session.clone_object()
             self._session.capture()
@@ -354,8 +290,6 @@ class OverlayWindow(QWidget):
             self.movement_tab.set_live(False)
             self._fail(error)
             return
-        finally:
-            self._idle()
         self._live.set_commit(self._settings.live_commit)
         self._live.set_hold_timeout(self._settings.live_hold_timeout)
         self._live.start()
@@ -367,13 +301,15 @@ class OverlayWindow(QWidget):
             self._keys_timer.start()
         else:
             LOGGER.warning("Живой режим без глобальных клавиш: двигайте кнопками оверлея")
+        self.movement_tab.set_live(True)
         self._refresh()
         hint = (
             "каждый шаг подтверждается F"
             if self._settings.live_commit
             else "F не нажимается: видно, куда встанет предмет"
         )
-        self._set_status(f"Живой режим: двигайте копию Numpad — {hint}", "success")
+        numpad = "" if self._num_lock_ok() else " NumLock выключен — Numpad шлёт другие клавиши."
+        self._set_status(f"Живой режим: двигайте копию Numpad — {hint}.{numpad}", "success")
 
     def _stop_live(self) -> None:
         self._key_hook.stop()
@@ -422,6 +358,10 @@ class OverlayWindow(QWidget):
     def _global_keys_ready(self) -> bool:
         return self._key_state is not None and self._key_state.is_ready()
 
+    def _num_lock_ok(self) -> bool:
+        state = self._key_state
+        return state is None or not state.is_ready() or state.num_lock_enabled()
+
     def _poll_keys(self) -> None:
         """Читает зажатые клавиши Numpad напрямую у Windows: фокус может быть в игре."""
         state = self._key_state
@@ -460,9 +400,9 @@ class OverlayWindow(QWidget):
         """Останавливает живой режим, если шагов стало слишком много подряд."""
         if self._live.applied < MAX_LIVE_STEPS:
             return False
+        self._key_hook.stop()
         self._live.stop()
         self._live_timer.stop()
-        self._key_hook.stop()
         self._keys_timer.stop()
         self.movement_tab.set_live(False)
         self._set_status(
@@ -484,10 +424,7 @@ class OverlayWindow(QWidget):
             self._set_status(f"Живой режим остановлен: {error}", "error")
             return
         if self._live.direction is None:
-            self._set_status(
-                f"Живой режим: шагов {self._live.applied}, жду клавишу",
-                "info",
-            )
+            self._set_status(f"Живой режим: шагов {self._live.applied}, жду клавишу", "info")
 
     def action_rotate(self, axis: str, degrees: float) -> None:
         """Поворот на шаг."""
@@ -516,156 +453,6 @@ class OverlayWindow(QWidget):
             return
         self._refresh()
 
-    def action_remember_point(self, slot: str) -> None:
-        """Считывает координаты из игры и запоминает их как точку рулетки."""
-        self._busy("Считываю координаты — не двигайте мышь")
-        try:
-            self._session.capture()
-        except DomainError as error:
-            self._fail(error)
-            return
-        finally:
-            self._idle()
-        span = self._session.remember_point(MeasureSlot(slot))
-        point = MeasureSlot(slot)
-        if span is None:
-            self._set_status(f"Точка {point.label} запомнена — поставьте проп у другого края")
-        else:
-            self._set_status(
-                f"Длина: {format_length(span.length_for_step(), 3)} м "
-                f"(по прямой {format_length(span.distance, 3)} м)",
-                "success",
-            )
-        self._refresh()
-
-    def action_measure_dimension(self, dimension: str) -> None:
-        """Записывает текущий замер в выбранный габарит предмета."""
-        target = Dimension(dimension)
-        issue = self._session.measurement_issue(target)
-        if issue is not None:
-            self._set_status(issue, "error")
-            return
-        value = self._session.record_dimension(target)
-        if value is None:
-            self._set_status("Сначала сделайте два разных замера", "warning")
-            return
-        self._refresh_objects()
-        self._set_status(
-            f"{target.label}: {format_length(value, 3)} м — на вкладке «Объекты»", "success"
-        )
-
-    def action_save_object(self, spec: object) -> None:
-        """Сохраняет предмет в каталог и в файл."""
-        if not isinstance(spec, ObjectSpec):
-            return
-        self._session.save_object(spec)
-        self._session.clear_pending_dimensions()
-        self._save_catalog()
-        self.objects_tab.clear_form()
-        self._refresh_objects()
-        self._set_status(f"«{spec.name}» сохранён в таблицу предметов", "success")
-
-    def action_delete_object(self, name: str) -> None:
-        """Удаляет предмет из каталога."""
-        self._session.remove_object(name)
-        self._save_catalog()
-        self._refresh_objects()
-        self._set_status(f"«{name}» удалён из таблицы", "info")
-
-    def action_place_join(self) -> None:
-        """Ставит второй предмет вплотную к первому и пишет координаты в панель."""
-        first, second = self.join_tab.selected_specs()
-        if first is None or second is None:
-            self._set_status("Выберите оба предмета в списках «Стык»", "warning")
-            return
-        self._busy("Считаю стык и ставлю второй предмет — не двигайте мышь")
-        try:
-            result = self._session.place_join(
-                first, second, self.join_tab.request(), refresh=self.join_tab.refresh_base()
-            )
-        except DomainError as error:
-            self._fail(error)
-            return
-        finally:
-            self._idle()
-        base = self._session.last_join_base
-        angle = f"угол A {base.rz:.1f}° → B {result.pose.rz:.1f}°, " if base else ""
-        if not result.fields:
-            self._set_status("B уже стоит на месте стыка — писать нечего", "info")
-        else:
-            names = ", ".join(key.value.upper() for key in result.fields)
-            self._set_status(
-                f"«{first.name}» → «{second.name}»: {angle}записано {names}, "
-                "F не нажат — предмет только показан",
-                "success",
-            )
-        self._refresh()
-
-    def action_swap_join_objects(self) -> None:
-        """Продолжает цепочку: базой стыка становится второй предмет."""
-        self.join_tab.swap_objects()
-        self._set_status("Стык продолжается от второго предмета", "info")
-        self._refresh()
-
-    def action_clear_tape(self) -> None:
-        """Сбрасывает оба замера."""
-        self._session.clear_tape()
-        self._set_status("Замеры сброшены")
-        self._refresh()
-
-    def action_measure_step(self, length: float) -> None:
-        """Делает измеренную длину шагом сдвига."""
-        try:
-            step = min(max(length, STEP_MIN), STEP_MAX)
-            self.movement_tab.set_step(step)
-        except (DomainError, ValueError) as error:
-            self._fail(error)
-            return
-        self.action_step_changed(step)
-
-    def action_turn_move_axes(self, delta: float) -> None:
-        """Поворачивает оси движения на ``delta`` градусов: поправка на камеру."""
-        current = self._settings.move_rotation
-        target = current + delta
-        while target <= -180.0:
-            target += MAX_FULL_TURN
-        while target > 180.0:
-            target -= MAX_FULL_TURN
-        self._settings = replace(self._settings, move_rotation=target)
-        try:
-            self._settings.validated()
-        except DomainError as error:
-            self._fail(error)
-            return
-        self._session.update_settings(self._settings)
-        self._save_settings()
-        self.settings_tab.spin_rotation.setValue(target)
-        self._refresh()
-        self._set_status(
-            f"Оси движения повёрнуты на {target:g}° — проверьте шагом 1 м: "
-            "«↑» должен вести вверх по экрану",
-            "info",
-        )
-
-    def action_take_anchor(self) -> None:
-        """Запоминает текущий угол предмета как базовый угол комнаты."""
-        anchor = self._session.pose.rz
-        self._settings = replace(self._settings, anchor_rz=anchor)
-        try:
-            self._settings.validated()
-        except DomainError as error:
-            self._fail(error)
-            return
-        self._session.update_settings(self._settings)
-        self._save_settings()
-        self.settings_tab.spin_anchor.setValue(anchor)
-        self._refresh()
-        self._set_status(
-            f"Якорь комнаты: {anchor:g}° — в режиме «Якорь» шаг держит это направление, "
-            "даже если предмет повернуть",
-            "info",
-        )
-
     def action_step_changed(self, step: float) -> None:
         """Запоминает выбранный шаг."""
         try:
@@ -687,13 +474,6 @@ class OverlayWindow(QWidget):
         self._live.set_commit(settings.live_commit)
         self._live.set_hold_timeout(settings.live_hold_timeout)
         self.movement_tab.set_step(settings.step)
-        self.movement_tab.set_move_frame(
-            settings.move_frame,
-            self._session.pose.rz,
-            settings.move_rotation,
-            anchor=settings.anchor_rz,
-            use_tilt=settings.use_tilt,
-        )
         self.btn_apply_commit.setText(f"Сохранить {settings.confirm_key.upper()}")
         self._set_status("Настройки сохранены", "success")
 
@@ -704,47 +484,25 @@ class OverlayWindow(QWidget):
         self._apply_calibration_to_panel(calibration)
         self._save_settings()
 
-    def action_diagnostics(self) -> None:
-        """Проверяет, доходят ли клики и вставка до панели игры."""
-        report = self._session.diagnose()
-        level = "success" if report.all_ok else "error"
-        self._set_status(report.message, level)
-
     def action_apply(self, *, commit: bool) -> None:
         """Пишет изменения в игру."""
-        self._busy("Записываю поля — не двигайте мышь")
         try:
             result = self._session.apply(commit=commit)
         except DomainError as error:
             self._fail(error)
             return
-        finally:
-            self._idle()
         if not result.fields:
-            self._set_status("Значения уже на месте — писать нечего", "info")
+            self._set_status("Изменений нет — нечего записывать", "info")
         else:
             names = ", ".join(key.value.upper() for key in result.fields)
             suffix = " и сохранено (F)" if commit else ""
-            self._set_status(
-                f"Записано только изменённое: {names}{suffix}",
-                "success",
-            )
+            self._set_status(f"Записано: {names}{suffix}", "success")
         self._refresh()
 
     # ------------------------------------------------------------------ сервис
     def _fail(self, error: Exception) -> None:
         LOGGER.warning("Ошибка действия: %s", error)
         self._set_status(str(error), "error")
-
-    def _busy(self, text: str = BUSY_HINT) -> None:
-        """Говорит, что макрос забрал мышь, и успевает перерисовать строку состояния."""
-        self._set_status(text, "info")
-        self.setCursor(Qt.CursorShape.BusyCursor)
-        QApplication.processEvents()
-
-    def _idle(self) -> None:
-        """Возвращает обычный курсор после макроса."""
-        self.unsetCursor()
 
     def _set_status(self, text: str, level: str = "info") -> None:
         self.lbl_status.setText(text)
@@ -777,39 +535,16 @@ class OverlayWindow(QWidget):
 
     def _refresh(self) -> None:
         self.movement_tab.update_pose(self._session.pose, self._session.pending_fields())
-        self.movement_tab.set_move_frame(
-            self._settings.move_frame,
-            self._session.pose.rz,
-            self._settings.move_rotation,
-            anchor=self._settings.anchor_rz,
-            use_tilt=self._settings.use_tilt,
-        )
-        self.join_tab.update_pose(self._session.pose)
-        self._refresh_tape()
         pending = len(self._session.pending_fields())
         self.btn_apply.setEnabled(pending > 0)
         self.btn_apply_commit.setEnabled(pending > 0)
+        self.movement_tab.set_live(self._live.is_running)
 
-    def _refresh_tape(self) -> None:
-        self.measure_tab.update_tape(
-            self._session.tape_points(), self._session.span, self._session.projections()
-        )
-
-    def _refresh_objects(self) -> None:
-        self.objects_tab.set_pending(self._session.pending_dimensions)
-        self.objects_tab.show_catalog(self._session.catalog)
-        self.join_tab.show_catalog(self._session.catalog)
-
-    def _load_catalog(self) -> None:
-        if self._catalog_store is not None:
-            self._session.set_catalog(self._catalog_store.load())
-        self._refresh_objects()
-
-    def _save_catalog(self) -> None:
-        if self._catalog_store is None:
-            return
-        with contextlib.suppress(OSError):
-            self._catalog_store.save(self._session.catalog)
+    def closeEvent(self, event: object) -> None:  # noqa: N802 - переопределение Qt
+        """Закрытие окна снимает хук и останавливает поток живого режима."""
+        self._key_hook.stop()
+        self._live.stop()
+        super().closeEvent(event)  # type: ignore[arg-type]
 
 
 def _with_calibration(settings: Settings, calibration: Calibration) -> Settings:
