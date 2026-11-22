@@ -10,6 +10,8 @@ from map_overlay.domain.point import Point
 from map_overlay.errors import InputError, UnsupportedPlatformError
 
 VK_CONTROL: Final = 0x11
+MODIFIER_KEYS: Final = (0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5)
+"""``Shift``, ``Ctrl``, ``Alt`` и их версии со стороной."""
 VK_F: Final = 0x46
 VK_A: Final = 0x41
 VK_C: Final = 0x43
@@ -130,6 +132,10 @@ class WindowsInput:
         if not self._user32.GetCursorPos(ctypes.byref(native)):
             raise InputError("Не удалось получить позицию курсора")
         return Point(x=int(native.x), y=int(native.y))
+
+    def modifier_down(self) -> bool:
+        """Зажат ли ``Alt``, ``Ctrl`` или ``Shift``."""
+        return any(self._user32.GetAsyncKeyState(vk) & 0x8000 for vk in MODIFIER_KEYS)
 
     def move_cursor(self, point: Point) -> None:
         """Переместить курсор без клика."""

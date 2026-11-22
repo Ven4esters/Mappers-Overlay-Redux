@@ -60,6 +60,8 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     ``Z`` и углы остаются как были.
     """
     validate_step(step)
+    if tilt and direction.is_diagonal:
+        raise ValidationError("В режиме по экрану диагонали отключены: шагайте Num 8, 2, 4 или 6")
     dx, dy = _normalize(direction)
     if tilt:
         world_dx, world_dy, world_dz = _from_screen(dx, dy)

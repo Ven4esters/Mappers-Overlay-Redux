@@ -15,6 +15,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import sys
+import time
 from collections.abc import Callable, Collection
 from typing import ClassVar, Final
 
@@ -33,6 +34,13 @@ WM_QUIT: Final = 0x0012
 LLKHF_INJECTED: Final = 0x10
 """Флаг «клавиша послана программой», а не нажата человеком."""
 HOOK_TIMEOUT_MS: Final = 2000
+FREEZE_LIMIT_S: Final = 20.0
+"""Сколько секунд клавиатура может оставаться замороженной без присмотра.
+
+Заморозка нужна на время обмена с панелью: случайное нажатие в этот момент попадает
+в поле координат и ломает значение. Она обязана сниматься сама — иначе ошибка в
+интерфейсе оставила бы пользователя без клавиатуры.
+"""
 
 _Fields = list[tuple[str, object]]
 
@@ -112,6 +120,8 @@ class WindowsHotkeySource(QThread):
         self._owner_of: Callable[..., int] | None = None
         self._own_pid: Callable[[], int] | None = None
         self._swallowed: set[int] = set()
+        self._frozen = False
+        self._frozen_at = 0.0
         self._alt_down = False
         self._alt_alone = False
         self._error_logged = False
@@ -126,6 +136,37 @@ class WindowsHotkeySource(QThread):
             logger.error("Горячие клавиши доступны только в Windows")
             return
         super().start()
+
+    def freeze(self, enabled: bool) -> None:
+        """Заморозить клавиатуру на время обмена с панелью.
+
+        Пока заморозка включена, хук съедает любые клавиши: они не доходят ни до
+        игры, ни до поля координат, и не считаются командами оверлея. Отпускания
+        съедаются вместе с нажатиями, чтобы в игре не осталось «зажатой» клавиши.
+        """
+        if enabled == self._frozen:
+            return
+        self._frozen = enabled
+        self._frozen_at = time.monotonic()
+        if enabled:
+            logger.info("Клавиатура заморожена на время обмена с панелью")
+        else:
+            self._swallowed.clear()
+            logger.info("Клавиатура разморожена")
+
+    def _freeze_expired(self) -> bool:
+        """Не висит ли заморозка дольше положенного: тогда снимаем её сами."""
+        if not self._frozen:
+            return False
+        if time.monotonic() - self._frozen_at < FREEZE_LIMIT_S:
+            return False
+        self._frozen = False
+        self._swallowed.clear()
+        logger.warning(
+            "Заморозка клавиатуры снята принудительно после %.0f с: интерфейс не разморозил её",
+            FREEZE_LIMIT_S,
+        )
+        return True
 
     def stop_listening(self) -> None:
         """Остановить хук и дождаться потока."""
@@ -240,6 +281,14 @@ class WindowsHotkeySource(QThread):
         is_up = wparam in (WM_KEYUP, WM_SYSKEYUP)
         if not (is_down or is_up):
             return self._pass_through(code, wparam, lparam)
+        self._freeze_expired()
+        if self._frozen:
+            # Обмен с панелью: клавиши не доходят ни до игры, ни до поля координат.
+            if is_down:
+                self._swallowed.add(vk)
+            else:
+                self._swallowed.discard(vk)
+            return 1
         self._observe_alt(vk, is_down, injected)
         block = self._enabled and blocks_key(
             vk=vk,

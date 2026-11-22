@@ -139,6 +139,17 @@ def test_tilted_step_writes_height_and_marks_result() -> None:
     assert result.delta_z == pytest.approx(0.707, abs=0.001)
 
 
+def test_screen_mode_refuses_diagonals() -> None:
+    """В режиме по экрану диагонали отключены — шаг не начинается."""
+    tilted = Pose(x=10.0, y=20.0, z=30.0, rx=30.0)
+    panel = FakePanel(tilted)
+    session = make_session(panel)
+    session.capture()
+    with pytest.raises(ValidationError):
+        session.step(Direction.FORWARD_LEFT, 1.0, tilt=True)
+    assert panel.pose() == tilted
+
+
 def test_plain_step_keeps_height() -> None:
     tilted = Pose(x=10.0, y=20.0, z=30.0, rx=30.0)
     panel = FakePanel(tilted)

@@ -193,3 +193,41 @@ def test_side_codes_are_swallowed_for_bound_keys() -> None:
     hook = _HookHarness(bound=(0x11,))
     assert hook.send(0xA2, True) == 1
     assert hook.events == [(0x11, True, True)]
+
+
+def test_frozen_hook_swallows_every_key() -> None:
+    """Пока идёт обмен с панелью, клавиши не доходят ни до игры, ни до интерфейса."""
+    hook = _HookHarness(bound=(0x68,))
+    hook.source.freeze(True)
+    assert hook.send(0x68, True) == 1
+    assert hook.send(0x68, False) == 1
+    assert hook.send(0x41, True) == 1
+    assert hook.send(0x41, False) == 1
+    assert hook.events == []
+
+
+def test_frozen_hook_does_not_toggle_the_mode() -> None:
+    """Alt во время обмена не переключает режим: клавиатура закрыта."""
+    hook = _HookHarness()
+    hook.source.freeze(True)
+    hook.send(0xA4, True)
+    hook.send(0xA4, False)
+    assert hook.events == []
+
+
+def test_unfrozen_hook_works_again() -> None:
+    hook = _HookHarness(bound=(0x68,))
+    hook.source.freeze(True)
+    hook.send(0x68, True)
+    hook.source.freeze(False)
+    assert hook.send(0x68, True) == 1
+    assert hook.events == [(0x68, True, True)]
+
+
+def test_freeze_is_lifted_after_the_limit() -> None:
+    """Забытая заморозка снимается сама: клавиатура не может остаться мертвой."""
+    hook = _HookHarness()
+    hook.source.freeze(True)
+    hook.source._frozen_at -= 60.0
+    assert hook.send(0x41, True) == 0
+    assert hook.source._frozen is False

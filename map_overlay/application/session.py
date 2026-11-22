@@ -17,6 +17,7 @@ from map_overlay.errors import (
     NotCalibratedError,
     ParseError,
     PoseNotCapturedError,
+    ValidationError,
 )
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,10 @@ class MappingSession:
         if self._pose is None:
             raise PoseNotCapturedError(
                 "Сначала нажмите «Считать»: оверлей не знает текущих координат"
+            )
+        if tilt and direction.is_diagonal:
+            raise ValidationError(
+                "В режиме по экрану диагонали отключены: шагайте Num 8, 2, 4 или 6"
             )
         target = shifted(self._pose, direction, validate_step(step), tilt=tilt)
         written = self._writer.write_changes(self._pose, target)

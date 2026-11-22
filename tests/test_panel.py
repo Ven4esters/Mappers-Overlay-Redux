@@ -7,7 +7,11 @@ from map_overlay.config import Delays
 from map_overlay.domain.fields import Field
 from map_overlay.domain.point import Point
 from map_overlay.errors import NotCalibratedError
-from map_overlay.infrastructure.panel import CalibratedPanel
+from map_overlay.infrastructure.panel import (
+    MODIFIER_POLL_S,
+    MODIFIER_WAIT_S,
+    CalibratedPanel,
+)
 
 from fakes import FULL_CALIBRATION, FakeClipboard, FakeClock, FakeInput
 
@@ -51,6 +55,24 @@ def test_write_field_pastes_into_field() -> None:
     assert input_port.keys == ["ctrl+a", "ctrl+v"]
     assert input_port.panel_value(Field.Z) == "125.500"
     assert clock.sleeps == [Delays().click, Delays().select, Delays().paste]
+
+
+def test_exchange_waits_for_modifiers_to_be_released() -> None:
+    """Зажатый Alt превратил бы ``Ctrl+A`` в ``Alt+Ctrl+A``: ждём отпускания."""
+    panel, input_port, _clipboard, clock = make_panel()
+    input_port.modifiers = 3
+    text = panel.read_field(Field.X)
+    assert text == VALUES[Field.X]
+    assert clock.sleeps[:3] == [MODIFIER_POLL_S] * 3
+    assert input_port.keys == ["ctrl+a", "ctrl+c"]
+
+
+def test_modifier_wait_is_limited() -> None:
+    """Если модификатор не отпускают, обмен всё равно идёт — но с предупреждением."""
+    panel, input_port, _clipboard, clock = make_panel()
+    input_port.modifiers = 1000
+    panel.read_field(Field.X)
+    assert len(clock.sleeps) <= int(MODIFIER_WAIT_S / MODIFIER_POLL_S) + 3
 
 
 def test_custom_delays_are_used() -> None:

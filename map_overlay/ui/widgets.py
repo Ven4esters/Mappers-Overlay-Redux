@@ -132,6 +132,8 @@ class DirectionPad(QWidget):
         grid.setSpacing(GRID_SPACING)
         self._buttons: list[QPushButton] = []
         self._by_direction: dict[Direction, QPushButton] = {}
+        self._enabled = True
+        self._screen_mode = False
         self._step_label = QLabel("шаг")
         self._step_label.setProperty("role", "stepLabel")
         self._step_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -168,6 +170,7 @@ class DirectionPad(QWidget):
         В режиме по экрану клавиши ведут не по осям, а по диагоналям экрана,
         поэтому и значки на кнопках другие: ``Num 8`` — ``↗``, ``Num 4`` — ``↖``.
         """
+        self._screen_mode = enabled
         for direction, item in self._by_direction.items():
             if enabled:
                 item.setText(SCREEN_GLYPHS[direction])
@@ -175,6 +178,7 @@ class DirectionPad(QWidget):
             else:
                 item.setText(direction.glyph)
                 item.setToolTip(self._axis_tooltip(direction))
+        self._sync_enabled()
 
     def set_step_text(self, text: str) -> None:
         """Подпись в центре крестовины."""
@@ -182,8 +186,14 @@ class DirectionPad(QWidget):
 
     def set_enabled(self, is_enabled: bool) -> None:
         """Включить или выключить все стрелки."""
-        for item in self._buttons:
-            item.setEnabled(is_enabled)
+        self._enabled = is_enabled
+        self._sync_enabled()
+
+    def _sync_enabled(self) -> None:
+        """Диагонали в режиме по экрану недоступны: шаг идёт только по четырём сторонам."""
+        for direction, item in self._by_direction.items():
+            blocked = self._screen_mode and direction.is_diagonal
+            item.setEnabled(self._enabled and not blocked)
 
 
 def add_row(layout: QHBoxLayout, widgets: Iterable[QWidget], *, stretch_last: bool = True) -> None:

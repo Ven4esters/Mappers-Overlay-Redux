@@ -55,6 +55,14 @@ class FakeInput:
         self.moved: list[Point] = []
         self.reject_paste: set[Field] = set()
         self.f_pressed = 0
+        self.modifiers = 0
+        """Сколько первых проверок ``modifier_down`` ответить «зажато»."""
+
+    def modifier_down(self) -> bool:
+        if self.modifiers > 0:
+            self.modifiers -= 1
+            return True
+        return False
 
     @property
     def last_field(self) -> Field:
@@ -202,6 +210,7 @@ class FakeHotkeySource:
         self.bound_keys: Collection[int] = ()
         self.learning = False
         self.enabled = True
+        self.frozen = False
         self.started = False
         self._available = available
         self._num_lock = num_lock
@@ -222,6 +231,9 @@ class FakeHotkeySource:
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
 
+    def freeze(self, enabled: bool) -> None:
+        self.frozen = enabled
+
     def num_lock_enabled(self) -> bool | None:
         return self._num_lock
 
@@ -237,6 +249,9 @@ class FakeHotkeySource:
         Автоповтор отличается так же, как в хуке: «свежее» нажатие — то, после
         которого клавишу ещё не отпускали.
         """
+        if self.frozen and is_down:
+            # Хук съедает нажатие: до интерфейса оно не доходит.
+            return
         fresh = is_down and vk not in self._down
         if is_down:
             self._down.add(vk)

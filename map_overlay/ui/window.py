@@ -56,6 +56,12 @@ STATUS_ROLES: dict[str, str] = {
 HOOK_CHECK_MS = 800
 HEARTBEAT_MS = 250
 BUSY_TICK_MS = 500
+ACTION_DEADLINE_MS = 20000
+"""Сколько ждать обмен с панелью, прежде чем прервать его самим.
+
+Раньше зависший обмен оставлял окно занятым навсегда, и оверлей приходилось
+закрывать через диспетчер задач. Теперь по таймауту задача бросается автоматически.
+"""
 STUCK_HINT_S = 5.0
 HOLD_REPEAT_MS = 150
 """Пауза перед следующим шагом удержания: отсчитывается от конца предыдущего."""
@@ -137,6 +143,9 @@ class MainWindow(QMainWindow):
         self._abort_button.clicked.connect(self._abort_action)
         self.statusBar().addPermanentWidget(self._abort_button)
 
+        self._deadline_timer = QTimer(self)
+        self._deadline_timer.setSingleShot(True)
+        self._deadline_timer.timeout.connect(self._action_deadline)
         self._busy_timer = QTimer(self)
         self._busy_timer.setInterval(BUSY_TICK_MS)
         self._busy_timer.timeout.connect(self._busy_tick)
@@ -215,12 +224,43 @@ class MainWindow(QMainWindow):
         self._set_status(text, STATUS_ERROR)
 
     def _set_busy(self, busy: bool) -> None:
+        """Показать занятость и закрыть клавиатуру на время обмена с панелью.
+
+        Заморозка нужна не для красоты: пока оверлей кликает по полю и посылает
+        ``Ctrl+A``/``Ctrl+V``, случайное нажатие (например ``Alt+A``) дописывает в
+        поле символ, значение перестаёт читаться, и обмен повторяется впустую.
+        """
         self.movement.set_busy(busy)
         self._abort_button.setEnabled(busy)
+        self._hotkeys.freeze(busy)
         if busy:
             self._busy_timer.start(BUSY_TICK_MS)
+            self._deadline_timer.start(ACTION_DEADLINE_MS)
         else:
             self._busy_timer.stop()
+            self._deadline_timer.stop()
+
+    def _action_deadline(self) -> None:
+        """Прервать обмен, который не уложился в отведённое время.
+
+        Так окно не может «зависнуть» навсегда: даже если рабочий поток застрял,
+        интерфейс разблокируется, клавиатура размораживается, а причина уходит в журнал.
+        """
+        if not self._runner.is_busy():
+            return
+        logger.warning(
+            "Обмен с панелью прерван по таймауту: «%s» шёл %.1f с",
+            self._busy_text,
+            self._runner.busy_seconds(),
+        )
+        self._stop_hold()
+        self._runner.abandon()
+        self._set_busy(False)
+        self._set_status(
+            "Действие прервано: панель не ответила за 20 с. Проверьте, что окно панели "
+            "на экране и не перекрыто, и повторите.",
+            STATUS_WARN,
+        )
 
     def _begin_busy(self, text: str) -> None:
         """Показать, что идёт обмен с панелью, и засечь время."""
@@ -304,6 +344,15 @@ class MainWindow(QMainWindow):
             )
             return False
         selected = cast(Direction, direction)
+        if tilt and selected.is_diagonal:
+            logger.info("Шаг не начат: в режиме по экрану диагонали отключены")
+            self._stop_hold()
+            self._set_status(
+                "В режиме по экрану диагонали отключены: шагайте Num 8, 2, 4 или 6. "
+                "Alt — выключить режим.",
+                STATUS_WARN,
+            )
+            return False
         suffix = " (по экрану)" if tilt else ""
         self._begin_busy(f"Шаг {selected.label} на {step:g} м{suffix}…")
         self._runner.submit(

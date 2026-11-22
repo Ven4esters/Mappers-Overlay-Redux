@@ -183,6 +183,7 @@ NUMPAD2 = 0x62
 NUMPAD4 = 0x64
 NUMPAD5 = 0x65
 NUMPAD6 = 0x66
+NUMPAD7 = 0x67
 NUMPAD8 = 0x68
 F1 = 0x70
 ESCAPE = 0x1B
@@ -529,6 +530,34 @@ def test_mode_shows_the_screen_map(qt_app: QApplication) -> None:
     assert "6 \u2198" in text
 
 
+def test_screen_mode_has_no_diagonals(qt_app: QApplication) -> None:
+    """``Num 7`` в режиме по экрану не двигает: диагонали отключены."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=45.0)
+    )
+    window.movement.press_capture()
+    toggle_tilt(hotkeys)
+    hotkeys.press(NUMPAD7)
+    hotkeys.release(NUMPAD7)
+    assert panel.pose() == replace(START, rx=45.0)
+    assert "диагонали отключены" in window.status_text()
+
+
+def test_pad_disables_diagonal_buttons_in_the_mode(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    diagonal = window.movement.arrow(Direction.FORWARD_LEFT)
+    forward = window.movement.arrow(Direction.FORWARD)
+    assert diagonal.isEnabled() is True
+    toggle_tilt(hotkeys)
+    assert diagonal.isEnabled() is False
+    assert forward.isEnabled() is True
+    toggle_tilt(hotkeys)
+    assert diagonal.isEnabled() is True
+
+
 def test_pad_shows_screen_arrows_in_the_mode(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
@@ -829,3 +858,56 @@ def test_abort_without_task_is_harmless(qt_app: QApplication) -> None:
     window._set_busy(True)
     window._abort_action()
     assert window._abort_button.isEnabled()
+
+
+# --- защита от случайного ввода во время обмена ----------------------------
+
+
+def test_keyboard_is_frozen_during_the_exchange(qt_app: QApplication) -> None:
+    """Пока идёт обмен, клавиши не попадают ни в игру, ни в поле координат."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    window._set_busy(True)
+    assert hotkeys.frozen is True
+    hotkeys.press(NUMPAD8)
+    hotkeys.release(NUMPAD8)
+    assert panel.pose() == START
+
+
+def test_keyboard_is_released_after_the_exchange(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    assert hotkeys.frozen is False
+    window.movement.press_capture()
+    assert hotkeys.frozen is False
+
+
+def test_write_field_does_not_start_a_step(qt_app: QApplication) -> None:
+    """Случайная клавиша во время записи не запускает шаг и не переключает режим."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    window._set_busy(True)
+    hotkeys.press(VK_MENU)
+    hotkeys.release(VK_MENU)
+    assert window.movement.mode_text() == "по горизонтали"
+    window._set_busy(False)
+    assert panel.pose() == START
+
+
+def test_deadline_aborts_a_stuck_exchange(qt_app: QApplication) -> None:
+    """Если панель не ответила, оверлей сам бросает задачу: окно не «висит»."""
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    window._begin_busy("Читаю поля панели…")
+    window._runner.submit = lambda *args, **kwargs: True  # type: ignore[method-assign]
+    window._set_busy(True)
+    window._runner.submit(lambda: None, on_success=lambda _r: None, on_error=lambda _m: None)
+    assert window._runner.is_busy() is False
+    window._runner.is_busy = lambda: True  # type: ignore[method-assign]
+    window._action_deadline()
+    assert hotkeys.frozen is False
+    assert "прервано" in window.status_text().lower()

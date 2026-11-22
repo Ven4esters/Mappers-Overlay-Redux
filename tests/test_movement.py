@@ -148,32 +148,21 @@ def test_screen_right_goes_down_right() -> None:
     assert result.z == pytest.approx(50.0 - HALF, abs=0.001)
 
 
-@pytest.mark.parametrize(
-    ("direction", "expected"),
-    [
-        (Direction.FORWARD_LEFT, (0.0, 1.0)),
-        (Direction.FORWARD_RIGHT, (-1.0, 0.0)),
-        (Direction.BACK_LEFT, (1.0, 0.0)),
-        (Direction.BACK_RIGHT, (0.0, -1.0)),
-    ],
-)
-def test_screen_diagonals_are_plain_axes(
-    direction: Direction, expected: tuple[float, float]
-) -> None:
-    """Диагонали клавиш попадают на чистые оси экрана."""
-    result = shifted(SCREEN, direction, 1.0, tilt=True)
-    assert result.y == pytest.approx(200.0 + expected[0], abs=0.001)
-    assert result.z == pytest.approx(50.0 + expected[1], abs=0.001)
+@pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
+def test_screen_diagonals_are_refused(direction: Direction) -> None:
+    """В режиме по экрану диагонали не двигают: их просто нет."""
+    with pytest.raises(ValidationError):
+        shifted(SCREEN, direction, 1.0, tilt=True)
 
 
-@pytest.mark.parametrize("direction", list(Direction))
+@pytest.mark.parametrize("direction", [d for d in Direction if not d.is_diagonal])
 def test_screen_step_keeps_its_length(direction: Direction) -> None:
     result = shifted(SCREEN, direction, 1.0, tilt=True)
     distance = math.dist((SCREEN.y, SCREEN.z), (result.y, result.z))
     assert distance == pytest.approx(1.0, abs=0.002)
 
 
-@pytest.mark.parametrize("direction", list(Direction))
+@pytest.mark.parametrize("direction", [d for d in Direction if not d.is_diagonal])
 def test_screen_step_never_touches_x(direction: Direction) -> None:
     """В глубину шаг не уходит: ``X`` остаётся на месте."""
     assert shifted(SCREEN, direction, 1.0, tilt=True).x == SCREEN.x

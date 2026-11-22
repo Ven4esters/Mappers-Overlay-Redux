@@ -15,6 +15,11 @@ from map_overlay.errors import NotCalibratedError
 logger = logging.getLogger(__name__)
 
 MAX_CURSOR_DRIFT_PX: Final = 4
+
+MODIFIER_WAIT_S: Final = 1.5
+"""Сколько ждать отпускания ``Alt``/``Ctrl``/``Shift`` перед обменом."""
+
+MODIFIER_POLL_S: Final = 0.05
 """Столько пикселей курсор может «дрожать» между нашими действиями."""
 
 
@@ -58,6 +63,7 @@ class CalibratedPanel:
             raise NotCalibratedError(
                 "Точка «пустое место панели» не задана — клик перед F невозможен"
             )
+        self._wait_modifiers_released()
         self._click_point(self._empty_point)
         self._clock.sleep(self._delays.click)
         self._input.press_f()
@@ -66,6 +72,7 @@ class CalibratedPanel:
     def read_field(self, field: Field) -> str:
         """Прочитать поле: клик → ``Ctrl+A`` → ``Ctrl+C`` → буфер."""
         logger.debug("Читаю поле %s", field.label)
+        self._wait_modifiers_released()
         self._click(field)
         self._clock.sleep(self._delays.click)
         self._input.select_all()
@@ -77,6 +84,7 @@ class CalibratedPanel:
     def write_field(self, field: Field, text: str) -> None:
         """Записать поле: буфер → клик → ``Ctrl+A`` → ``Ctrl+V``."""
         logger.debug("Пишу поле %s = %s", field.label, text)
+        self._wait_modifiers_released()
         self._clipboard.set(text)
         self._click(field)
         self._clock.sleep(self._delays.click)
@@ -84,6 +92,20 @@ class CalibratedPanel:
         self._clock.sleep(self._delays.select)
         self._input.paste()
         self._clock.sleep(self._delays.paste)
+
+    def _wait_modifiers_released(self) -> None:
+        """Дождаться, пока пользователь отпустит ``Alt``/``Ctrl``/``Shift``.
+
+        Иначе ``Ctrl+A`` уходит в игру как ``Alt+Ctrl+A``: в поле появляется лишний
+        символ, значение не читается, и обмен повторяется впустую — со стороны это
+        выглядит как зависание.
+        """
+        waited = 0.0
+        while waited < MODIFIER_WAIT_S and self._input.modifier_down():
+            self._clock.sleep(MODIFIER_POLL_S)
+            waited += MODIFIER_POLL_S
+        if waited:
+            logger.info("Ждал отпускания модификаторов %.2f с", waited)
 
     def _click(self, field: Field) -> None:
         point = self._points.get(field)
