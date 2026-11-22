@@ -1,25 +1,19 @@
-# Virtual environments
-.venv/
-venv/
-env/
-
-# Python cache
+# --- Python ---
 __pycache__/
 *.py[cod]
-*$py.class
-.pytest_cache/
-
-# Local user configuration (calibrated screen coordinates)
-user_config.json
-
-# Packaging / build artifacts
+*.egg-info/
 build/
 dist/
-*.spec
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 
-# Logs and launcher state
+# --- локальные артефакты ---
 logs/
-*.log
-
-# Готовые архивы релиза
 *.zip
+*.log
+.DS_Store

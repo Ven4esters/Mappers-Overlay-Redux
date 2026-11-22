@@ -1,8 +1,10 @@
-"""Запуск приложения без установки пакета: python main.py [--debug]."""
+"""Запуск оверлея из исходников: ``python main.py``."""
 
 from __future__ import annotations
 
-from mapper_assist.app import main
+import sys
+
+from lsp_overlay.app import main
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
