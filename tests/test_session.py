@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from map_overlay.application.session import MappingSession
 from map_overlay.application.writer import PoseWriter
@@ -70,18 +72,17 @@ def test_forward_step_moves_x_plus_and_writes_x_only() -> None:
     assert session.pose == result.pose
 
 
-def test_diagonal_step_goes_down_right_on_screen() -> None:
-    """``Num 3`` в обычном режиме: ``Y`` в минус, ``Z`` в минус, ``X`` на месте."""
-    panel = FakePanel(START)
+def test_diagonal_step_follows_the_tilt() -> None:
+    """``Num 3`` при наклоне 37°: ``Y`` вниз-вправо на ``cos``, ``Z`` на ``sin``."""
+    tilted = Pose(x=10.0, y=20.0, z=30.0, rx=37.0)
+    panel = FakePanel(tilted)
     session = make_session(panel)
     session.capture()
-    panel.writes.clear()
     result = session.step(Direction.BACK_RIGHT, 1.0)
-    step_component = 1.0 / 2**0.5
     assert result.written == (Field.Y, Field.Z)
-    assert result.pose.x == START.x
-    assert result.pose.y == pytest.approx(START.y - step_component, abs=0.001)
-    assert result.pose.z == pytest.approx(START.z - step_component, abs=0.001)
+    assert result.pose.x == tilted.x
+    assert result.pose.y == pytest.approx(20.0 - math.cos(math.radians(37.0)), abs=0.001)
+    assert result.pose.z == pytest.approx(30.0 - math.sin(math.radians(37.0)), abs=0.001)
 
 
 def test_step_keeps_height_and_angles() -> None:

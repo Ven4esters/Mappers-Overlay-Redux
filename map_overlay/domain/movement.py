@@ -49,7 +49,9 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     С ``tilt=True`` (в интерфейсе — режим высоты, клавиша ``Alt``) меняется только
     смысл клавиш «вперёд-назад»: ``Num 8`` поднимает предмет (``Z`` в плюс),
     ``Num 2`` опускает (``Z`` в минус). Остальные клавиши работают как обычно:
-    ``Num 4/6`` — по горизонтали с поворотом от ``RZ``, диагонали — по экрану.
+    ``Num 4/6`` — по горизонтали с поворотом от ``RZ``, диагонали — по плоскости
+    предмета (``ΔY = ∓cos RX``, ``ΔZ = ±sin RX``), поэтому они идут «линия к линии»
+    при любом угле наклона, а не только при ``45°``.
 
     """
     validate_step(step)
@@ -59,7 +61,7 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
         world_dx, world_dy = 0.0, 0.0
         world_dz = 1.0 if direction is Direction.FORWARD else -1.0
     elif direction.is_diagonal:
-        world_dx, world_dy, world_dz = _diagonal_on_screen(dx, dy)
+        world_dx, world_dy, world_dz = _diagonal(direction, pose)
     else:
         world_dx, world_dy = _rotate(dx, dy, pose.rz)
         world_dz = 0.0
@@ -73,15 +75,26 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     return moved
 
 
-def _diagonal_on_screen(dx: float, dy: float) -> tuple[float, float, float]:
-    """Единичный шаг диагональной клавиши в обычном режиме.
+def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
+    """Единичный шаг диагональной клавиши **по плоскости предмета**.
 
-    Диагонали повторяют направления режима по экрану (камера смотрит вдоль ``X``):
-    ``Num 9`` — вверх-вправо, ``Num 7`` — вверх-влево, ``Num 1`` — вниз-влево,
-    ``Num 3`` — вниз-вправо. На экране вправо — это ``−Y``, вверх — ``+Z``,
-    поэтому ``ΔY = dy``, ``ΔZ = dx``; ``X`` не меняется, длина шага сохраняется.
+    Диагональ должна идти по поверхности предмета, а не под фиксированными 45°.
+    Плоскость, наклонённая на ``RX``, содержит направление ``(0, −cos RX, sin RX)``
+    (и симметричные), поэтому величины компонент берутся из угла наклона:
+
+    * ``Num 9`` → ``(0, −cos RX, +sin RX)`` — вверх-вправо;
+    * ``Num 7`` → ``(0, +cos RX, +sin RX)`` — вверх-влево;
+    * ``Num 1`` → ``(0, +cos RX, −sin RX)`` — вниз-влево;
+    * ``Num 3`` → ``(0, −cos RX, −sin RX)`` — вниз-вправо.
+
+    При ``RX = 45°`` это привычные 0.354 на 0.354, а при ``RX = 37°`` — 0.399 на 0.301,
+    то есть ровно по наклону. Длина шага равна единице при любом угле: ``cos² + sin² = 1``.
+    ``X`` не меняется. На ровном предмете (``RX = 0``) диагональ ложится в горизонталь:
+    у плоской поверхности вертикальной составляющей нет.
     """
-    return 0.0, dy, dx
+    ax, ay = direction.axes
+    rx = math.radians(pose.rx)
+    return 0.0, ay * math.cos(rx), ax * math.sin(rx)
 
 
 def _normalize(direction: Direction) -> tuple[float, float]:
@@ -102,7 +115,7 @@ DIAGONAL_TITLES: Final[dict[Direction, str]] = {
     Direction.BACK_LEFT: "вниз-влево",
     Direction.BACK_RIGHT: "вниз-вправо",
 }
-"""Куда ведёт диагональная клавиша: она всегда идёт по экрану (``Y`` и ``Z``)."""
+"""Куда ведёт диагональная клавиша: она идёт по плоскости предмета (``Y`` и ``Z``)."""
 
 ALT_TITLES: Final[dict[Direction, str]] = {
     Direction.FORWARD: "вверх",

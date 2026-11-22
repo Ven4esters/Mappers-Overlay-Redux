@@ -25,52 +25,84 @@ EXPECTED = {
 
 #: Диагональные клавиши в обычном режиме повторяют направления режима по экрану:
 #: ``(ΔY, ΔZ)`` при шаге 5 м.
-DIAGONAL_SCREEN = {
-    Direction.FORWARD_RIGHT: (1850.0 - DIAGONAL, 100.0 + DIAGONAL),  # Num 9 — вверх-вправо
-    Direction.FORWARD_LEFT: (1850.0 + DIAGONAL, 100.0 + DIAGONAL),  # Num 7 — вверх-влево
-    Direction.BACK_LEFT: (1850.0 + DIAGONAL, 100.0 - DIAGONAL),  # Num 1 — вниз-влево
-    Direction.BACK_RIGHT: (1850.0 - DIAGONAL, 100.0 - DIAGONAL),  # Num 3 — вниз-вправо
+TILTED = Pose(x=100.0, y=200.0, z=50.0, rx=45.0)
+COS37, SIN37 = math.cos(math.radians(37.0)), math.sin(math.radians(37.0))
+
+DIAGONAL_45 = {
+    Direction.FORWARD_RIGHT: (TILTED.y - DIAGONAL, TILTED.z + DIAGONAL),
+    Direction.FORWARD_LEFT: (TILTED.y + DIAGONAL, TILTED.z + DIAGONAL),
+    Direction.BACK_LEFT: (TILTED.y + DIAGONAL, TILTED.z - DIAGONAL),
+    Direction.BACK_RIGHT: (TILTED.y - DIAGONAL, TILTED.z - DIAGONAL),
 }
 
 
-@pytest.mark.parametrize(("direction", "expected"), EXPECTED.items())
-def test_step_matches_user_table(direction: Direction, expected: tuple[float, float]) -> None:
-    result = shifted(BASE, direction, 5.0)
-    assert result.x == pytest.approx(expected[0], abs=0.001)
-    assert result.y == pytest.approx(expected[1], abs=0.001)
-
-
-@pytest.mark.parametrize(("direction", "expected"), DIAGONAL_SCREEN.items())
-def test_diagonal_keys_repeat_the_screen_mode(
-    direction: Direction, expected: tuple[float, float]
-) -> None:
-    """Диагонали в обычном режиме идут по экрану: ``Y`` и ``Z``, ``X`` на месте."""
-    result = shifted(BASE, direction, 5.0)
-    assert result.x == BASE.x
+@pytest.mark.parametrize(("direction", "expected"), DIAGONAL_45.items())
+def test_diagonal_at_45_is_unchanged(direction: Direction, expected: tuple[float, float]) -> None:
+    """При ``RX = 45°`` диагонали дают привычные равные компоненты."""
+    result = shifted(TILTED, direction, 5.0, tilt=False)
+    assert result.x == TILTED.x
     assert result.y == pytest.approx(expected[0], abs=0.001)
     assert result.z == pytest.approx(expected[1], abs=0.001)
 
 
-@pytest.mark.parametrize("direction", [d for d in Direction if not d.is_diagonal])
-def test_height_and_angles_never_change(direction: Direction) -> None:
-    pose = Pose(x=10.0, y=20.0, z=30.0, rx=1.0, ry=2.0, rz=3.0)
-    result = shifted(pose, direction, 1.0)
-    assert result.z == 30.0
-    assert (result.rx, result.ry, result.rz) == (1.0, 2.0, 3.0)
+def test_diagonal_at_37_follows_the_plane() -> None:
+    """При ``RX = 37°`` компоненты берутся из угла: ``cos 37`` и ``sin 37``."""
+    pose = replace(TILTED, rx=37.0)
+    result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
+    assert result.y == pytest.approx(pose.y - COS37, abs=0.001)
+    assert result.z == pytest.approx(pose.z + SIN37, abs=0.001)
 
 
+def test_diagonal_at_37_is_the_other_key_mirrored() -> None:
+    """``Num 7`` — зеркало ``Num 9`` по ``Y``, ``Num 3`` — по ``Z``."""
+    pose = replace(TILTED, rx=37.0)
+    up_right = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
+    up_left = shifted(pose, Direction.FORWARD_LEFT, 1.0)
+    down_right = shifted(pose, Direction.BACK_RIGHT, 1.0)
+    assert up_left.y == pytest.approx(pose.y + COS37, abs=0.001)
+    assert up_left.z == pytest.approx(up_right.z, abs=0.001)
+    assert down_right.z == pytest.approx(pose.z - SIN37, abs=0.001)
+    assert down_right.y == pytest.approx(up_right.y, abs=0.001)
+
+
+@pytest.mark.parametrize("rx", [-60.0, -37.0, -12.5, 0.0, 12.5, 30.0, 37.0, 45.0, 60.0, 80.0])
 @pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
-def test_diagonal_keeps_angles(direction: Direction) -> None:
-    pose = Pose(x=10.0, y=20.0, z=30.0, rx=1.0, ry=2.0, rz=3.0)
+def test_diagonal_slope_matches_the_tilt(direction: Direction, rx: float) -> None:
+    """Наклон шага на экране равен наклону предмета ``tan RX``: линия к линии."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, rx=rx)
     result = shifted(pose, direction, 1.0)
-    assert (result.rx, result.ry, result.rz) == (1.0, 2.0, 3.0)
+    right = -(result.y - pose.y)  # вправо на экране — это ``−Y``
+    up = result.z - pose.z
+    # координаты пишутся с точностью до миллиметра, отсюда допуск
+    assert abs(up / right) == pytest.approx(abs(math.tan(math.radians(rx))), rel=1e-2, abs=5e-3)
 
 
-def test_result_is_rounded_to_millimetres() -> None:
-    pose = Pose(x=0.1, y=0.2)
-    assert shifted(pose, Direction.FORWARD, 0.1).x == 0.2
-    assert shifted(pose, Direction.BACK, 0.1).x == 0.0
-    assert shifted(pose, Direction.RIGHT, 0.1).y == 0.1
+def test_negative_tilt_turns_the_diagonal_with_the_surface() -> None:
+    """При ``RX < 0`` «вверх-вправо» уходит вниз: клавиша идёт по поверхности.
+
+    Наклон предмета задаёт линию, а не экран: если поверхность опускается вправо,
+    то и шаг опускается — иначе он отрывается от плоскости и появляется искажение.
+    """
+    pose = Pose(x=0.0, y=0.0, z=0.0, rx=-37.0)
+    result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
+    assert result.y == pytest.approx(-COS37, abs=0.001)
+    assert result.z == pytest.approx(-SIN37, abs=0.001)
+
+
+@pytest.mark.parametrize("rx", [-60.0, -37.0, 0.0, 20.0, 37.0, 45.0, 80.0])
+@pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
+def test_diagonal_length_is_exactly_one_step(direction: Direction, rx: float) -> None:
+    pose = Pose(x=0.0, y=0.0, z=0.0, rx=rx)
+    result = shifted(pose, direction, 2.0)
+    assert math.dist((result.y, result.z), (pose.y, pose.z)) == pytest.approx(2.0, abs=0.002)
+
+
+def test_diagonal_on_a_flat_object_is_horizontal() -> None:
+    """У плоского предмета вертикальной составляющей нет: диагональ ложится в ``Y``."""
+    flat = Pose(x=0.0, y=0.0, z=0.0, rx=0.0)
+    result = shifted(flat, Direction.FORWARD_RIGHT, 1.0)
+    assert result.y == pytest.approx(-1.0, abs=0.001)
+    assert result.z == 0.0
 
 
 @pytest.mark.parametrize("step", [0.5, 1.0, 2.0, 5.0])
@@ -84,11 +116,11 @@ def test_diagonal_is_one_step_along_the_line(direction: Direction, step: float) 
 
 @pytest.mark.parametrize("rz", [0.0, 45.0, 90.0, 180.0])
 def test_diagonal_does_not_depend_on_rotation(rz: float) -> None:
-    """Диагонали повторяют экранные направления, поэтому ``RZ`` их не крутит."""
-    pose = Pose(x=0.0, y=0.0, z=0.0, rz=rz)
+    """Диагонали идут по наклону предмета, но ``RZ`` их не крутит (как и раньше)."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, rx=37.0, rz=rz)
     result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
-    assert result.y == pytest.approx(-0.707, abs=0.001)
-    assert result.z == pytest.approx(0.707, abs=0.001)
+    assert result.y == pytest.approx(-COS37, abs=0.001)
+    assert result.z == pytest.approx(SIN37, abs=0.001)
 
 
 @pytest.mark.parametrize(
@@ -140,8 +172,9 @@ def test_step_is_normalised_to_three_decimals() -> None:
 def test_changed_fields_lists_only_real_differences() -> None:
     forward = shifted(BASE, Direction.FORWARD, 0.5)
     assert changed_fields(BASE, forward) == (Field.X,)
-    diagonal = shifted(BASE, Direction.FORWARD_LEFT, 0.5)
-    assert changed_fields(BASE, diagonal) == (Field.Y, Field.Z)
+    tilted = Pose(x=0.0, y=0.0, z=0.0, rx=37.0)
+    diagonal = shifted(tilted, Direction.FORWARD_LEFT, 0.5)
+    assert changed_fields(tilted, diagonal) == (Field.Y, Field.Z)
 
 
 def test_changed_fields_ignores_submillimetre_noise() -> None:
