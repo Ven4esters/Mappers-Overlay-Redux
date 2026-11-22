@@ -182,6 +182,7 @@ NUMPAD0 = 0x60
 NUMPAD2 = 0x62
 NUMPAD4 = 0x64
 NUMPAD5 = 0x65
+NUMPAD6 = 0x66
 NUMPAD8 = 0x68
 F1 = 0x70
 ESCAPE = 0x1B
@@ -432,34 +433,7 @@ def toggle_tilt(hotkeys: FakeHotkeySource) -> None:
     hotkeys.release(VK_MENU)
 
 
-def test_alt_moves_forward_along_the_slope(qt_app: QApplication) -> None:
-    hotkeys = FakeHotkeySource()
-    window, panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
-    )
-    window.movement.press_capture()
-    toggle_tilt(hotkeys)
-    hotkeys.press(NUMPAD8)
-    hotkeys.release(NUMPAD8)
-    assert panel.pose().x == pytest.approx(START.x + 0.433, abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z + 0.25, abs=0.001)
-    assert panel.written_fields == [Field.X, Field.Z]
-    assert "наклон" in window.status_text()
-
-
-def test_alt_back_descends(qt_app: QApplication) -> None:
-    hotkeys = FakeHotkeySource()
-    window, panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
-    )
-    window.movement.press_capture()
-    toggle_tilt(hotkeys)
-    hotkeys.press(NUMPAD2)
-    hotkeys.release(NUMPAD2)
-    assert panel.pose().z == pytest.approx(START.z - 0.25, abs=0.001)
-
-
-def test_alt_sideways_keeps_the_height(qt_app: QApplication) -> None:
+def test_tilt_lifts_the_sloping_side(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
@@ -468,9 +442,50 @@ def test_alt_sideways_keeps_the_height(qt_app: QApplication) -> None:
     toggle_tilt(hotkeys)
     hotkeys.press(NUMPAD4)
     hotkeys.release(NUMPAD4)
-    assert panel.pose().y == pytest.approx(START.y + 0.5, abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y + 0.433, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z + 0.25, abs=0.001)
+    assert panel.written_fields == [Field.Y, Field.Z]
+    assert "наклон" in window.status_text()
+
+
+def test_tilt_keeps_forward_horizontal(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
+    )
+    window.movement.press_capture()
+    toggle_tilt(hotkeys)
+    hotkeys.press(NUMPAD8)
+    hotkeys.release(NUMPAD8)
+    assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
     assert panel.pose().z == pytest.approx(START.z, abs=0.001)
-    assert panel.written_fields == [Field.Y]
+    assert panel.written_fields == [Field.X]
+
+
+def test_tilt_right_descends(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
+    )
+    window.movement.press_capture()
+    toggle_tilt(hotkeys)
+    hotkeys.press(NUMPAD6)
+    hotkeys.release(NUMPAD6)
+    assert panel.pose().z == pytest.approx(START.z - 0.25, abs=0.001)
+
+
+def test_roll_lifts_forward(qt_app: QApplication) -> None:
+    """RY наклоняет вокруг оси «вперёд» — поднимается уже сам «вперёд»."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, ry=30.0)
+    )
+    window.movement.press_capture()
+    toggle_tilt(hotkeys)
+    hotkeys.press(NUMPAD8)
+    hotkeys.release(NUMPAD8)
+    assert panel.pose().x == pytest.approx(START.x + 0.433, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z - 0.25, abs=0.001)
 
 
 def test_tilt_mode_with_flat_pose_is_a_plain_step(qt_app: QApplication) -> None:
@@ -495,10 +510,10 @@ def test_alt_toggles_the_mode(qt_app: QApplication) -> None:
     assert "Режим наклона выключен" in window.status_text()
 
 
-def test_tilt_mode_shows_the_angle(qt_app: QApplication) -> None:
+def test_tilt_mode_shows_the_angles(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, _panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0, rz=20.0)
     )
     window.movement.press_capture()
     toggle_tilt(hotkeys)
@@ -511,10 +526,10 @@ def test_tilt_mode_can_be_switched_during_the_hold(qt_app: QApplication) -> None
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
     )
     window.movement.press_capture()
-    hotkeys.press(NUMPAD8)
+    hotkeys.press(NUMPAD4)
     toggle_tilt(hotkeys)
     window._hold_tick()
-    assert panel.pose().x == pytest.approx(START.x + 0.5 + 0.433, abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y + 0.5 + 0.433, abs=0.001)
     assert panel.pose().z == pytest.approx(START.z + 0.25, abs=0.001)
 
 
@@ -551,7 +566,7 @@ def test_alt_held_still_turns_the_mode_on(qt_app: QApplication) -> None:
     )
     window.movement.press_capture()
     hotkeys.hold_alt()
-    hotkeys.press(NUMPAD8)
+    hotkeys.press(NUMPAD4)
     assert window.movement.mode_text().startswith("Режим: по наклону")
     assert panel.pose().z == pytest.approx(START.z + 0.25, abs=0.001)
 

@@ -118,33 +118,49 @@ def test_changed_fields_ignores_submillimetre_noise() -> None:
 TILT = Pose(x=100.0, y=200.0, z=50.0, rx=30.0, ry=0.0, rz=0.0)
 
 
-def test_tilt_forward_climbs_with_positive_rx() -> None:
+def test_tilt_keeps_forward_flat() -> None:
+    """RX наклоняет вокруг оси «вперёд-назад»: сам «вперёд» остаётся горизонтальным."""
     result = shifted(TILT, Direction.FORWARD, 1.0, tilt=True)
-    assert result.x == pytest.approx(100.0 + math.cos(math.radians(30.0)), abs=0.001)
+    assert result.x == pytest.approx(101.0, abs=0.001)
+    assert result.z == pytest.approx(50.0, abs=0.001)
+
+
+def test_tilt_lifts_the_sloping_side() -> None:
+    result = shifted(TILT, Direction.LEFT, 1.0, tilt=True)
+    assert result.y == pytest.approx(200.0 + math.cos(math.radians(30.0)), abs=0.001)
     assert result.z == pytest.approx(50.5, abs=0.001)
 
 
-def test_tilt_forward_descends_with_negative_rx() -> None:
-    result = shifted(replace_rx(TILT, -30.0), Direction.FORWARD, 1.0, tilt=True)
+def test_tilt_right_descends() -> None:
+    result = shifted(TILT, Direction.RIGHT, 1.0, tilt=True)
+    assert result.y == pytest.approx(200.0 - math.cos(math.radians(30.0)), abs=0.001)
     assert result.z == pytest.approx(49.5, abs=0.001)
 
 
-def test_tilt_back_goes_against_the_slope() -> None:
+def test_tilt_with_negative_rx_flips_the_slope() -> None:
+    flat_side = Pose(x=0.0, y=0.0, z=0.0, rx=-30.0)
+    assert shifted(flat_side, Direction.LEFT, 1.0, tilt=True).z == pytest.approx(-0.5, abs=0.001)
+
+
+def test_tilt_back_stays_flat() -> None:
     result = shifted(TILT, Direction.BACK, 1.0, tilt=True)
-    assert result.x == pytest.approx(100.0 - math.cos(math.radians(30.0)), abs=0.001)
-    assert result.z == pytest.approx(49.5, abs=0.001)
-
-
-def test_tilt_does_not_touch_sideways_movement() -> None:
-    result = shifted(TILT, Direction.LEFT, 1.0, tilt=True)
-    assert result.y == pytest.approx(201.0, abs=0.001)
-    assert result.z == 50.0
+    assert result.x == pytest.approx(99.0, abs=0.001)
+    assert result.z == pytest.approx(50.0, abs=0.001)
 
 
 def test_tilt_diagonal_stays_exactly_one_step() -> None:
     result = shifted(TILT, Direction.FORWARD_LEFT, 1.0, tilt=True)
     distance = math.dist((TILT.x, TILT.y, TILT.z), (result.x, result.y, result.z))
     assert distance == pytest.approx(1.0, abs=0.002)
+
+
+def test_tilt_moves_inside_the_object_plane() -> None:
+    """Вектор шага перпендикулярен нормали плоскости предмета."""
+    result = shifted(TILT, Direction.FORWARD_LEFT, 1.0, tilt=True)
+    step = (result.x - TILT.x, result.y - TILT.y, result.z - TILT.z)
+    normal = (0.0, -math.sin(math.radians(30.0)), math.cos(math.radians(30.0)))
+    # Координаты округляются до миллиметров, поэтому допуск чуть больше нуля.
+    assert sum(a * b for a, b in zip(step, normal, strict=True)) == pytest.approx(0.0, abs=2e-3)
 
 
 def test_tilt_zero_rx_is_plain_step() -> None:
@@ -154,32 +170,37 @@ def test_tilt_zero_rx_is_plain_step() -> None:
 
 def test_tilt_follows_rz() -> None:
     quarter = Pose(x=0.0, y=0.0, z=0.0, rx=60.0, rz=90.0)
-    result = shifted(quarter, Direction.FORWARD, 1.0, tilt=True)
-    assert result.x == pytest.approx(0.0, abs=0.001)
-    assert result.y == pytest.approx(0.5, abs=0.001)
+    result = shifted(quarter, Direction.LEFT, 1.0, tilt=True)
+    assert result.x == pytest.approx(-math.cos(math.radians(60.0)), abs=0.001)
+    assert result.y == pytest.approx(0.0, abs=0.001)
     assert result.z == pytest.approx(math.sin(math.radians(60.0)), abs=0.001)
 
 
 def test_tilt_at_ninety_degrees_goes_straight_up() -> None:
     steep = Pose(x=0.0, y=0.0, z=0.0, rx=90.0)
-    result = shifted(steep, Direction.FORWARD, 2.0, tilt=True)
-    assert result.x == pytest.approx(0.0, abs=0.001)
+    result = shifted(steep, Direction.LEFT, 2.0, tilt=True)
+    assert result.y == pytest.approx(0.0, abs=0.001)
     assert result.z == pytest.approx(2.0, abs=0.001)
 
 
+def test_roll_lifts_forward() -> None:
+    """RY — наклон вокруг оси «вперёд»: поднимается сам «вперёд»."""
+    rolled = Pose(x=0.0, y=0.0, z=0.0, ry=90.0)
+    result = shifted(rolled, Direction.FORWARD, 1.0, tilt=True)
+    assert result.x == pytest.approx(0.0, abs=0.001)
+    assert result.z == pytest.approx(-1.0, abs=0.001)
+    side = shifted(rolled, Direction.LEFT, 1.0, tilt=True)
+    assert side.z == pytest.approx(0.0, abs=0.001)
+
+
 def test_tilt_is_rounded_to_millimetres() -> None:
-    result = shifted(TILT, Direction.FORWARD, 0.333, tilt=True)
+    result = shifted(TILT, Direction.LEFT, 0.333, tilt=True)
+    assert result.y == 200.288
     assert result.z == 50.166
-    assert result.x == 100.288
-
-
-def replace_rx(pose: Pose, rx: float) -> Pose:
-    """Копия позы с другим RX (для читаемых тестов)."""
-    return Pose(x=pose.x, y=pose.y, z=pose.z, rx=rx, ry=pose.ry, rz=pose.rz)
 
 
 def test_changed_fields_sees_height_on_tilt() -> None:
-    assert changed_fields(TILT, shifted(TILT, Direction.FORWARD, 0.5, tilt=True)) == (
-        Field.X,
+    assert changed_fields(TILT, shifted(TILT, Direction.LEFT, 0.5, tilt=True)) == (
+        Field.Y,
         Field.Z,
     )

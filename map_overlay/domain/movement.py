@@ -46,33 +46,50 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     Диагональ — это шаг по прямой: вектор ``(±1, ±1)`` нормализуется, поэтому
     предмет проходит ровно ``step`` метров, а не ``step · √2``.
 
-    С ``tilt=True`` (в интерфейсе — Alt) учитывается наклон ``RX``: шаг идёт
-    по наклонной плоскости предмета, поэтому «вперёд» поднимает при ``RX > 0``
-    и опускает при ``RX < 0``:
+    С ``tilt=True`` (в интерфейсе — режим наклона по ``Alt``) шаг считается
+    в осях самого предмета и только потом переводится в мир: сначала ``RX``,
+    затем ``RY``, затем ``RZ`` — в том же порядке, в каком их задаёт игра. Так
+    шаг ложится в плоскость предмета:
 
-    * вдоль «вперёд/назад» — ``X`` на ``step · cos(RX)``, ``Z`` на ``step · sin(RX)``;
-    * влево/вправо наклон не влияет: ``Y`` меняется полностью, ``Z`` — нет;
-    * диагональ остаётся шагом: ``√((dx·cos)² + dy² + (dx·sin)²) = step``.
+    * поднимается и опускается та сторона, вокруг которой идёт наклон:
+      ``RX`` наклоняет «влево-вправо», ``RY`` — «вперёд-назад»;
+    * сторона, совпадающая с осью наклона, остаётся горизонтальной;
+    * длина шага сохраняется: ``√(ΔX² + ΔY² + ΔZ²) = step``, диагональ тоже.
 
     Без ``tilt`` меняются только ``X`` и ``Y``, ``Z`` и углы остаются как были.
     """
     validate_step(step)
     dx, dy = _normalize(direction)
     if tilt:
-        angle = math.radians(pose.rx)
-        local_x = dx * math.cos(angle)
-        local_z = dx * math.sin(angle)
+        world_dx, world_dy, world_dz = _from_object_plane(dx, dy, pose)
     else:
-        local_x, local_z = dx, 0.0
-    world_dx, world_dy = _rotate(local_x * step, dy * step, pose.rz)
+        world_dx, world_dy = _rotate(dx, dy, pose.rz)
+        world_dz = 0.0
     moved = replace(
         pose,
-        x=rounded(pose.x + world_dx, COORD_DECIMALS),
-        y=rounded(pose.y + world_dy, COORD_DECIMALS),
+        x=rounded(pose.x + world_dx * step, COORD_DECIMALS),
+        y=rounded(pose.y + world_dy * step, COORD_DECIMALS),
     )
-    if local_z:
-        moved = replace(moved, z=rounded(pose.z + local_z * step, COORD_DECIMALS))
+    if world_dz:
+        moved = replace(moved, z=rounded(pose.z + world_dz * step, COORD_DECIMALS))
     return moved
+
+
+def _from_object_plane(dx: float, dy: float, pose: Pose) -> tuple[float, float, float]:
+    """Единичный шаг из плоскости предмета в мир.
+
+    Повороты применяются в порядке ``RX`` → ``RY`` → ``RZ``: ``RX`` наклоняет
+    оси ``Y``/``Z``, ``RY`` — ``X``/``Z``, ``RZ`` доворачивает в плане.
+    Поворот длину не меняет, поэтому шаг остаётся ровно ``step`` метров.
+    """
+    rx = math.radians(pose.rx)
+    ry = math.radians(pose.ry)
+    # RX: «вперёд-назад» — ось наклона, её шаг горизонтален; «влево-вправо» поднимается.
+    x, y, z = dx, dy * math.cos(rx), dy * math.sin(rx)
+    # RY: наклон вокруг оси «вперёд» поднимает уже сам «вперёд».
+    x, z = x * math.cos(ry) + z * math.sin(ry), -x * math.sin(ry) + z * math.cos(ry)
+    world_dx, world_dy = _rotate(x, y, pose.rz)
+    return world_dx, world_dy, z
 
 
 def _normalize(direction: Direction) -> tuple[float, float]:

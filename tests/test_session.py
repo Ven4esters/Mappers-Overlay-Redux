@@ -131,7 +131,7 @@ def test_tilted_step_writes_height_and_marks_result() -> None:
     panel = FakePanel(tilted)
     session = make_session(panel)
     session.capture()
-    result = session.step(Direction.FORWARD, 1.0, tilt=True)
+    result = session.step(Direction.LEFT, 1.0, tilt=True)
     assert panel.pose().z == pytest.approx(30.5, abs=0.001)
     assert Field.Z in result.written
     assert result.tilted is True

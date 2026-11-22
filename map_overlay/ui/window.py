@@ -352,17 +352,18 @@ class MainWindow(QMainWindow):
         self._set_status(message, STATUS_ERROR)
 
     def _tilt_warning(self, pose: Pose) -> str:
-        if not pose.has_tilt:
+        """Подсказка про наклон: показывается, только когда режим выключен."""
+        if self._tilt_mode or not pose.has_tilt:
             return ""
-        parts: list[str] = []
-        if abs(pose.rx) > 1e-9 and not self._tilt_mode:
-            parts.append(
-                f"RX {format_value(pose.rx, COORD_DECIMALS)}°: нажмите Alt один раз, "
-                "чтобы шаги шли по наклону (при RX > 0 «вперёд» поднимает)."
-            )
-        if abs(pose.ry) > 1e-9:
-            parts.append(f"RY {format_value(pose.ry, COORD_DECIMALS)}° не учитывается.")
-        return " ".join(parts)
+        angles = " · ".join(
+            f"{field.value.upper()} {format_value(pose.value(field), COORD_DECIMALS)}°"
+            for field in (Field.RX, Field.RY)
+            if abs(pose.value(field)) > 1e-9
+        )
+        return (
+            f"{angles}: нажмите Alt — шаги пойдут по плоскости предмета, "
+            "сейчас они идут строго по горизонтали."
+        )
 
     # --- горячие клавиши --------------------------------------------------
 
@@ -408,12 +409,12 @@ class MainWindow(QMainWindow):
         if enabled:
             logger.info("Режим наклона включён")
             self._set_status(
-                "Режим наклона включён: направления ведут по RX. Alt — выключить.",
+                "Режим наклона включён: шаги идут по плоскости предмета. Alt — выключить.",
                 STATUS_OK,
             )
         else:
             logger.info("Режим наклона выключен")
-            self._set_status("Режим наклона выключен: шаги идут по плоскости.")
+            self._set_status("Режим наклона выключен: шаги идут строго по горизонтали.")
 
     def _dispatch(self, action: Action, vk: int) -> None:
         if action is Action.CAPTURE:
