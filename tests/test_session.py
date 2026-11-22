@@ -124,3 +124,25 @@ def test_failed_write_keeps_previous_pose() -> None:
     with pytest.raises(PanelRejectedError):
         session.step(Direction.FORWARD, 0.5)
     assert session.pose == START
+
+
+def test_tilted_step_writes_height_and_marks_result() -> None:
+    tilted = Pose(x=10.0, y=20.0, z=30.0, rx=30.0)
+    panel = FakePanel(tilted)
+    session = make_session(panel)
+    session.capture()
+    result = session.step(Direction.FORWARD, 1.0, tilt=True)
+    assert panel.pose().z == pytest.approx(30.5, abs=0.001)
+    assert Field.Z in result.written
+    assert result.tilted is True
+    assert result.delta_z == pytest.approx(0.5, abs=0.001)
+
+
+def test_plain_step_keeps_height() -> None:
+    tilted = Pose(x=10.0, y=20.0, z=30.0, rx=30.0)
+    panel = FakePanel(tilted)
+    session = make_session(panel)
+    session.capture()
+    result = session.step(Direction.FORWARD, 1.0)
+    assert Field.Z not in result.written
+    assert result.delta_z == 0.0

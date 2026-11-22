@@ -121,6 +121,14 @@ class HotkeySource(Protocol):
         """Включён ли NumLock (``None``, если проверить нельзя)."""
         ...
 
+    def alt_down(self) -> bool:
+        """Зажат ли Alt: с ним шаг идёт по наклону ``RX``."""
+        ...
+
+    def key_down(self, vk: int) -> bool:
+        """Зажата ли клавиша прямо сейчас (страховка на случай потерянного ``keyup``)."""
+        ...
+
     def is_available(self) -> bool:
         """Удалось ли перехватывать клавиши."""
         ...

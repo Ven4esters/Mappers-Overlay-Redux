@@ -178,6 +178,8 @@ def test_show_point_for_unknown_field_is_explained(qt_app: QApplication) -> None
 
 
 NUMPAD0 = 0x60
+NUMPAD2 = 0x62
+NUMPAD4 = 0x64
 NUMPAD5 = 0x65
 NUMPAD8 = 0x68
 F1 = 0x70
@@ -418,6 +420,178 @@ def test_numpad_diagonals_match_the_game(
     hotkeys.release(vk)
     assert panel.pose().x == pytest.approx(START.x + expected_dx, abs=0.001)
     assert panel.pose().y == pytest.approx(START.y + expected_dy, abs=0.001)
+
+
+# --- наклон по Alt ---------------------------------------------------------
+
+
+def test_alt_moves_forward_along_the_slope(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
+    )
+    window.movement.press_capture()
+    hotkeys.alt = True
+    hotkeys.press(NUMPAD8)
+    hotkeys.release(NUMPAD8)
+    assert panel.pose().x == pytest.approx(START.x + 0.433, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z + 0.25, abs=0.001)
+    assert panel.written_fields == [Field.X, Field.Z]
+    assert "наклон" in window.status_text()
+
+
+def test_alt_back_descends(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
+    )
+    window.movement.press_capture()
+    hotkeys.alt = True
+    hotkeys.press(NUMPAD2)
+    hotkeys.release(NUMPAD2)
+    assert panel.pose().z == pytest.approx(START.z - 0.25, abs=0.001)
+
+
+def test_alt_sideways_keeps_the_height(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
+    )
+    window.movement.press_capture()
+    hotkeys.alt = True
+    hotkeys.press(NUMPAD4)
+    hotkeys.release(NUMPAD4)
+    assert panel.pose().y == pytest.approx(START.y + 0.5, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z, abs=0.001)
+    assert panel.written_fields == [Field.Y]
+
+
+def test_alt_without_tilt_is_a_plain_step(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.alt = True
+    hotkeys.press(NUMPAD8)
+    hotkeys.release(NUMPAD8)
+    assert panel.written_fields == [Field.X]
+
+
+def test_alt_can_be_pressed_during_the_hold(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
+    )
+    window.movement.press_capture()
+    hotkeys.press(NUMPAD8)
+    hotkeys.alt = True
+    window._hold_tick()
+    assert panel.pose().x == pytest.approx(START.x + 0.5 + 0.433, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z + 0.25, abs=0.001)
+
+
+# --- удержание направления -------------------------------------------------
+
+
+def test_hold_repeats_the_step_on_the_timer(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(NUMPAD8)
+    assert window._hold_timer.isActive()
+    for _ in range(4):
+        window._hold_tick()
+    assert panel.pose().x == pytest.approx(START.x + 2.5, abs=0.001)
+    assert window._hold_timer.interval() == 150
+
+
+def test_release_stops_the_hold(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(NUMPAD8)
+    hotkeys.release(NUMPAD8)
+    assert not window._hold_timer.isActive()
+    window._hold_tick()
+    assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
+
+
+def test_hold_stops_when_the_keyup_was_lost(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(NUMPAD8)
+    hotkeys.forget(NUMPAD8)
+    window._hold_tick()
+    assert not window._hold_timer.isActive()
+    assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
+
+
+def test_hold_waits_while_the_panel_is_busy(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    window._runner = _SlowRunner()  # type: ignore[assignment]
+    hotkeys.press(NUMPAD8)
+    window._hold_tick()
+    assert panel.written_fields == []
+
+
+def test_new_direction_replaces_the_held_one(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(NUMPAD8)
+    hotkeys.press(NUMPAD4)
+    window._hold_tick()
+    assert panel.pose().y == pytest.approx(START.y + 1.0, abs=0.001)
+    hotkeys.release(NUMPAD4)
+    assert not window._hold_timer.isActive()
+
+
+def test_hold_stops_when_hotkeys_are_paused(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(NUMPAD8)
+    _hotkeys_checkbox(window).setChecked(False)
+    assert not window._hold_timer.isActive()
+
+
+def test_capture_stops_the_hold(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(NUMPAD8)
+    window.movement.press_capture()
+    assert not window._hold_timer.isActive()
+
+
+class _AbandoningRunner:
+    """Заглушка раннера, у которого есть что бросать."""
+
+    def abandon(self) -> bool:
+        return True
+
+
+def test_abort_stops_the_hold(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(NUMPAD8)
+    window._begin_busy("Шаг…")
+    window._runner = _AbandoningRunner()  # type: ignore[assignment]
+    window._abort_action()
+    assert not window._hold_timer.isActive()
+    assert "удержание остановлено" in window.status_text()
+
+
+def test_hold_without_capture_does_not_loop(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    hotkeys.press(NUMPAD8)
+    assert not window._hold_timer.isActive()
+    assert "Сначала нажмите «Считать»" in window.status_text()
+    assert panel.written_fields == []
 
 
 def test_abort_button_is_enabled_only_while_busy(qt_app: QApplication) -> None:

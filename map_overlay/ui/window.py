@@ -57,6 +57,8 @@ HOOK_CHECK_MS = 800
 HEARTBEAT_MS = 250
 BUSY_TICK_MS = 500
 STUCK_HINT_S = 5.0
+HOLD_REPEAT_MS = 150
+"""Как часто повторять шаг, пока направление на Numpad зажато."""
 LEARN_TIMEOUT_MS = 10_000
 
 
@@ -72,6 +74,7 @@ class MainWindow(QMainWindow):
         self._runner = TaskRunner(synchronous=synchronous_tasks, parent=self)
         self._router = HotkeyRouter(context.settings.hotkeys)
         self._busy_text = ""
+        self._held: tuple[Action, int] | None = None
         self._learn_timer = QTimer(self)
         self._learn_timer.setSingleShot(True)
         self._learn_timer.timeout.connect(self._learning_expired)
@@ -136,6 +139,9 @@ class MainWindow(QMainWindow):
         self._heartbeat.setInterval(HEARTBEAT_MS)
         self._heartbeat.timeout.connect(diagnostics.beat)
         self._heartbeat.start()
+        self._hold_timer = QTimer(self)
+        self._hold_timer.setInterval(HOLD_REPEAT_MS)
+        self._hold_timer.timeout.connect(self._hold_tick)
 
         self.movement.capture_requested.connect(self._capture)
         self.movement.confirm_requested.connect(self._confirm)
@@ -228,11 +234,13 @@ class MainWindow(QMainWindow):
 
     def _abort_action(self) -> None:
         """Бросить зависшее действие, не закрывая окно."""
+        self._stop_hold()
         if not self._runner.abandon():
             return
         self._set_busy(False)
         self._set_status(
-            "Действие прервано вручную. Если панель не отвечает, перезапустите оверлей.",
+            "Действие прервано вручную, удержание остановлено. "
+            "Если панель не отвечает, перезапустите оверлей.",
             STATUS_WARN,
         )
 
@@ -244,6 +252,7 @@ class MainWindow(QMainWindow):
     # --- действия ---------------------------------------------------------
 
     def _capture(self) -> None:
+        self._stop_hold()
         if self._runner.is_busy():
             return
         session = self._ensure_session()
@@ -256,6 +265,7 @@ class MainWindow(QMainWindow):
         )
 
     def _confirm(self) -> None:
+        self._stop_hold()
         if self._runner.is_busy():
             return
         session = self._ensure_session()
@@ -267,23 +277,32 @@ class MainWindow(QMainWindow):
             label="сохранить F",
         )
 
-    def _move(self, direction: object, step: float) -> None:
+    def _move(self, direction: object, step: float, *, tilt: bool = False) -> bool:
+        """Сделать шаг; ``tilt`` — по наклону ``RX`` (клавиша Alt).
+
+        Returns:
+            ``True``, если задача поставлена: ``False`` — шаг невозможен.
+        """
         if self._runner.is_busy():
-            return
+            return False
         session = self._session
         if session is None or session.pose is None or self._pose is None:
             self._set_status(
                 "Сначала нажмите «Считать»: без координат шаг не посчитать", STATUS_WARN
             )
-            return
+            return False
         selected = cast(Direction, direction)
-        self._begin_busy(f"Шаг {selected.label} на {step:g} м…")
+        suffix = ""
+        if tilt:
+            suffix = f" (по наклону RX {format_value(self._pose.rx, COORD_DECIMALS)}°)"
+        self._begin_busy(f"Шаг {selected.label} на {step:g} м{suffix}…")
         self._runner.submit(
-            lambda: session.step(selected, step),
+            lambda: session.step(selected, step, tilt=tilt),
             on_success=self._moved,
             on_error=self._failed,
-            label=f"шаг {selected.label.lower()} на {step:g} м",
+            label=f"шаг {selected.label.lower()} на {step:g} м{suffix}",
         )
+        return True
 
     def _captured(self, result: object) -> None:
         self._set_busy(False)
@@ -300,10 +319,13 @@ class MainWindow(QMainWindow):
         self.movement.set_pose(step_result.pose)
         self.movement.set_warning(self._tilt_warning(step_result.pose))
         written = ", ".join(field.label for field in step_result.written) or "ничего"
+        deltas = f"ΔX {format_delta(step_result.delta_x)} · ΔY {format_delta(step_result.delta_y)}"
+        slope = ""
+        if step_result.tilted:
+            deltas = f"{deltas} · ΔZ {format_delta(step_result.delta_z)}"
+            slope = f" · по наклону RX {format_value(step_result.pose.rx, COORD_DECIMALS)}°"
         self._set_status(
-            f"Шаг: ΔX {format_delta(step_result.delta_x)} · "
-            f"ΔY {format_delta(step_result.delta_y)} → {pose_text(step_result.pose)} · "
-            f"записано: {written}",
+            f"Шаг: {deltas} → {pose_text(step_result.pose)} · записано: {written}{slope}",
             STATUS_OK,
         )
 
@@ -313,17 +335,22 @@ class MainWindow(QMainWindow):
 
     def _failed(self, message: str) -> None:
         logger.warning("Действие не выполнено: %s", message)
+        self._stop_hold()
         self._set_busy(False)
         self._set_status(message, STATUS_ERROR)
 
     def _tilt_warning(self, pose: Pose) -> str:
         if not pose.has_tilt:
             return ""
-        return (
-            f"RX {format_value(pose.rx, COORD_DECIMALS)}° · "
-            f"RY {format_value(pose.ry, COORD_DECIMALS)}°. Наклон пока не учитывается: "
-            "движение идёт по плоскости, поворот RZ учтён."
-        )
+        parts: list[str] = []
+        if abs(pose.rx) > 1e-9:
+            parts.append(
+                f"RX {format_value(pose.rx, COORD_DECIMALS)}°: Alt + направление ведёт по "
+                "наклону (при RX > 0 «вперёд» поднимает), без Alt — по плоскости."
+            )
+        if abs(pose.ry) > 1e-9:
+            parts.append(f"RY {format_value(pose.ry, COORD_DECIMALS)}° не учитывается.")
+        return " ".join(parts)
 
     # --- горячие клавиши --------------------------------------------------
 
@@ -336,26 +363,70 @@ class MainWindow(QMainWindow):
             return
         action = self._router.handle(vk, is_down)
         if action is not None:
-            self._dispatch(action)
+            self._dispatch(action, vk)
+        elif not is_down:
+            self._release_key(vk)
 
-    def _dispatch(self, action: Action) -> None:
+    def _dispatch(self, action: Action, vk: int) -> None:
         if action is Action.CAPTURE:
             self._capture()
             return
         if action is Action.CONFIRM:
             self._confirm()
             return
+        if action.direction is not None:
+            self._start_hold(action, vk)
+
+    # --- удержание направления -------------------------------------------
+
+    def _start_hold(self, action: Action, vk: int) -> None:
+        """Начать удержание: первый шаг сразу, дальше — по таймеру."""
+        self._stop_hold()
+        self._held = (action, vk)
+        self._hold_timer.start(HOLD_REPEAT_MS)
+        self._hold_tick()
+
+    def _hold_tick(self) -> None:
+        """Повторить шаг, пока клавиша зажата.
+
+        Пропускает такт, если панель ещё занята предыдущим шагом: очередь шагов
+        не копится, иначе оверлей «уезжал» бы после отпускания клавиши.
+        """
+        held = self._held
+        if held is None:
+            self._hold_timer.stop()
+            return
+        action, vk = held
+        if not self.settings_tab.hotkeys_enabled() or not self._hotkeys.key_down(vk):
+            self._stop_hold()
+            return
+        if self._runner.is_busy():
+            return
+        if not self._step_once(action, tilt=self._hotkeys.alt_down()):
+            self._stop_hold()
+
+    def _step_once(self, action: Action, *, tilt: bool) -> bool:
         direction = action.direction
         if direction is None:
-            return
+            return False
         try:
             step = self.movement.current_step()
         except ValidationError as exc:
             self._set_status(str(exc), STATUS_WARN)
-            return
-        self._move(direction, step)
+            return False
+        return self._move(direction, step, tilt=tilt)
+
+    def _release_key(self, vk: int) -> None:
+        """Отпускание клавиши прекращает удержание."""
+        if self._held is not None and self._held[1] == vk:
+            self._stop_hold()
+
+    def _stop_hold(self) -> None:
+        self._hold_timer.stop()
+        self._held = None
 
     def _start_learning(self, action: object) -> None:
+        self._stop_hold()
         if not self.settings_tab.hotkeys_enabled():
             self._set_status("Перехват клавиш выключен — назначить клавишу нельзя.", STATUS_WARN)
             return
@@ -386,6 +457,7 @@ class MainWindow(QMainWindow):
 
     def _set_hotkeys_enabled(self, enabled: bool) -> None:
         """Включить или приостановить перехват клавиш без перезапуска."""
+        self._stop_hold()
         self._hotkeys.set_enabled(enabled)
         if enabled:
             self._set_status("Перехват клавиш включён: Numpad снова забран у игры.")
@@ -519,6 +591,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - имя из Qt
         """Снять хук и дождаться фоновой задачи, чтобы не оставить поток висеть."""
         self._heartbeat.stop()
+        self._hold_timer.stop()
+        self._held = None
         self._hotkeys.stop_listening()
         self._runner.shutdown()
         super().closeEvent(event)

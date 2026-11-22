@@ -67,3 +67,12 @@ def test_windows_hotkey_source_refuses_other_platforms() -> None:
     assert source.num_lock_enabled() is None
     source.stop_listening()
     assert events == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="проверяем поведение вне Windows")
+def test_modifier_state_off_windows_is_off() -> None:
+    from map_overlay.infrastructure.hotkeys import WindowsHotkeySource
+
+    source = WindowsHotkeySource()
+    assert source.alt_down() is False
+    assert source.key_down(0x68) is False

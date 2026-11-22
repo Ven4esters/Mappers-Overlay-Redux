@@ -29,6 +29,8 @@ class StepResult:
     previous: Pose
     pose: Pose
     written: tuple[Field, ...]
+    tilted: bool = False
+    """Шаг считался по наклону ``RX`` (в интерфейсе — Alt)."""
 
     @property
     def delta_x(self) -> float:
@@ -39,6 +41,11 @@ class StepResult:
     def delta_y(self) -> float:
         """Изменение Y."""
         return self.pose.y - self.previous.y
+
+    @property
+    def delta_z(self) -> float:
+        """Изменение Z (ненулевое только при шаге по наклону)."""
+        return self.pose.z - self.previous.z
 
 
 class MappingSession:
@@ -108,8 +115,10 @@ class MappingSession:
         self._panel.confirm()
         logger.info("Положение подтверждено клавишей F")
 
-    def step(self, direction: Direction, step: float) -> StepResult:
+    def step(self, direction: Direction, step: float, *, tilt: bool = False) -> StepResult:
         """Сдвинуть предмет на шаг в направлении и записать изменения.
+
+        ``tilt`` включает учёт наклона ``RX``: шаг идёт по наклонной плоскости.
 
         Raises:
             PoseNotCapturedError: если поза ещё не считана.
@@ -121,14 +130,16 @@ class MappingSession:
             raise PoseNotCapturedError(
                 "Сначала нажмите «Считать»: оверлей не знает текущих координат"
             )
-        target = shifted(self._pose, direction, validate_step(step))
+        target = shifted(self._pose, direction, validate_step(step), tilt=tilt)
         written = self._writer.write_changes(self._pose, target)
-        result = StepResult(previous=self._pose, pose=target, written=written)
+        result = StepResult(previous=self._pose, pose=target, written=written, tilted=tilt)
         self._pose = target
+        suffix = f" по наклону RX {self._pose.rx:.3f}°" if tilt else ""
         logger.info(
-            "Шаг %s на %.3f м: записаны %s",
+            "Шаг %s на %.3f м%s: записаны %s",
             direction.label,
             step,
+            suffix,
             ", ".join(field.label for field in written) or "ничего",
         )
         return result

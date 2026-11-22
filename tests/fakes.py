@@ -192,14 +192,22 @@ FULL_CALIBRATION: Mapping[Field, Point] = {
 class FakeHotkeySource:
     """Горячие клавиши в памяти: тест сам «нажимает» клавиши."""
 
-    def __init__(self, *, available: bool = True, num_lock: bool | None = True) -> None:
+    def __init__(
+        self,
+        *,
+        available: bool = True,
+        num_lock: bool | None = True,
+        alt: bool = False,
+    ) -> None:
         self._callback: Callable[[int, bool], None] | None = None
         self.bound_keys: Collection[int] = ()
         self.learning = False
         self.enabled = True
         self.started = False
+        self.alt = alt
         self._available = available
         self._num_lock = num_lock
+        self._down: set[int] = set()
 
     def start_listening(self, on_key: Callable[[int, bool], None]) -> None:
         self._callback = on_key
@@ -222,13 +230,27 @@ class FakeHotkeySource:
     def is_available(self) -> bool:
         return self._available
 
+    def alt_down(self) -> bool:
+        return self.alt
+
+    def key_down(self, vk: int) -> bool:
+        return vk in self._down
+
     def press(self, vk: int, *, is_down: bool = True) -> None:
         """Имитировать нажатие клавиши."""
+        if is_down:
+            self._down.add(vk)
+        else:
+            self._down.discard(vk)
         if self._callback is not None:
             self._callback(vk, is_down)
 
     def release(self, vk: int) -> None:
         self.press(vk, is_down=False)
+
+    def forget(self, vk: int) -> None:
+        """«Потерять» клавишу: система не прислала ``keyup``, но клавиша уже отжата."""
+        self._down.discard(vk)
 
 
 def bindings_of(settings: Settings) -> dict[Action, int | None]:

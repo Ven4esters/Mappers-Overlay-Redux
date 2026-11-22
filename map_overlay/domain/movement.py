@@ -35,7 +35,7 @@ def validate_step(step: float) -> float:
     return rounded(step, COORD_DECIMALS)
 
 
-def shifted(pose: Pose, direction: Direction, step: float) -> Pose:
+def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False) -> Pose:
     """Сдвинуть позу в направлении на шаг.
 
     Направление поворачивается на ``RZ``: ``+RZ`` — против часовой стрелки,
@@ -46,16 +46,33 @@ def shifted(pose: Pose, direction: Direction, step: float) -> Pose:
     Диагональ — это шаг по прямой: вектор ``(±1, ±1)`` нормализуется, поэтому
     предмет проходит ровно ``step`` метров, а не ``step · √2``.
 
-    Меняются только ``X`` и ``Y``; ``Z`` и углы остаются как были.
+    С ``tilt=True`` (в интерфейсе — Alt) учитывается наклон ``RX``: шаг идёт
+    по наклонной плоскости предмета, поэтому «вперёд» поднимает при ``RX > 0``
+    и опускает при ``RX < 0``:
+
+    * вдоль «вперёд/назад» — ``X`` на ``step · cos(RX)``, ``Z`` на ``step · sin(RX)``;
+    * влево/вправо наклон не влияет: ``Y`` меняется полностью, ``Z`` — нет;
+    * диагональ остаётся шагом: ``√((dx·cos)² + dy² + (dx·sin)²) = step``.
+
+    Без ``tilt`` меняются только ``X`` и ``Y``, ``Z`` и углы остаются как были.
     """
     validate_step(step)
     dx, dy = _normalize(direction)
-    world_dx, world_dy = _rotate(dx, dy, pose.rz)
-    return replace(
+    if tilt:
+        angle = math.radians(pose.rx)
+        local_x = dx * math.cos(angle)
+        local_z = dx * math.sin(angle)
+    else:
+        local_x, local_z = dx, 0.0
+    world_dx, world_dy = _rotate(local_x * step, dy * step, pose.rz)
+    moved = replace(
         pose,
-        x=rounded(pose.x + world_dx * step, COORD_DECIMALS),
-        y=rounded(pose.y + world_dy * step, COORD_DECIMALS),
+        x=rounded(pose.x + world_dx, COORD_DECIMALS),
+        y=rounded(pose.y + world_dy, COORD_DECIMALS),
     )
+    if local_z:
+        moved = replace(moved, z=rounded(pose.z + local_z * step, COORD_DECIMALS))
+    return moved
 
 
 def _normalize(direction: Direction) -> tuple[float, float]:

@@ -20,7 +20,7 @@ from typing import ClassVar, Final
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from map_overlay.domain.keynames import VK_NUMLOCK
+from map_overlay.domain.keynames import VK_MENU, VK_NUMLOCK
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +156,25 @@ class WindowsHotkeySource(QThread):
         if sys.platform != "win32":
             return None
         return bool(ctypes.windll.user32.GetKeyState(VK_NUMLOCK) & 1)
+
+    def alt_down(self) -> bool:
+        """Зажат ли Alt.
+
+        Состояние спрашивается у системы, а не берётся из события: Alt могут
+        нажать или отпустить уже во время удержания стрелки, и следующий шаг
+        должен пойти по новому режиму.
+        """
+        return self.key_down(VK_MENU)
+
+    def key_down(self, vk: int) -> bool:
+        """Зажата ли клавиша прямо сейчас.
+
+        Нужно как страховка: если ``keyup`` потерялся (хук переставили, перехват
+        выключили), удержание не должно продолжать двигать предмет бесконечно.
+        """
+        if sys.platform != "win32":
+            return False
+        return bool(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8000)
 
     def is_available(self) -> bool:
         """Установлен ли хук."""

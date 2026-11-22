@@ -53,7 +53,7 @@ class MovementTab(QWidget):
         pose_card.add_layout(row)
         layout.addWidget(pose_card)
 
-        move_card = Card("Сдвиг в плоскости")
+        move_card = Card("Сдвиг предмета")
         self._pad = DirectionPad(self)
         self._pad.direction_clicked.connect(self._request_move)
         move_card.add(self._pad)
@@ -76,7 +76,15 @@ class MovementTab(QWidget):
 
         move_card.add(
             label(
-                "Одна стрелка — один шаг; те же действия есть на Numpad. В панель пишутся "
+                "Одна стрелка — один шаг; те же действия есть на Numpad. Зажмите клавишу — "
+                "шаг повторяется каждые 0,15 с, отпустите — движение останавливается.",
+                widget_role="muted",
+            )
+        )
+        move_card.add(
+            label(
+                "Alt + направление ведёт по наклону RX: при RX > 0 «вперёд» поднимает, "
+                "«назад» опускает; влево и вправо остаются в плоскости. В панель пишутся "
                 "только изменившиеся поля, после вставки значение проверяется.",
                 widget_role="muted",
             )

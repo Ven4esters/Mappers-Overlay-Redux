@@ -8,6 +8,8 @@ VK_TAB: Final = 0x09
 VK_ENTER: Final = 0x0D
 VK_ESCAPE: Final = 0x1B
 VK_SPACE: Final = 0x20
+#: Alt — модификатор движения по наклону; сам по себе не перехватывается.
+VK_MENU: Final = 0x12
 VK_LEFT: Final = 0x25
 VK_UP: Final = 0x26
 VK_RIGHT: Final = 0x27
