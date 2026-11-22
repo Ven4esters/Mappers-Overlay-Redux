@@ -73,7 +73,7 @@ def test_forward_step_moves_x_plus_and_writes_x_only() -> None:
 
 
 def test_diagonal_step_rotates_with_the_object() -> None:
-    """``Num 3`` при наклоне 37°: шаг повёрнут на ``RX`` в осях предмета."""
+    """``Num 3`` при наклоне 37°: ``P + Rx(RX)·Δ_local``, меняются ``X``, ``Y`` и ``Z``."""
     tilted = Pose(x=10.0, y=20.0, z=30.0, rx=37.0)
     panel = FakePanel(tilted)
     session = make_session(panel)
@@ -81,12 +81,10 @@ def test_diagonal_step_rotates_with_the_object() -> None:
     result = session.step(Direction.BACK_RIGHT, 1.0)
     angle = math.radians(37.0)
     local = 1.0 / math.sqrt(2.0)
-    expected_dy = -local * math.cos(angle) + local * math.sin(angle)
-    expected_dz = -local * math.sin(angle) - local * math.cos(angle)
-    assert result.written == (Field.Y, Field.Z)
-    assert result.pose.x == tilted.x
-    assert result.pose.y == pytest.approx(20.0 + expected_dy, abs=0.001)
-    assert result.pose.z == pytest.approx(30.0 + expected_dz, abs=0.001)
+    assert result.written == (Field.X, Field.Y, Field.Z)
+    assert result.pose.x == pytest.approx(10.0 + local, abs=0.001)
+    assert result.pose.y == pytest.approx(20.0 + local * math.sin(angle), abs=0.001)
+    assert result.pose.z == pytest.approx(30.0 - local * math.cos(angle), abs=0.001)
 
 
 def test_step_keeps_height_and_angles() -> None:
@@ -149,14 +147,15 @@ def test_tilted_step_writes_height_and_marks_result() -> None:
 
 
 def test_alt_mode_keeps_the_diagonal_step() -> None:
-    """Диагональ в режиме высоты идёт как обычно — по экрану, мимо ``X``."""
+    """Диагональ в режиме высоты идёт как обычно: по плоскости, без подмены на ``Z``."""
     tilted = Pose(x=10.0, y=20.0, z=30.0, rx=30.0)
     panel = FakePanel(tilted)
     session = make_session(panel)
     session.capture()
     result = session.step(Direction.FORWARD_LEFT, 1.0, tilt=True)
-    assert result.written == (Field.Y, Field.Z)
-    assert panel.pose().x == pytest.approx(10.0, abs=0.001)
+    local = 1.0 / math.sqrt(2.0)
+    assert result.written == (Field.X, Field.Y, Field.Z)
+    assert panel.pose().x == pytest.approx(10.0 - local, abs=0.001)
 
 
 def test_plain_step_keeps_height() -> None:

@@ -76,18 +76,16 @@ def test_forward_arrow_moves_x_plus(qt_app: QApplication) -> None:
 
 
 def test_diagonal_arrow_rotates_with_the_object(qt_app: QApplication) -> None:
-    """Кнопка «назад-вправо» при наклоне 37° идёт по осям предмета (``P + Rx·Δ_local``)."""
+    """Кнопка «назад-вправо» при наклоне 37° идёт по локальной плоскости ``X/Z``."""
     window, panel, _store, _cursor = make_window(qt_app, pose=replace(START, rx=37.0))
     window.movement.press_capture()
     window.movement.arrow(Direction.BACK_RIGHT).click()
     angle = math.radians(37.0)
-    local = 0.5 / math.sqrt(2.0)  # диагональ в осях предмета
-    expected_dy = -local * math.cos(angle) + local * math.sin(angle)
-    expected_dz = -local * math.sin(angle) - local * math.cos(angle)
-    assert panel.written_fields == [Field.Y, Field.Z]
-    assert panel.pose().x == pytest.approx(START.x, abs=0.001)
-    assert panel.pose().y == pytest.approx(START.y + expected_dy, abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z + expected_dz, abs=0.001)
+    local = 0.5 / math.sqrt(2.0)
+    assert panel.written_fields == [Field.X, Field.Y, Field.Z]
+    assert panel.pose().x == pytest.approx(START.x + local, abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y + local * math.sin(angle), abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z - local * math.cos(angle), abs=0.001)
 
 
 def test_tilt_warning_is_visible(qt_app: QApplication) -> None:
@@ -413,29 +411,29 @@ def test_numpad_directions_match_the_game(
     assert panel.pose().y == pytest.approx(START.y + expected_dy)
 
 
-HALF_STEP = 0.5 / 2**0.5  # локальная диагональ шага 0.5 м
+HALF_STEP = 0.5 / 2**0.5  # плечо локальной диагонали при шаге 0.5 м
 
 
 @pytest.mark.parametrize(
-    ("vk", "expected_dy", "expected_dz"),
+    ("vk", "expected_dx", "expected_dz"),
     [
-        (0x67, HALF_STEP, HALF_STEP),  # Num 7 — вверх-влево
-        (0x69, -HALF_STEP, HALF_STEP),  # Num 9 — вверх-вправо
-        (0x61, HALF_STEP, -HALF_STEP),  # Num 1 — вниз-влево
-        (0x63, -HALF_STEP, -HALF_STEP),  # Num 3 — вниз-вправо
+        (0x67, -HALF_STEP, HALF_STEP),  # Num 7 — вверх-влево
+        (0x69, HALF_STEP, HALF_STEP),  # Num 9 — вверх-вправо
+        (0x61, -HALF_STEP, -HALF_STEP),  # Num 1 — вниз-влево
+        (0x63, HALF_STEP, -HALF_STEP),  # Num 3 — вниз-вправо
     ],
 )
 def test_numpad_diagonals_on_a_level_object(
-    qt_app: QApplication, vk: int, expected_dy: float, expected_dz: float
+    qt_app: QApplication, vk: int, expected_dx: float, expected_dz: float
 ) -> None:
-    """При ``RX = 0`` диагонали дают привычные равные компоненты."""
+    """При ``RX = 0`` диагонали идут по ``X`` и ``Z``: ``Y`` не меняется."""
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
     window.movement.press_capture()
     hotkeys.press(vk)
     hotkeys.release(vk)
-    assert panel.pose().x == pytest.approx(START.x, abs=0.001)
-    assert panel.pose().y == pytest.approx(START.y + expected_dy, abs=0.001)
+    assert panel.pose().x == pytest.approx(START.x + expected_dx, abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y, abs=0.001)
     assert panel.pose().z == pytest.approx(START.z + expected_dz, abs=0.001)
 
 
@@ -448,8 +446,9 @@ def test_numpad_diagonal_at_37_rotates_the_step(qt_app: QApplication) -> None:
     window.movement.press_capture()
     hotkeys.press(0x69)  # Num 9 — вверх-вправо
     hotkeys.release(0x69)
-    assert panel.pose().y == pytest.approx(START.y - 0.495, abs=0.002)
-    assert panel.pose().z == pytest.approx(START.z + 0.070, abs=0.002)
+    assert panel.pose().x == pytest.approx(START.x + 0.354, abs=0.002)
+    assert panel.pose().y == pytest.approx(START.y - 0.213, abs=0.002)
+    assert panel.pose().z == pytest.approx(START.z + 0.283, abs=0.002)
 
 
 # --- режим по экрану (Alt) ------------------------------------------------
@@ -511,7 +510,8 @@ def test_alt_keeps_diagonals_working(qt_app: QApplication) -> None:
     toggle_tilt(hotkeys)
     hotkeys.press(NUMPAD9)
     hotkeys.release(NUMPAD9)
-    assert panel.pose().y == pytest.approx(START.y - HALF_STEP, abs=0.001)
+    assert panel.pose().x == pytest.approx(START.x + HALF_STEP, abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y, abs=0.001)
     assert panel.pose().z == pytest.approx(START.z + HALF_STEP, abs=0.001)
 
 
