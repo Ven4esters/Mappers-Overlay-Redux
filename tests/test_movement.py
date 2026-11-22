@@ -48,9 +48,9 @@ def test_diagonal_same_step_mode_moves_step_on_each_axis() -> None:
     assert result.position == pytest.approx((2.0, 2.0, 0.0))
 
 
-def test_diagonal_does_not_touch_z_even_for_tilted_prop() -> None:
-    """По умолчанию, как в первой версии, наклоны RX/RY не участвуют: шаг остаётся на полу."""
-    result = move(Pose(rx=30.0, ry=20.0, rz=45.0), Direction.NORTH_EAST, 1.0)
+def test_diagonal_does_not_touch_z_for_flat_prop() -> None:
+    """Плоский проп: диагональ в плане, высота на месте даже при наклонах."""
+    result = move(Pose(rx=30.0, ry=20.0, rz=45.0), Direction.NORTH_EAST, 1.0, use_tilt=False)
     assert result.z == pytest.approx(0.0)
     tilted = move(Pose(rx=30.0, ry=20.0, rz=45.0), Direction.NORTH_EAST, 1.0, use_tilt=True)
     assert tilted.z != 0.0  # по плоскости наклонённой детали высота уже меняется

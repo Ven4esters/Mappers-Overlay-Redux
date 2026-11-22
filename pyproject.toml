@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lsp-mapper-overlay"
-version = "2.12.0"
+version = "2.13.0"
 description = "Внутриигровой оверлей для мапперов Los Santos Project: расчёт координат и углов пропов"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -55,8 +55,9 @@ def test_old_schema_world_value_is_migrated() -> None:
     assert Settings.from_dict(old).move_frame is MoveSpace.OBJECT
 
 
-def test_tilt_is_off_by_default_like_the_first_version() -> None:
-    assert Settings().use_tilt is False
+def test_tilt_is_on_by_default_like_the_first_release() -> None:
+    """В первой версии 2.0 (коммит d2db3d0) наклоны RX/RY учитывались."""
+    assert Settings().use_tilt is True
 
 
 def test_anchor_and_inverts_round_trip() -> None:

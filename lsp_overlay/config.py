@@ -115,7 +115,7 @@ class Settings:
     step: float = DEFAULT_STEP
     step_presets: tuple[float, ...] = DEFAULT_STEP_PRESETS
     diagonal_mode: DiagonalMode = DiagonalMode.SAME_DISTANCE
-    use_tilt: bool = False
+    use_tilt: bool = True
     move_frame: MoveSpace = DEFAULT_MOVE_SPACE
     move_rotation: float = 0.0
     anchor_rz: float = 0.0

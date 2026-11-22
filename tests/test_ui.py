@@ -279,7 +279,7 @@ def test_frame_hint_shows_the_numbers_for_a_sideways_step(tmp_path: Path, qt_app
     """Подсказка показывает, что шаг вбок задевает обе оси."""
     window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
     text = window.movement_tab.frame_text()
-    assert "Оси: предмет (угол 70.0°)" in text
+    assert "Оси: предмет (угол 70.0° · с наклонами RX/RY)" in text
     assert "← ΔX -0.34 · ΔY -0.94" in text
     assert "по X и Y сразу" in text
 
@@ -319,9 +319,9 @@ def test_direction_fix_checkboxes_mirror_the_step(tmp_path: Path, qt_app: object
     assert panel.pose.y == pytest.approx(-1.0)
 
 
-def test_tilt_checkbox_is_off_like_the_first_version(tmp_path: Path, qt_app: object) -> None:
+def test_tilt_checkbox_is_on_like_the_first_release(tmp_path: Path, qt_app: object) -> None:
     window, _panel = make_window(tmp_path, qt_app)
-    assert window.settings_tab.chk_tilt.isChecked() is False
+    assert window.settings_tab.chk_tilt.isChecked() is True
 
 
 def test_camera_buttons_work_only_in_world_frame(tmp_path: Path, qt_app: object) -> None:
