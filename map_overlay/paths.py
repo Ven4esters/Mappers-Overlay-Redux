@@ -14,6 +14,7 @@ from typing import Final
 HOME_ENV: Final = "MAP_OVERLAY_HOME"
 CONFIG_FILE: Final = "settings.json"
 LOG_FILE: Final = "overlay.log"
+CRASH_FILE: Final = "crash.log"
 
 
 def application_dir() -> Path:
@@ -34,3 +35,8 @@ def settings_path() -> Path:
 def log_path() -> Path:
     """Файл журнала работы."""
     return application_dir() / "logs" / LOG_FILE
+
+
+def crash_path() -> Path:
+    """Файл аварий: падения процесса и стеки потоков при зависании."""
+    return application_dir() / "logs" / CRASH_FILE

@@ -20,3 +20,16 @@ def test_setup_logging_writes_json(tmp_path: Path) -> None:
     assert payload["level"] == "WARNING"
     assert payload["message"] == "проверка журнала"
     assert payload["logger"] == "test"
+
+
+def test_setup_keeps_foreign_handlers(tmp_path) -> None:
+    from map_overlay.logging_setup import setup_logging
+
+    root = logging.getLogger()
+    foreign = logging.NullHandler()
+    root.addHandler(foreign)
+    try:
+        setup_logging(tmp_path / "overlay.log")
+        assert foreign in root.handlers
+    finally:
+        root.removeHandler(foreign)

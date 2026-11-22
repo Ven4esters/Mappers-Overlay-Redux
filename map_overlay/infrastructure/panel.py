@@ -65,6 +65,7 @@ class CalibratedPanel:
 
     def read_field(self, field: Field) -> str:
         """Прочитать поле: клик → ``Ctrl+A`` → ``Ctrl+C`` → буфер."""
+        logger.debug("Читаю поле %s", field.label)
         self._click(field)
         self._clock.sleep(self._delays.click)
         self._input.select_all()
@@ -75,6 +76,7 @@ class CalibratedPanel:
 
     def write_field(self, field: Field, text: str) -> None:
         """Записать поле: буфер → клик → ``Ctrl+A`` → ``Ctrl+V``."""
+        logger.debug("Пишу поле %s = %s", field.label, text)
         self._clipboard.set(text)
         self._click(field)
         self._clock.sleep(self._delays.click)

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from map_overlay import __version__
+from map_overlay import __version__, diagnostics
 from map_overlay.application.hotkeys import HotkeyRouter
 from map_overlay.application.session import MappingSession, StepResult
 from map_overlay.config import Settings
@@ -37,7 +37,7 @@ from map_overlay.ui.tabs.calibration_tab import CalibrationTab
 from map_overlay.ui.tabs.movement_tab import MovementTab, pose_text
 from map_overlay.ui.tabs.settings_tab import SettingsTab
 from map_overlay.ui.tasks import TaskRunner
-from map_overlay.ui.widgets import label
+from map_overlay.ui.widgets import button, label
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,9 @@ STATUS_ROLES: dict[str, str] = {
     STATUS_ERROR: "error",
 }
 HOOK_CHECK_MS = 800
+HEARTBEAT_MS = 250
+BUSY_TICK_MS = 500
+STUCK_HINT_S = 5.0
 LEARN_TIMEOUT_MS = 10_000
 
 
@@ -68,6 +71,7 @@ class MainWindow(QMainWindow):
         self._learning: Action | None = None
         self._runner = TaskRunner(synchronous=synchronous_tasks, parent=self)
         self._router = HotkeyRouter(context.settings.hotkeys)
+        self._busy_text = ""
         self._learn_timer = QTimer(self)
         self._learn_timer.setSingleShot(True)
         self._learn_timer.timeout.connect(self._learning_expired)
@@ -116,6 +120,22 @@ class MainWindow(QMainWindow):
         self._status.setObjectName("status")
         self._status.setWordWrap(True)
         self.statusBar().addWidget(self._status, 1)
+        self._abort_button = button(
+            "Прервать",
+            widget_role="small",
+            tooltip="Бросить текущее действие, если панель не отвечает",
+        )
+        self._abort_button.setEnabled(False)
+        self._abort_button.clicked.connect(self._abort_action)
+        self.statusBar().addPermanentWidget(self._abort_button)
+
+        self._busy_timer = QTimer(self)
+        self._busy_timer.setInterval(BUSY_TICK_MS)
+        self._busy_timer.timeout.connect(self._busy_tick)
+        self._heartbeat = QTimer(self)
+        self._heartbeat.setInterval(HEARTBEAT_MS)
+        self._heartbeat.timeout.connect(diagnostics.beat)
+        self._heartbeat.start()
 
         self.movement.capture_requested.connect(self._capture)
         self.movement.confirm_requested.connect(self._confirm)
@@ -180,6 +200,41 @@ class MainWindow(QMainWindow):
 
     def _set_busy(self, busy: bool) -> None:
         self.movement.set_busy(busy)
+        self._abort_button.setEnabled(busy)
+        if busy:
+            self._busy_timer.start(BUSY_TICK_MS)
+        else:
+            self._busy_timer.stop()
+
+    def _begin_busy(self, text: str) -> None:
+        """Показать, что идёт обмен с панелью, и засечь время."""
+        self._busy_text = text
+        self._set_busy(True)
+        self._set_status(text)
+
+    def _busy_tick(self) -> None:
+        """Обновлять счётчик времени, чтобы «занято» не выглядело как «зависло»."""
+        if not self._runner.is_busy():
+            self._busy_timer.stop()
+            return
+        seconds = self._runner.busy_seconds()
+        if seconds >= STUCK_HINT_S:
+            self._set_status(
+                f"{self._busy_text} ({seconds:.0f} с) — панель не отвечает? Нажмите «Прервать».",
+                STATUS_WARN,
+            )
+            return
+        self._set_status(f"{self._busy_text} ({seconds:.0f} с)")
+
+    def _abort_action(self) -> None:
+        """Бросить зависшее действие, не закрывая окно."""
+        if not self._runner.abandon():
+            return
+        self._set_busy(False)
+        self._set_status(
+            "Действие прервано вручную. Если панель не отвечает, перезапустите оверлей.",
+            STATUS_WARN,
+        )
 
     def _ensure_session(self) -> MappingSession:
         if self._session is None:
@@ -192,17 +247,25 @@ class MainWindow(QMainWindow):
         if self._runner.is_busy():
             return
         session = self._ensure_session()
-        self._set_busy(True)
-        self._set_status("Читаю поля панели…")
-        self._runner.submit(session.capture, on_success=self._captured, on_error=self._failed)
+        self._begin_busy("Читаю поля панели…")
+        self._runner.submit(
+            session.capture,
+            on_success=self._captured,
+            on_error=self._failed,
+            label="считать координаты",
+        )
 
     def _confirm(self) -> None:
         if self._runner.is_busy():
             return
         session = self._ensure_session()
-        self._set_busy(True)
-        self._set_status("Подтверждаю положение: клик в пустое место и F…")
-        self._runner.submit(session.confirm, on_success=self._confirmed, on_error=self._failed)
+        self._begin_busy("Подтверждаю положение: клик в пустое место и F…")
+        self._runner.submit(
+            session.confirm,
+            on_success=self._confirmed,
+            on_error=self._failed,
+            label="сохранить F",
+        )
 
     def _move(self, direction: object, step: float) -> None:
         if self._runner.is_busy():
@@ -214,29 +277,29 @@ class MainWindow(QMainWindow):
             )
             return
         selected = cast(Direction, direction)
-        self._set_busy(True)
-        self._set_status(f"Шаг {selected.label} на {step:g} м…")
+        self._begin_busy(f"Шаг {selected.label} на {step:g} м…")
         self._runner.submit(
             lambda: session.step(selected, step),
             on_success=self._moved,
             on_error=self._failed,
+            label=f"шаг {selected.label.lower()} на {step:g} м",
         )
 
     def _captured(self, result: object) -> None:
+        self._set_busy(False)
         pose = cast(Pose, result)
         self._pose = pose
         self.movement.set_pose(pose)
         self.movement.set_warning(self._tilt_warning(pose))
-        self._set_busy(False)
         self._set_status(f"Считано: {pose_text(pose)}", STATUS_OK)
 
     def _moved(self, result: object) -> None:
+        self._set_busy(False)
         step_result = cast(StepResult, result)
         self._pose = step_result.pose
         self.movement.set_pose(step_result.pose)
         self.movement.set_warning(self._tilt_warning(step_result.pose))
         written = ", ".join(field.label for field in step_result.written) or "ничего"
-        self._set_busy(False)
         self._set_status(
             f"Шаг: ΔX {format_delta(step_result.delta_x)} · "
             f"ΔY {format_delta(step_result.delta_y)} → {pose_text(step_result.pose)} · "
@@ -455,6 +518,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - имя из Qt
         """Снять хук и дождаться фоновой задачи, чтобы не оставить поток висеть."""
+        self._heartbeat.stop()
         self._hotkeys.stop_listening()
         self._runner.shutdown()
         super().closeEvent(event)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import time
 from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -34,44 +35,88 @@ def execute(work: Work) -> object:
 
 
 class _Task(QObject):
-    """Работа, которую можно положить в ``QThread``."""
+    """Работа, которую можно положить в ``QThread``.
 
-    succeeded = Signal(object)
-    failed = Signal(str)
+    Номер задачи едет вместе с сигналом: слот-получатель живёт в потоке интерфейса,
+    поэтому результат приходит в него очередью (а не из рабочего потока).
+    """
 
-    def __init__(self, work: Work) -> None:
+    succeeded = Signal(int, object)
+    failed = Signal(int, str)
+
+    def __init__(self, work: Work, generation: int) -> None:
         super().__init__()
         self._work = work
+        self._generation = generation
 
     def run(self) -> None:
         """Выполнить работу и сообщить результат сигналом."""
         try:
             result = execute(self._work)
         except AppError as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(self._generation, str(exc))
         else:
-            self.succeeded.emit(result)
+            self.succeeded.emit(self._generation, result)
         finally:
+            self._stop_own_thread()
             self.deleteLater()
+
+    def _stop_own_thread(self) -> None:
+        """Остановить цикл событий своего потока, не дожидаясь интерфейса."""
+        try:
+            thread = self.thread()
+        except RuntimeError:  # поток уже удалён
+            return
+        if thread is not None:
+            thread.quit()
 
 
 class TaskRunner(QObject):
-    """Запускает задачи по одной: либо в потоке, либо синхронно (для тестов)."""
+    """Запускает задачи по одной: либо в потоке, либо синхронно (для тестов).
+
+    Задача нумеруется: если её бросили (:meth:`abandon`), поздний результат уже не
+    попадёт в интерфейс. Ошибка внутри обработчика результата логируется и не мешает
+    работе: иначе одно исключение оставило бы окно «занятым» навсегда.
+    """
 
     def __init__(self, *, synchronous: bool = False, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._synchronous = synchronous
+        self._generation = 0
         self._thread: QThread | None = None
-        self._task: _Task | None = None
+        self._tasks: dict[int, _Task] = {}
+        self._active: QThread | None = None
+        self._active_generation: int | None = None
+        self._label = ""
+        self._started_at = 0.0
         self._on_success: SuccessHandler | None = None
         self._on_error: ErrorHandler | None = None
 
     def is_busy(self) -> bool:
         """Идёт ли сейчас задача."""
-        return self._thread is not None
+        return self._active is not None
 
-    def submit(self, work: Work, *, on_success: SuccessHandler, on_error: ErrorHandler) -> bool:
+    def busy_seconds(self) -> float:
+        """Сколько секунд выполняется текущая задача."""
+        if self._active is None:
+            return 0.0
+        return time.monotonic() - self._started_at
+
+    def submit(
+        self,
+        work: Work,
+        *,
+        on_success: SuccessHandler,
+        on_error: ErrorHandler,
+        label: str = "задача",
+    ) -> bool:
         """Запустить работу.
+
+        Args:
+            work: что выполнить в фоне.
+            on_success: обработчик результата.
+            on_error: обработчик текста ошибки.
+            label: название для журнала и строки состояния.
 
         Returns:
             ``True``, если задача запущена (или уже выполнена синхронно).
@@ -79,28 +124,44 @@ class TaskRunner(QObject):
         if self.is_busy():
             on_error("Дождитесь окончания предыдущего действия")
             return False
-        if self._synchronous:
-            try:
-                result = execute(work)
-            except AppError as exc:
-                on_error(str(exc))
-                return False
-            on_success(result)
-            return True
         self._on_success = on_success
         self._on_error = on_error
-        task = _Task(work)
+        self._label = label
+        self._started_at = time.monotonic()
+        if self._synchronous:
+            return self._run_inline(work)
+        self._generation += 1
+        generation = self._generation
+        task = _Task(work, generation)
         thread = QThread(self)
+        self._tasks[generation] = task
         task.moveToThread(thread)
         thread.started.connect(task.run)
         task.succeeded.connect(self._handle_success)
         task.failed.connect(self._handle_failure)
         task.succeeded.connect(thread.quit)
         task.failed.connect(thread.quit)
-        thread.finished.connect(self._release)
-        self._task = task
+        thread.finished.connect(thread.deleteLater)
         self._thread = thread
+        self._active = thread
+        self._active_generation = generation
         thread.start()
+        logger.info("Задача «%s» начата", label)
+        return True
+
+    def abandon(self) -> bool:
+        """Бросить текущую задачу: её результат больше не нужен.
+
+        Поток доработает сам (Python-поток нельзя убить безопасно), но всё, что он
+        вернёт, будет проигнорировано, а окно снова станет доступным.
+        """
+        if self._synchronous or self._active is None:
+            return False
+        logger.warning("Задача «%s» брошена вручную после %.1f с", self._label, self.busy_seconds())
+        self._generation += 1
+        self._active = None
+        self._thread = None
+        self._active_generation = None
         return True
 
     def __del__(self) -> None:
@@ -113,21 +174,67 @@ class TaskRunner(QObject):
         thread = self._thread
         if thread is None:
             return
-        thread.quit()
-        if not thread.wait(timeout_ms):
-            logger.warning("Поток задачи не завершился за %d мс", timeout_ms)
+        try:
+            thread.quit()
+            if not thread.wait(timeout_ms):
+                logger.warning("Поток задачи не завершился за %d мс", timeout_ms)
+        except RuntimeError:  # Qt уже удалил поток после завершения задачи
+            self._thread = None
 
-    def _handle_success(self, result: object) -> None:
-        if self._on_success is not None:
+    def _run_inline(self, work: Work) -> bool:
+        start = time.monotonic()
+        try:
+            result = execute(work)
+        except AppError as exc:
+            logger.warning(
+                "Задача «%s» не выполнена за %.2f с: %s", self._label, time.monotonic() - start, exc
+            )
+            self._call_error(str(exc))
+            return False
+        logger.info("Задача «%s» выполнена за %.2f с", self._label, time.monotonic() - start)
+        self._call_success(result)
+        return True
+
+    def _handle_success(self, generation: int, result: object) -> None:
+        self._tasks.pop(generation, None)
+        self._forget(generation)
+        if generation != self._generation:
+            logger.info("Результат брошенной задачи проигнорирован")
+            return
+        logger.info("Задача «%s» выполнена за %.2f с", self._label, self.busy_seconds())
+        self._call_success(result)
+
+    def _handle_failure(self, generation: int, message: str) -> None:
+        self._tasks.pop(generation, None)
+        self._forget(generation)
+        if generation != self._generation:
+            logger.info("Ошибка брошенной задачи проигнорирована: %s", message)
+            return
+        logger.warning(
+            "Задача «%s» не выполнена за %.2f с: %s", self._label, self.busy_seconds(), message
+        )
+        self._call_error(message)
+
+    def _call_success(self, result: object) -> None:
+        if self._on_success is None:
+            return
+        try:
             self._on_success(result)
+        except Exception:
+            logger.exception("Ошибка в обработчике результата задачи «%s»", self._label)
 
-    def _handle_failure(self, message: str) -> None:
-        if self._on_error is not None:
+    def _call_error(self, message: str) -> None:
+        if self._on_error is None:
+            return
+        try:
             self._on_error(message)
+        except Exception:
+            logger.exception("Ошибка в обработчике ошибки задачи «%s»", self._label)
 
-    def _release(self) -> None:
-        thread = self._thread
+    def _forget(self, generation: int) -> None:
+        """Снять признак занятости, если завершилась именно показанная задача."""
+        if generation != self._active_generation:
+            return
+        self._active = None
         self._thread = None
-        self._task = None
-        if thread is not None:
-            thread.deleteLater()
+        self._active_generation = None

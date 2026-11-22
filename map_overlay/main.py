@@ -10,7 +10,7 @@ from collections.abc import Sequence
 
 from PySide6.QtWidgets import QApplication
 
-from map_overlay import __version__
+from map_overlay import __version__, diagnostics
 from map_overlay.application.ports import HotkeySource, PanelAutomation
 from map_overlay.config import Settings
 from map_overlay.context import AppContext
@@ -23,7 +23,7 @@ from map_overlay.infrastructure.panel import CalibratedPanel
 from map_overlay.infrastructure.settings_store import JsonSettingsStore
 from map_overlay.infrastructure.win32_input import WindowsInput, enable_dpi_awareness
 from map_overlay.logging_setup import setup_logging
-from map_overlay.paths import log_path, settings_path
+from map_overlay.paths import crash_path, log_path, settings_path
 from map_overlay.ui.theme import APP_QSS
 from map_overlay.ui.window import MainWindow
 
@@ -41,12 +41,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     logger.info("Старт %s %s на Python %s", APP_NAME, __version__, platform.python_version())
     if args.check_only:
         return _check_only()
+    diagnostics.install_crash_handlers(crash_path())
+    diagnostics.start_watchdog()
     try:
         return _run_window()
     except AppError as exc:
         logger.error("Запуск невозможен: %s", exc)
         print(f"Ошибка: {exc}", file=sys.stderr)
         return 1
+    finally:
+        diagnostics.stop_watchdog()
+        diagnostics.close_crash_handlers()
 
 
 def _run_window() -> int:

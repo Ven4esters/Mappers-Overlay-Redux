@@ -89,3 +89,60 @@ def test_synchronous_runner_reports_errors_immediately() -> None:
 
     assert runner.submit(work, on_success=lambda _result: None, on_error=errors.append) is False
     assert errors == ["нет калибровки"]
+
+
+def test_abandon_ignores_the_late_result(qt_app: QApplication) -> None:
+    runner = TaskRunner()
+    results: list[object] = []
+    errors: list[str] = []
+    runner.submit(
+        lambda: (time.sleep(0.1), "поздний результат")[1],
+        on_success=results.append,
+        on_error=errors.append,
+        label="медленная",
+    )
+    assert runner.is_busy()
+    assert runner.abandon() is True
+    assert not runner.is_busy()
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        qt_app.processEvents()
+        time.sleep(0.01)
+    assert results == []
+    assert errors == []
+    runner.shutdown()
+
+
+def test_abandon_without_task_returns_false() -> None:
+    assert TaskRunner().abandon() is False
+    assert TaskRunner(synchronous=True).abandon() is False
+
+
+def test_busy_seconds_show_the_wait(qt_app: QApplication) -> None:
+    runner = TaskRunner()
+    assert runner.busy_seconds() == 0.0
+    runner.submit(
+        lambda: time.sleep(0.15),
+        on_success=lambda _result: None,
+        on_error=lambda _message: None,
+    )
+    time.sleep(0.05)
+    assert runner.busy_seconds() >= 0.05
+    assert wait_for(qt_app, lambda: not runner.is_busy())
+    assert runner.busy_seconds() == 0.0
+    runner.shutdown()
+
+
+def test_handler_error_is_logged_and_does_not_wedge(qt_app: QApplication, caplog) -> None:
+    runner = TaskRunner()
+
+    def broken(_result: object) -> None:
+        raise RuntimeError("обработчик сломан")
+
+    runner.submit(lambda: 1, on_success=broken, on_error=lambda _m: None)
+    assert wait_for(qt_app, lambda: not runner.is_busy())
+    assert any(
+        record.exc_info is not None and "обработчик сломан" in str(record.exc_info[1])
+        for record in caplog.records
+    )
+    runner.shutdown()

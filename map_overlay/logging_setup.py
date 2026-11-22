@@ -10,6 +10,9 @@ from typing import Any, Final
 
 LOG_FORMAT_VERSION: Final = 1
 
+_OWN_HANDLERS: list[logging.Handler] = []
+"""Обработчики, добавленные этим модулем: чужие (например, в тестах) не трогаем."""
+
 
 class JsonFormatter(logging.Formatter):
     """Форматтер JSON-строк с временем, уровнем, логгером и сообщением."""
@@ -34,13 +37,16 @@ def setup_logging(path: Path, *, debug: bool = False, console: bool = False) -> 
     level = logging.DEBUG if debug else logging.INFO
     root = logging.getLogger()
     root.setLevel(level)
-    for handler in list(root.handlers):
+    for handler in list(_OWN_HANDLERS):
         root.removeHandler(handler)
         handler.close()
+    _OWN_HANDLERS.clear()
     file_handler = logging.FileHandler(path, encoding="utf-8")
     file_handler.setFormatter(JsonFormatter())
     root.addHandler(file_handler)
+    _OWN_HANDLERS.append(file_handler)
     if console:
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(JsonFormatter())
         root.addHandler(console_handler)
+        _OWN_HANDLERS.append(console_handler)

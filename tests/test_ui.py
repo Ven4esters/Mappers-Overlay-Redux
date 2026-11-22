@@ -418,3 +418,44 @@ def test_numpad_diagonals_match_the_game(
     hotkeys.release(vk)
     assert panel.pose().x == pytest.approx(START.x + expected_dx, abs=0.001)
     assert panel.pose().y == pytest.approx(START.y + expected_dy, abs=0.001)
+
+
+def test_abort_button_is_enabled_only_while_busy(qt_app: QApplication) -> None:
+    window, _panel, _store, _cursor = make_window(qt_app)
+    assert not window._abort_button.isEnabled()
+    window._set_busy(True)
+    assert window._abort_button.isEnabled()
+    window._set_busy(False)
+    assert not window._abort_button.isEnabled()
+
+
+def test_heartbeat_timer_runs(qt_app: QApplication) -> None:
+    window, _panel, _store, _cursor = make_window(qt_app)
+    assert window._heartbeat.isActive()
+
+
+class _SlowRunner:
+    """Заглушка занятого раннера для проверки счётчика времени."""
+
+    def is_busy(self) -> bool:
+        return True
+
+    def busy_seconds(self) -> float:
+        return 7.4
+
+
+def test_busy_tick_hints_about_abort(qt_app: QApplication) -> None:
+    window, _panel, _store, _cursor = make_window(qt_app)
+    window._begin_busy("Шаг вперёд…")
+    assert "Шаг вперёд…" in window.status_text()
+    window._runner = _SlowRunner()  # type: ignore[assignment]
+    window._busy_tick()
+    assert "(7 с)" in window.status_text()
+    assert "Прервать" in window.status_text()
+
+
+def test_abort_without_task_is_harmless(qt_app: QApplication) -> None:
+    window, _panel, _store, _cursor = make_window(qt_app)
+    window._set_busy(True)
+    window._abort_action()
+    assert window._abort_button.isEnabled()
