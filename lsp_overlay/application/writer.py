@@ -32,9 +32,10 @@ class FieldWriter:
     :class:`ApplyError`. Это и есть защита от «улёта» пропа.
     """
 
-    def __init__(self, panel: GamePanelPort, *, verify: bool = True) -> None:
+    def __init__(self, panel: GamePanelPort, *, verify: bool = True, retries: int = 1) -> None:
         self._panel = panel
         self._verify = verify
+        self._retries = max(0, retries)
 
     def write(self, previous: Pose, target: Pose, fields: Sequence[FieldKey]) -> ApplyResult:
         """Записывает поля из ``target``, при ошибке откатывает к ``previous``."""
@@ -46,18 +47,12 @@ class FieldWriter:
         if not ordered:
             return ApplyResult(fields=(), verified=False, pose=target)
 
-        self._panel.write_fields({key: get_field(target, key) for key in ordered})
+        values = {key: get_field(target, key) for key in ordered}
+        self._panel.write_fields(values)
         if not self._verify:
             return ApplyResult(fields=ordered, verified=False, pose=target)
 
-        try:
-            mismatched = self._mismatched(target, ordered)
-        except PanelUnavailableError as error:
-            rolled_back = self._rollback(previous, ordered)
-            raise ApplyError(
-                f"Не удалось проверить записанные значения: {error}",
-                rolled_back=rolled_back,
-            ) from error
+        mismatched = self._verify_with_retry(values, previous, target, ordered)
         if mismatched:
             rolled_back = self._rollback(previous, ordered)
             raise ApplyError(
@@ -69,6 +64,35 @@ class FieldWriter:
             )
         LOGGER.debug("Записано и проверено: %s", [key.value for key in ordered])
         return ApplyResult(fields=ordered, verified=True, pose=target)
+
+    def _verify_with_retry(
+        self,
+        values: dict[FieldKey, float],
+        previous: Pose,
+        target: Pose,
+        fields: Sequence[FieldKey],
+    ) -> list[FieldKey]:
+        """Проверяет запись и при расхождении пробует вставить ещё раз."""
+        try:
+            mismatched = self._mismatched(target, fields)
+            attempts = 0
+            while mismatched and attempts < self._retries:
+                attempts += 1
+                LOGGER.warning(
+                    "Поля %s не принялись, повторяю вставку (%s/%s)",
+                    [key.value for key in mismatched],
+                    attempts,
+                    self._retries,
+                )
+                self._panel.write_fields({key: values[key] for key in mismatched})
+                mismatched = self._mismatched(target, fields)
+            return mismatched
+        except PanelUnavailableError as error:
+            rolled_back = self._rollback(previous, fields)
+            raise ApplyError(
+                f"Не удалось проверить записанные значения: {error}",
+                rolled_back=rolled_back,
+            ) from error
 
     def _mismatched(self, target: Pose, fields: Sequence[FieldKey]) -> list[FieldKey]:
         actual = self._panel.read_pose()

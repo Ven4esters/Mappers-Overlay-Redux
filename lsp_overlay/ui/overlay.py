@@ -111,6 +111,7 @@ class OverlayWindow(QWidget):
         self.rotate_tab.angle_set_requested.connect(self.action_set_angle)
         self.calibration_tab.calibration_changed.connect(self.action_calibration_changed)
         self.calibration_tab.status_message.connect(self._set_status)
+        self.calibration_tab.diagnostics_requested.connect(self.action_diagnostics)
         self.settings_tab.settings_saved.connect(self.action_settings_saved)
         self.settings_tab.status_message.connect(self._set_status)
 
@@ -189,6 +190,12 @@ class OverlayWindow(QWidget):
         self._session.update_settings(self._settings)
         self._apply_calibration_to_panel(calibration)
         self._save_settings()
+
+    def action_diagnostics(self) -> None:
+        """Проверяет, доходят ли клики и вставка до панели игры."""
+        report = self._session.diagnose()
+        level = "success" if report.all_ok else "error"
+        self._set_status(report.message, level)
 
     def action_apply(self, *, commit: bool) -> None:
         """Пишет изменения в игру."""

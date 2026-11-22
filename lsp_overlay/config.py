@@ -41,17 +41,18 @@ class Point:
 class PanelTimings:
     """Паузы между действиями макроса, секунды."""
 
-    click: float = 0.05
-    field: float = 0.06
-    paste: float = 0.06
-    commit: float = 0.12
+    click: float = 0.08
+    field: float = 0.10
+    paste: float = 0.10
+    commit: float = 0.18
+    focus: float = 0.20
 
     def validated(self) -> PanelTimings:
         """Проверяет, что паузы в разумных пределах (0…1 с)."""
-        for name in ("click", "field", "paste", "commit"):
+        for name in ("click", "field", "paste", "commit", "focus"):
             value = getattr(self, name)
-            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
-                raise ConfigError(f"пауза {name} должна быть в диапазоне 0…1 с")
+            if not math.isfinite(value) or not 0.0 <= value <= 2.0:
+                raise ConfigError(f"пауза {name} должна быть в диапазоне 0…2 с")
         return self
 
 
@@ -143,6 +144,7 @@ class Settings:
                 "field": self.timings.field,
                 "paste": self.timings.paste,
                 "commit": self.timings.commit,
+                "focus": self.timings.focus,
             },
             "calibration": {
                 "placeholder": list(self.calibration.placeholder.as_tuple())
@@ -205,6 +207,7 @@ def _timings_from(data: Mapping[str, Any]) -> PanelTimings:
         field=float(data.get("field", defaults.field)),
         paste=float(data.get("paste", defaults.paste)),
         commit=float(data.get("commit", defaults.commit)),
+        focus=float(data.get("focus", defaults.focus)),
     )
 
 

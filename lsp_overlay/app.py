@@ -14,7 +14,7 @@ from lsp_overlay.config import Settings
 from lsp_overlay.infrastructure.clipboard import SystemClipboard
 from lsp_overlay.infrastructure.config_store import ConfigStore
 from lsp_overlay.infrastructure.panel import ClipboardPanel
-from lsp_overlay.infrastructure.win32_input import Win32InputBackend
+from lsp_overlay.infrastructure.win32_input import Win32InputBackend, enable_dpi_awareness
 from lsp_overlay.logging_setup import setup_logging
 
 LOGGER = logging.getLogger(__name__)
@@ -62,6 +62,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.check:
         return _check(settings, store)
+
+    if enable_dpi_awareness():
+        LOGGER.info("Включён режим Per-Monitor V2 DPI (координаты кликов — физические пиксели)")
+    else:
+        LOGGER.info("DPI awareness не включён (не Windows или старая версия)")
 
     session = build_session(settings)
     from PySide6.QtWidgets import QApplication  # noqa: PLC0415 - --check работает без Qt

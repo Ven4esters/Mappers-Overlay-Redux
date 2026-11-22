@@ -123,3 +123,20 @@ def test_read_field_reports_garbage_instead_of_silently_zero(
     monkeypatch.setattr(game, "handle_combo", broken)
     with pytest.raises(PanelUnavailableError, match="не число"):
         panel.read_field(FieldKey.X)
+
+
+def test_focus_is_requested_before_typing_when_window_is_not_active() -> None:
+    panel, game, fake_input = make_panel()
+    fake_input.needs_activation = True
+    panel.write_fields({FieldKey.X: 251.0})
+    assert ("focus", "100,200") in fake_input.events
+    assert game.pose.x == pytest.approx(251.0)
+
+
+def test_focus_is_skipped_when_window_is_active() -> None:
+    panel, _game, fake_input = make_panel()
+    fake_input.needs_activation = False
+    panel.write_fields({FieldKey.X: 251.0})
+    assert not any(
+        event[0] == "focus" and event[1].startswith("click") for event in fake_input.events
+    )

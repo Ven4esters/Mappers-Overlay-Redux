@@ -34,6 +34,7 @@ class CalibrationTab(QWidget):
 
     calibration_changed = Signal(object)
     status_message = Signal(str, str)
+    diagnostics_requested = Signal()
 
     def __init__(self, calibration: Calibration, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -57,6 +58,13 @@ class CalibrationTab(QWidget):
         )
         layout.addWidget(self._build_fields_group())
         layout.addWidget(self._build_placeholder_group())
+        self.btn_diagnostics = make_button(
+            "Проверить ввод",
+            "Прочитать поле X и вернуть его обратно: покажет, доходят ли клики и вставка",
+            object_name="primaryButton",
+        )
+        self.btn_diagnostics.clicked.connect(self.diagnostics_requested.emit)
+        layout.addWidget(self.btn_diagnostics)
         layout.addStretch(1)
         self.refresh()
 

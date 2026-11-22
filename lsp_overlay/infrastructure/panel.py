@@ -71,6 +71,7 @@ class ClipboardPanel:
     def read_field(self, key: FieldKey) -> float:
         """Читает одно поле через ``Ctrl+A`` + ``Ctrl+C``."""
         point = self._point(key)
+        self._focus(point)
         self._input.click(*point.as_tuple())
         self._sleep(self._timings.click)
         self._input.press_combination("ctrl", "a")
@@ -91,8 +92,11 @@ class ClipboardPanel:
 
     def write_fields(self, values: Mapping[FieldKey, float]) -> None:
         """Пишет значения только в указанные поля."""
+        points = {key: self._point(key) for key in values}
+        if points:
+            self._focus(next(iter(points.values())))
         for key, value in values.items():
-            point = self._point(key)
+            point = points[key]
             self._input.click(*point.as_tuple())
             self._sleep(self._timings.click)
             self._input.press_combination("ctrl", "a")
@@ -116,6 +120,7 @@ class ClipboardPanel:
         placeholder = self._calibration.placeholder
         if placeholder is None:
             raise PanelUnavailableError("не задано «пустое место» — откройте «Калибровку»")
+        self._focus(placeholder)
         self._input.click(*placeholder.as_tuple())
         self._sleep(self._timings.commit)
         try:
@@ -123,6 +128,16 @@ class ClipboardPanel:
         except InputUnavailableError as error:
             raise PanelUnavailableError(str(error)) from error
         self._sleep(self._timings.commit)
+
+    def _focus(self, point: Point) -> None:
+        """Активирует окно игры, если оно не в фокусе: первый клик иначе съедается."""
+        try:
+            activated = self._input.ensure_foreground(point.x, point.y)
+        except InputUnavailableError as error:
+            raise PanelUnavailableError(str(error)) from error
+        if activated:
+            LOGGER.debug("Окно игры было не в фокусе — активировал кликом")
+            self._sleep(self._timings.focus)
 
     def _point(self, key: FieldKey) -> Point:
         point = self._calibration.fields.get(key)

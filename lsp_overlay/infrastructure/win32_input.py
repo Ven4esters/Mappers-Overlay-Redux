@@ -10,6 +10,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import sys
+from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
 LOGGER = logging.getLogger(__name__)
@@ -23,6 +24,8 @@ MOUSEEVENTF_LEFTDOWN: Final = 0x0002
 MOUSEEVENTF_LEFTUP: Final = 0x0004
 SM_CXSCREEN: Final = 0
 SM_CYSCREEN: Final = 1
+PROCESS_PER_MONITOR_DPI_AWARE: Final = 2
+DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: Final = -4
 
 VK_CODES: Final[dict[str, int]] = {
     "ctrl": 0x11,
@@ -40,11 +43,23 @@ class InputUnavailableError(RuntimeError):
     """Ввод недоступен: не Windows или вызов Win32 не удался."""
 
 
+@dataclass(frozen=True, slots=True)
+class ForegroundState:
+    """Куда придётся клик, если нажать прямо сейчас."""
+
+    target_window: int
+    foreground_window: int
+    needs_activation: bool
+
+
 class InputBackend(Protocol):
     """Контракт устройства ввода."""
 
     def is_ready(self) -> bool:
         """Есть ли возможность отправлять ввод."""
+
+    def ensure_foreground(self, x: int, y: int) -> bool:
+        """Активирует окно под точкой, если оно не в фокусе. True — кликали."""
 
     def press_combination(self, *keys: str) -> None:
         """Нажимает клавиши одновременно (например, ``ctrl`` + ``a``)."""
@@ -85,6 +100,11 @@ if sys.platform == "win32":  # pragma: no cover - выполняется тол�
         _fields_ = [("type", ctypes.c_uint32), ("union", _INPUTUNION)]
 
     _user32 = ctypes.WinDLL("user32", use_last_error=True)
+    _user32.WindowFromPoint.argtypes = (ctypes.c_long, ctypes.c_long)
+    _user32.WindowFromPoint.restype = ctypes.c_void_p
+    _user32.GetForegroundWindow.restype = ctypes.c_void_p
+    _user32.GetAncestor.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+    _user32.GetAncestor.restype = ctypes.c_void_p
     _user32.SendInput.argtypes = (ctypes.c_uint32, ctypes.POINTER(_INPUT), ctypes.c_int)
     _user32.SendInput.restype = ctypes.c_uint32
     _user32.GetSystemMetrics.argtypes = (ctypes.c_int,)
@@ -96,6 +116,67 @@ else:  # pragma: no cover - только для проверки типов и �
     _INPUT: Any = None
     _MOUSEINPUT: Any = None
     _KEYBDINPUT: Any = None
+
+
+def enable_dpi_awareness() -> bool:
+    """Включает Per-Monitor V2 DPI awareness до создания QApplication.
+
+    Без этого Windows отдаёт координаты курсора в «логических» пикселях, а
+    ``SendInput`` ждёт физические: при масштабе 125–150 % клик уходит мимо поля,
+    и координаты «меняются в программе, но не в игре».
+    """
+    if sys.platform != "win32":  # pragma: no cover - проверяется на Linux
+        return False
+    try:  # pragma: no cover - Windows
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        set_context = user32.SetProcessDpiAwarenessContext
+        set_context.argtypes = (ctypes.c_void_p,)
+        set_context.restype = ctypes.c_bool
+        if set_context(ctypes.c_void_p(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)):
+            return True
+    except (AttributeError, OSError):
+        LOGGER.debug("SetProcessDpiAwarenessContext недоступен")
+    try:  # pragma: no cover - Windows 8.1+
+        shcore = ctypes.WinDLL("shcore", use_last_error=True)
+        set_awareness = shcore.SetProcessDpiAwareness
+        set_awareness.argtypes = (ctypes.c_int,)
+        if set_awareness(PROCESS_PER_MONITOR_DPI_AWARE) == 0:
+            return True
+    except (AttributeError, OSError):
+        LOGGER.debug("SetProcessDpiAwareness недоступен")
+    return False
+
+
+def window_at_point(x: int, y: int) -> int:
+    """HWND окна под точкой (0, если окна нет)."""
+    if sys.platform != "win32":  # pragma: no cover
+        return 0
+    return int(_user32.WindowFromPoint(x, y) or 0)
+
+
+def _root_window(hwnd: int) -> int:
+    """Верхнеуровневое окно для дочернего HWND."""
+    if sys.platform != "win32" or not hwnd:  # pragma: no cover
+        return 0
+    return int(_user32.GetAncestor(hwnd, 2) or hwnd)  # GA_ROOT = 2
+
+
+def foreground_window() -> int:
+    """HWND активного окна."""
+    if sys.platform != "win32":  # pragma: no cover
+        return 0
+    return int(_user32.GetForegroundWindow() or 0)
+
+
+def foreground_state(x: int, y: int) -> ForegroundState:
+    """Сравнивает окно под точкой с активным окном."""
+    target = _root_window(window_at_point(x, y))
+    active = foreground_window()
+    return ForegroundState(
+        target_window=target,
+        foreground_window=active,
+        needs_activation=bool(target) and target != active,
+    )
 
 
 class Win32InputBackend:
@@ -114,6 +195,15 @@ class Win32InputBackend:
             self._send_key(code, key_up=False)
         for code in reversed(virtual_keys):
             self._send_key(code, key_up=True)
+
+    def ensure_foreground(self, x: int, y: int) -> bool:
+        """Кликает по точке, если окно игры не активно (иначе первый клик съедается)."""
+        state = foreground_state(x, y)
+        if not state.needs_activation:
+            return False
+        LOGGER.debug("Активирую окно %s кликом по %s,%s", state.target_window, x, y)
+        self.click(x, y)
+        return True
 
     def tap_key(self, key: str) -> None:
         """Одиночное нажатие клавиши."""
@@ -195,6 +285,10 @@ class NullInputBackend:
     def is_ready(self) -> bool:
         """Всегда ``False`` — ввод недоступен."""
         return False
+
+    def ensure_foreground(self, x: int, y: int) -> bool:
+        """Ничего не делает."""
+        raise InputUnavailableError("ввод недоступен")
 
     def press_combination(self, *keys: str) -> None:
         """Ничего не делает."""

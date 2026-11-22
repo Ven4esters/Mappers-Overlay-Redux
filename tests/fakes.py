@@ -21,6 +21,7 @@ class FakeGamePanel:
         self.reads = 0
         self.fail_write = False
         self.ignore_fields: set[FieldKey] = set()
+        self.ignore_once_fields: set[FieldKey] = set()
 
     def is_available(self) -> bool:
         return self.available
@@ -52,6 +53,9 @@ class FakeGamePanel:
         for key, value in values.items():
             if key in self.ignore_fields:
                 continue
+            if key in self.ignore_once_fields:
+                self.ignore_once_fields.discard(key)
+                continue
             updated[resolved[key]] = value
         self.pose = Pose(**updated)
 
@@ -68,9 +72,14 @@ class FakeInput:
         self.events: list[tuple[str, str]] = []
         self.ready = ready
         self.game = game
+        self.needs_activation = False
 
     def is_ready(self) -> bool:
         return self.ready
+
+    def ensure_foreground(self, x: int, y: int) -> bool:
+        self.events.append(("focus", f"{x},{y}"))
+        return self.needs_activation
 
     def press_combination(self, *keys: str) -> None:
         combination = "+".join(keys)

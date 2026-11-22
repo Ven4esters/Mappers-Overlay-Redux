@@ -134,3 +134,18 @@ def test_height_is_editable_through_z_field(tmp_path: Path, qt_app: object) -> N
     window.action_field_edited(FieldKey.Z.value, 31.75)
     window.action_apply(commit=True)
     assert panel.pose.z == pytest.approx(31.75)
+
+
+def test_diagnostics_reports_success(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.calibration_tab.diagnostics_requested.emit()
+    assert window.lbl_status.property("level") == "success"
+    assert "Ввод работает" in window.lbl_status.text()
+
+
+def test_diagnostics_reports_broken_write(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    panel.ignore_fields = {FieldKey.X}
+    window.action_diagnostics()
+    assert window.lbl_status.property("level") == "error"
+    assert "администратора" in window.lbl_status.text()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from lsp_overlay.application.diagnostics import DiagnosticReport, run_diagnostics
 from lsp_overlay.application.errors import PanelUnavailableError
 from lsp_overlay.application.ports import GamePanelPort
 from lsp_overlay.application.writer import ApplyResult, FieldWriter
@@ -68,6 +69,10 @@ class MappingSession:
             length_decimals=length_decimals,
             confirm_key=confirm_key,
         )
+
+    def diagnose(self) -> DiagnosticReport:
+        """Проверяет, доходят ли клики и вставка до панели игры."""
+        return run_diagnostics(self._panel)
 
     def capture(self) -> Pose:
         """Читает реальные координаты пропа и делает их точкой отсчёта."""
