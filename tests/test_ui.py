@@ -57,18 +57,33 @@ def test_move_button_updates_pose_and_marks_pending(tmp_path: Path, qt_app: obje
     assert window.btn_apply.isEnabled()
 
 
+def test_arrow_pad_has_exactly_eight_directions(tmp_path: Path, qt_app: object) -> None:
+    """В крестовине только план: 8 направлений, кнопок высоты нет."""
+    from PySide6.QtWidgets import QPushButton
+
+    window, _panel = make_window(tmp_path, qt_app)
+    buttons = [
+        button
+        for button in window.movement_tab.findChildren(QPushButton)
+        if button.objectName() == "arrowButton"
+    ]
+    assert len(buttons) == 8
+    labels = {button.text() for button in buttons}
+    assert labels == {"↖", "↑", "↗", "←", "→", "↙", "↓", "↘"}
+
+
 def test_apply_writes_to_game_and_commits(tmp_path: Path, qt_app: object) -> None:
     window, panel = make_window(tmp_path, qt_app)
-    window.movement_tab.move_requested.emit(Direction.UP.value, 0.5)
+    window.movement_tab.move_requested.emit(Direction.NORTH.value, 0.5)
     window.action_apply(commit=True)
-    assert panel.pose.z == pytest.approx(31.5)
+    assert panel.pose.y == pytest.approx(-809.75)
     assert panel.commits == 1
     assert "Записано" in window.lbl_status.text()
 
 
 def test_jump_guard_reports_error(tmp_path: Path, qt_app: object) -> None:
     window, _panel = make_window(tmp_path, qt_app)
-    window.action_move(Direction.UP.value, 100.0)
+    window.action_move(Direction.SOUTH.value, 100.0)
     assert window.lbl_status.property("level") == "error"
     assert "лимита" in window.lbl_status.text()
 
@@ -111,3 +126,11 @@ def test_apply_without_capture_shows_error(tmp_path: Path, qt_app: object) -> No
     window.movement_tab.move_requested.emit(Direction.NORTH.value, 1.0)
     window.action_apply(commit=True)
     assert "Считать" in window.lbl_status.text()
+
+
+def test_height_is_editable_through_z_field(tmp_path: Path, qt_app: object) -> None:
+    """Кнопок высоты нет, но Z по-прежнему можно задать вручную."""
+    window, panel = make_window(tmp_path, qt_app)
+    window.action_field_edited(FieldKey.Z.value, 31.75)
+    window.action_apply(commit=True)
+    assert panel.pose.z == pytest.approx(31.75)

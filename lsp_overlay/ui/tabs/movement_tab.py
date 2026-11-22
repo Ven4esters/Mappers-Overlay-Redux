@@ -64,8 +64,8 @@ class MovementTab(QWidget):
     # ------------------------------------------------------------------ сборка
     def _build_pad(self) -> QGroupBox:
         group = QGroupBox("Движение")
-        row = QHBoxLayout(group)
-        row.setSpacing(6)
+        column = QVBoxLayout(group)
+        column.setSpacing(4)
         pad = QWidget()
         grid = QGridLayout(pad)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -86,20 +86,15 @@ class MovementTab(QWidget):
         self.lbl_step.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_step.setToolTip("Текущий шаг сдвига")
         grid.addWidget(self.lbl_step, 1, 1)
-        row.addWidget(pad, 1)
-        column = QVBoxLayout()
-        column.setSpacing(4)
-        for direction, arrow, hint in (
-            (Direction.UP, "↑", "выше"),
-            (Direction.DOWN, "↓", "ниже"),
-        ):
-            button = make_button(arrow, f"Сдвинуть {hint}", object_name="arrowButton")
-            button.setMinimumWidth(PAD_BUTTON_WIDTH)
-            button.clicked.connect(
-                lambda _checked=False, value=direction.value: self._emit_move(value)
+        column.addWidget(pad)
+        column.addWidget(
+            make_label(
+                "↑ вперёд · ↓ назад · ← влево · → вправо · диагонали — под 45°. "
+                "Высота — поле Z ниже.",
+                muted=True,
+                wrap=True,
             )
-            column.addWidget(button)
-        row.addLayout(column)
+        )
         return group
 
     def _build_step_row(self) -> QWidget:
@@ -214,11 +209,12 @@ class MovementTab(QWidget):
 
     @staticmethod
     def _direction_hint(direction: Direction) -> str:
+        """Человеческое название направления для подсказки кнопки."""
         return {
-            Direction.NORTH: "вперёд",
-            Direction.SOUTH: "назад",
-            Direction.EAST: "вправо",
-            Direction.WEST: "влево",
+            Direction.NORTH: "вперёд (вдоль оси пропа, +Y)",
+            Direction.SOUTH: "назад (против оси пропа, −Y)",
+            Direction.EAST: "вправо (+X)",
+            Direction.WEST: "влево (−X)",
             Direction.NORTH_EAST: "вперёд-вправо",
             Direction.NORTH_WEST: "вперёд-влево",
             Direction.SOUTH_EAST: "назад-вправо",
