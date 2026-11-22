@@ -62,6 +62,18 @@ L = 3.0
 P' = (−1848.465, 414.178, 130.472)
 ```
 
+Второй эталон, подтверждённый в игре:
+
+```
+P = (−1849.342, 416.528, 128.816),  RX = 41.5°,  RY = 22.3°,  шаг = 3.0,  Num 9
+
+ΔX = +3.0 · sin 22.3°              = +1.138368
+ΔY = −3.0 · sin 41.5° · cos 22.3°  = −1.839188
+ΔZ = +3.0 · cos 41.5° · cos 22.3°  = +2.078823
+
+P' = (−1848.204, 414.689, 130.895),  |Δ| = 3.000
+```
+
 ## Свойства
 
 * При `RY = 0` формула превращается в формулу ADR-0019 дословно: `ΔX = 0`,
@@ -89,7 +101,8 @@ P' = (−1848.465, 414.178, 130.472)
 * Режим высоты (`Alt` + `Num 8/2`) живёт по ADR-0020 и `RX` не учитывает: его формула
   `(±sin RY, 0, ±cos RY)`. Если понадобится, чтобы и подъём учитывал `RX`
   (`ΔY = −L·sin RX`), это отдельное изменение с отдельным эталоном.
-* Тесты: `test_user_example_with_rx_and_ry`, `test_diagonal_follows_rx_and_ry`,
+* Тесты: `test_user_example_with_rx_and_ry`, `test_second_user_example_with_rx_and_ry`,
+  `test_diagonal_follows_rx_and_ry`,
   `test_diagonal_length_is_the_full_step_with_both_angles`,
   `test_diagonal_components_shrink_with_ry`, `test_diagonal_at_zero_ry_keeps_the_old_formula`,
   плюс проверки на уровне сессии и UI.

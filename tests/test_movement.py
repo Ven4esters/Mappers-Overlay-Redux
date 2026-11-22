@@ -61,6 +61,25 @@ def test_user_example_with_rx_and_ry() -> None:
     assert (result.x, result.y, result.z) == (-1848.465, 414.178, 130.472)
 
 
+#: Второй эталон заказчика (подтверждён в игре): ``Num 9``, шаг 3 м, ``RX = 41.5°``, ``RY = 22.3°``.
+SECOND_POSE = Pose(x=-1849.342, y=416.528, z=128.816, rx=41.5, ry=22.3)
+
+
+def test_second_user_example_with_rx_and_ry() -> None:
+    """``RX = 41.5°``, ``RY = 22.3°``, шаг 3 м, «вверх-вправо»."""
+    result = shifted(SECOND_POSE, Direction.FORWARD_RIGHT, 3.0)
+    assert (result.x, result.y, result.z) == (-1848.204, 414.689, 130.895)
+
+
+def test_second_user_example_keeps_the_step_length() -> None:
+    """Длина того же шага ровно 3 м: ``Δ = (+1.138, −1.839, +2.079)``."""
+    result = shifted(SECOND_POSE, Direction.FORWARD_RIGHT, 3.0)
+    distance = math.dist(
+        (result.x, result.y, result.z), (SECOND_POSE.x, SECOND_POSE.y, SECOND_POSE.z)
+    )
+    assert distance == pytest.approx(3.0, abs=0.002)
+
+
 def test_user_example_with_rx_and_ry_in_metres() -> None:
     """Тот же пример в метрах: ``ΔX = +0.8771``, ``ΔY = −2.3501``, ``ΔZ = +1.6455``."""
     result = shifted(RY_POSE, Direction.FORWARD_RIGHT, 3.0)
