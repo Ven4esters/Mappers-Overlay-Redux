@@ -19,6 +19,9 @@ SCHEMA_VERSION = 2
 DEFAULT_STEP_PRESETS: tuple[float, ...] = (0.05, 0.1, 0.25, 0.5, 1.0)
 DEFAULT_STEP = 0.1
 CONFIRM_KEYS: tuple[str, ...] = ("f", "enter")
+DEFAULT_CLONE_KEY = "c"
+DEFAULT_CLONE_DELETE_KEY = "delete"
+KEY_MAX_LENGTH = 20
 
 
 class ConfigError(ValueError):
@@ -99,6 +102,8 @@ class Settings:
     verify_after_paste: bool = True
     max_jump: float = DEFAULT_MAX_JUMP
     confirm_key: str = "f"
+    clone_key: str = DEFAULT_CLONE_KEY
+    clone_delete_key: str = DEFAULT_CLONE_DELETE_KEY
     calibration: Calibration = field(default_factory=Calibration.empty)
     timings: PanelTimings = field(default_factory=PanelTimings)
     overlay_opacity: float = 0.94
@@ -116,6 +121,10 @@ class Settings:
             raise ConfigError("лимит шага не может быть отрицательным")
         if self.confirm_key not in CONFIRM_KEYS:
             raise ConfigError(f"клавиша подтверждения должна быть одной из {CONFIRM_KEYS}")
+        clone_keys = (("клонирования", self.clone_key), ("удаления", self.clone_delete_key))
+        for title, key in clone_keys:
+            if not key.strip() or len(key) > KEY_MAX_LENGTH:
+                raise ConfigError(f"клавиша {title} копии должна быть непустой строкой")
         if not 0.2 <= self.overlay_opacity <= 1.0:
             raise ConfigError("прозрачность оверлея — от 0.2 до 1.0")
         self.timings.validated()
@@ -137,6 +146,8 @@ class Settings:
             "verify_after_paste": self.verify_after_paste,
             "max_jump": self.max_jump,
             "confirm_key": self.confirm_key,
+            "clone_key": self.clone_key,
+            "clone_delete_key": self.clone_delete_key,
             "overlay_opacity": self.overlay_opacity,
             "always_on_top": self.always_on_top,
             "timings": {
@@ -177,6 +188,8 @@ class Settings:
             verify_after_paste=bool(data.get("verify_after_paste", True)),
             max_jump=float(data.get("max_jump", DEFAULT_MAX_JUMP)),
             confirm_key=str(data.get("confirm_key", "f")).lower(),
+            clone_key=str(data.get("clone_key", DEFAULT_CLONE_KEY)).lower(),
+            clone_delete_key=str(data.get("clone_delete_key", DEFAULT_CLONE_DELETE_KEY)).lower(),
             overlay_opacity=float(data.get("overlay_opacity", 0.94)),
             always_on_top=bool(data.get("always_on_top", True)),
             timings=_timings_from(timings_data),

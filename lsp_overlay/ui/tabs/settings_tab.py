@@ -16,7 +16,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lsp_overlay.config import CONFIRM_KEYS, Settings, replace_settings
+from lsp_overlay.config import (
+    CONFIRM_KEYS,
+    DEFAULT_CLONE_DELETE_KEY,
+    DEFAULT_CLONE_KEY,
+    Settings,
+    replace_settings,
+)
 from lsp_overlay.domain.directions import DiagonalMode
 from lsp_overlay.ui.widgets import make_button, make_label, make_number_editor
 
@@ -84,6 +90,16 @@ class SettingsTab(QWidget):
         for key in CONFIRM_KEYS:
             self.combo_confirm.addItem(key.upper(), key)
         form.addRow("Клавиша подтверждения", self.combo_confirm)
+        self.edit_clone_key = QLineEdit()
+        self.edit_clone_key.setMaxLength(20)
+        self.edit_clone_key.setToolTip("Клавиша, которая создаёт копию объекта (обычно C)")
+        form.addRow("Клавиша копии", self.edit_clone_key)
+        self.edit_clone_delete_key = QLineEdit()
+        self.edit_clone_delete_key.setMaxLength(20)
+        self.edit_clone_delete_key.setToolTip(
+            "Клавиша удаления копии — нажимается только по кнопке «Убрать копию»"
+        )
+        form.addRow("Клавиша удаления копии", self.edit_clone_delete_key)
         return group
 
     def _build_appearance_group(self) -> QGroupBox:
@@ -122,6 +138,8 @@ class SettingsTab(QWidget):
         self.combo_confirm.setCurrentIndex(
             max(self.combo_confirm.findData(settings.confirm_key), 0)
         )
+        self.edit_clone_key.setText(settings.clone_key)
+        self.edit_clone_delete_key.setText(settings.clone_delete_key)
         self.slider_opacity.setValue(int(round(settings.overlay_opacity * OPACITY_SCALE)))
         self.chk_on_top.setChecked(settings.always_on_top)
 
@@ -142,6 +160,10 @@ class SettingsTab(QWidget):
             verify_after_paste=self.chk_verify.isChecked(),
             max_jump=self.spin_max_jump.value(),
             confirm_key=self.combo_confirm.currentData(),
+            clone_key=self.edit_clone_key.text().strip().lower() or DEFAULT_CLONE_KEY,
+            clone_delete_key=(
+                self.edit_clone_delete_key.text().strip().lower() or DEFAULT_CLONE_DELETE_KEY
+            ),
             overlay_opacity=self.slider_opacity.value() / OPACITY_SCALE,
             always_on_top=self.chk_on_top.isChecked(),
             timings=self._settings.timings,

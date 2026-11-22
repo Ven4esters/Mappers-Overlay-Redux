@@ -129,6 +129,18 @@ class ClipboardPanel:
             raise PanelUnavailableError(str(error)) from error
         self._sleep(self._timings.commit)
 
+    def tap_key(self, key: str) -> None:
+        """Нажимает клавишу в окне игры, предварительно убедившись, что оно активно."""
+        placeholder = self._calibration.placeholder
+        if placeholder is None:
+            raise PanelUnavailableError("не задано «пустое место» — откройте «Калибровку»")
+        self._focus(placeholder)
+        try:
+            self._input.tap_key(key)
+        except InputUnavailableError as error:
+            raise PanelUnavailableError(str(error)) from error
+        self._sleep(self._timings.commit)
+
     def _focus(self, point: Point) -> None:
         """Активирует окно игры, если оно не в фокусе: первый клик иначе съедается."""
         try:

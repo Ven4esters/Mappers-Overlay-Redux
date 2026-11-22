@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -47,18 +48,22 @@ class MovementTab(QWidget):
     move_requested = Signal(str, float)
     step_changed = Signal(float)
     field_edited = Signal(str, float)
+    live_toggled = Signal(bool)
+    delete_clone_requested = Signal()
 
     def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
         self._step = settings.step
         self._editors: dict[FieldKey, QDoubleSpinBox] = {}
+        self._direction_buttons: dict[Direction, QPushButton] = {}
         self._is_updating = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(6)
         layout.addWidget(self._build_pad())
         layout.addWidget(self._build_step_row())
+        layout.addWidget(self._build_live_row())
         layout.addWidget(self._build_coordinates())
         layout.addStretch(1)
 
@@ -81,6 +86,7 @@ class MovementTab(QWidget):
             button.clicked.connect(
                 lambda _checked=False, value=direction.value: self._emit_move(value)
             )
+            self._direction_buttons[direction] = button
             grid.addWidget(button, grid_row, grid_column)
         self.lbl_step = QLabel(f"{self._step:g} м")
         self.lbl_step.setObjectName("stepLabel")
@@ -122,6 +128,27 @@ class MovementTab(QWidget):
             button = make_button(title, tip, object_name="stepButton")
             button.clicked.connect(lambda _checked=False, value=factor: self.scale_step(value))
             row.addWidget(button)
+        return holder
+
+    def _build_live_row(self) -> QWidget:
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        self.btn_live = make_button(
+            "Живой режим (копия)",
+            "Клонировать объект и двигать копию в игре сразу, без «Применить»",
+            object_name="stepButton",
+            checkable=True,
+        )
+        self.btn_live.toggled.connect(self.live_toggled.emit)
+        row.addWidget(self.btn_live, 1)
+        self.btn_delete_clone = make_button(
+            "Убрать копию",
+            "Нажать клавишу удаления копии (настраивается в «Настройках»)",
+        )
+        self.btn_delete_clone.clicked.connect(self.delete_clone_requested.emit)
+        row.addWidget(self.btn_delete_clone, 1)
         return holder
 
     def _build_coordinates(self) -> QGroupBox:
@@ -181,6 +208,30 @@ class MovementTab(QWidget):
         self.field_edited.emit(key.value, self._editors[key].value())
 
     # ------------------------------------------------------------------- вывод
+    def flash_direction(self, direction: Direction) -> None:
+        """Подсвечивает кнопку направления так, будто её нажали мышью."""
+        button = self._direction_buttons.get(direction)
+        if button is None:
+            return
+        button.setDown(True)
+
+    def unflash_direction(self, direction: Direction) -> None:
+        """Снимает подсветку кнопки направления."""
+        button = self._direction_buttons.get(direction)
+        if button is not None:
+            button.setDown(False)
+
+    def unflash_all(self) -> None:
+        """Снимает подсветку со всех кнопок направлений."""
+        for button in self._direction_buttons.values():
+            button.setDown(False)
+
+    def set_live(self, enabled: bool) -> None:
+        """Показывает состояние живого режима на кнопке."""
+        self.btn_live.blockSignals(True)
+        self.btn_live.setChecked(enabled)
+        self.btn_live.blockSignals(False)
+
     def current_step(self) -> float:
         """Текущий шаг сдвига в метрах."""
         return self._step

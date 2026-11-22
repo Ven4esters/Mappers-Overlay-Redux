@@ -6,17 +6,20 @@ import contextlib
 import logging
 from dataclasses import replace
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from lsp_overlay import __version__
+from lsp_overlay.application.live import LiveMover
+from lsp_overlay.application.ports import KeyStatePort
 from lsp_overlay.application.session import MappingSession
 from lsp_overlay.config import Calibration, Settings
 from lsp_overlay.domain.catalog import Dimension, ObjectSpec
@@ -28,7 +31,7 @@ from lsp_overlay.domain.measure import MeasureSlot
 from lsp_overlay.domain.pose import Axis, Pose
 from lsp_overlay.infrastructure.catalog_store import CatalogStore
 from lsp_overlay.infrastructure.config_store import ConfigStore
-from lsp_overlay.ui.keymap import NumpadAction, NumpadIntent, numpad_action
+from lsp_overlay.ui.keymap import NumpadAction, NumpadIntent, held_direction, numpad_action
 from lsp_overlay.ui.styles import STYLESHEET
 from lsp_overlay.ui.tabs.calibration_tab import CalibrationTab
 from lsp_overlay.ui.tabs.measure_tab import MeasureTab
@@ -44,6 +47,10 @@ MINIMUM_WIDTH = 380
 MINIMUM_HEIGHT = 320
 HALF = 0.5
 DOUBLE = 2.0
+REPEAT_INTERVAL_MS = 90
+LIVE_POLL_MS = 250
+KEYS_POLL_MS = 60
+FLASH_MS = 120
 
 
 class OverlayWindow(QWidget):
@@ -54,7 +61,9 @@ class OverlayWindow(QWidget):
         session: MappingSession,
         config_store: ConfigStore,
         settings: Settings,
+        *,
         catalog_store: CatalogStore | None = None,
+        key_state: KeyStatePort | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -62,10 +71,22 @@ class OverlayWindow(QWidget):
         self._store = config_store
         self._settings = settings
         self._catalog_store = catalog_store
+        self._key_state = key_state
+        self._live = LiveMover(session)
+        self._repeat_direction: Direction | None = None
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(MINIMUM_WIDTH, MINIMUM_HEIGHT)
         self.setStyleSheet(STYLESHEET)
         self._build_ui()
+        self._repeat_timer = QTimer(self)
+        self._repeat_timer.setInterval(REPEAT_INTERVAL_MS)
+        self._repeat_timer.timeout.connect(self._repeat_tick)
+        self._live_timer = QTimer(self)
+        self._live_timer.setInterval(LIVE_POLL_MS)
+        self._live_timer.timeout.connect(self._poll_live)
+        self._keys_timer = QTimer(self)
+        self._keys_timer.setInterval(KEYS_POLL_MS)
+        self._keys_timer.timeout.connect(self._poll_keys)
         self._apply_window_options()
         self._load_catalog()
         self._refresh()
@@ -125,6 +146,8 @@ class OverlayWindow(QWidget):
         self.movement_tab.move_requested.connect(self.action_move)
         self.movement_tab.step_changed.connect(self.action_step_changed)
         self.movement_tab.field_edited.connect(self.action_field_edited)
+        self.movement_tab.live_toggled.connect(self.action_live_toggled)
+        self.movement_tab.delete_clone_requested.connect(self.action_delete_clone)
         self.rotate_tab.rotate_requested.connect(self.action_rotate)
         self.rotate_tab.angle_set_requested.connect(self.action_set_angle)
         self.measure_tab.remember_requested.connect(self.action_remember_point)
@@ -148,22 +171,64 @@ class OverlayWindow(QWidget):
         if action is None:
             super().keyPressEvent(event)
             return
+        if event.isAutoRepeat() and action.intent is NumpadIntent.MOVE:
+            # повторяет наш собственный таймер: системный автоповтор только мешает
+            event.accept()
+            return
         self._run_numpad(action)
+        if action.intent is NumpadIntent.MOVE and action.direction is not None:
+            self._start_repeat(action.direction)
         event.accept()
+
+    def keyReleaseEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - переопределение Qt
+        """Отпускание Numpad останавливает движение."""
+        action = numpad_action(event.key(), event.modifiers())
+        if action is None or event.isAutoRepeat():
+            super().keyReleaseEvent(event)
+            return
+        self._stop_repeat()
+        event.accept()
+
+    def _start_repeat(self, direction: Direction) -> None:
+        self._repeat_direction = direction
+        if not self._repeat_timer.isActive():
+            self._repeat_timer.start()
+
+    def _stop_repeat(self) -> None:
+        self._repeat_timer.stop()
+        self._repeat_direction = None
+        self._live.release()
+        self.movement_tab.unflash_all()
+
+    def _repeat_tick(self) -> None:
+        """Шаг автоповтора, пока клавиша зажата."""
+        direction = self._repeat_direction
+        if direction is None:
+            self._stop_repeat()
+            return
+        self._run_numpad(NumpadAction(intent=NumpadIntent.MOVE, direction=direction))
 
     def _run_numpad(self, action: NumpadAction) -> None:
         if action.intent is NumpadIntent.MOVE and action.direction is not None:
             self.action_move(action.direction.value, self.movement_tab.current_step())
         elif action.intent is NumpadIntent.CAPTURE:
+            self._flash(self.btn_capture)
             self.action_capture()
         elif action.intent is NumpadIntent.COMMIT:
+            self._flash(self.btn_apply_commit)
             self.action_apply(commit=True)
         elif action.intent is NumpadIntent.APPLY:
+            self._flash(self.btn_apply)
             self.action_apply(commit=False)
         elif action.intent is NumpadIntent.STEP_UP:
             self.movement_tab.scale_step(DOUBLE)
         elif action.intent is NumpadIntent.STEP_DOWN:
             self.movement_tab.scale_step(HALF)
+
+    def _flash(self, button: QPushButton) -> None:
+        """Подсвечивает кнопку на мгновение — видно, что команда пришла с клавиатуры."""
+        button.setDown(True)
+        QTimer.singleShot(FLASH_MS, lambda: button.setDown(False))
 
     # ----------------------------------------------------------------- действия
     def action_capture(self) -> None:
@@ -177,13 +242,97 @@ class OverlayWindow(QWidget):
         self._refresh()
 
     def action_move(self, direction: str, step: float) -> None:
-        """Сдвигает проп в локальном направлении."""
+        """Сдвигает проп: в живом режиме — сразу в игре, иначе только в оверлее."""
+        target = Direction(direction)
+        self.movement_tab.flash_direction(target)
+        if self._live.is_running:
+            self._live.steer(target, step)
+            return
         try:
-            self._session.move(Direction(direction), step)
+            self._session.move(target, step)
         except DomainError as error:
             self._fail(error)
             return
         self._refresh()
+
+    def action_live_toggled(self, enabled: bool) -> None:
+        """Включает и выключает живой режим с копией объекта."""
+        if enabled:
+            self._start_live()
+        else:
+            self._stop_live()
+
+    def _start_live(self) -> None:
+        try:
+            self._session.clone_object()
+            self._session.capture()
+        except DomainError as error:
+            self.movement_tab.set_live(False)
+            self._fail(error)
+            return
+        self._live.start()
+        self._live_timer.start()
+        if self._global_keys_ready():
+            self._keys_timer.start()
+        self._refresh()
+        self._set_status(
+            "Живой режим: двигайте копию Numpad — изменения сразу уходят в игру",
+            "success",
+        )
+
+    def _stop_live(self) -> None:
+        self._live.stop()
+        self._live_timer.stop()
+        self._keys_timer.stop()
+        self.movement_tab.unflash_all()
+        self.movement_tab.set_live(False)
+        self._refresh()
+        self._set_status(
+            f"Живой режим выключен, шагов в игре: {self._live.applied}",
+            "info",
+        )
+
+    def action_delete_clone(self) -> None:
+        """Удаляет копию по явной команде."""
+        try:
+            self._session.delete_clone()
+        except DomainError as error:
+            self._fail(error)
+            return
+        self._set_status("Копия удалена", "info")
+
+    def _global_keys_ready(self) -> bool:
+        return self._key_state is not None and self._key_state.is_ready()
+
+    def _poll_keys(self) -> None:
+        """Читает зажатые клавиши Numpad напрямую у Windows: фокус может быть в игре."""
+        state = self._key_state
+        if state is None or not self._live.is_running:
+            return
+        direction = held_direction(state.is_down)
+        if direction is None:
+            if self._live.direction is not None:
+                self._live.release()
+                self.movement_tab.unflash_all()
+            return
+        self.movement_tab.flash_direction(direction)
+        self._live.steer(direction, self.movement_tab.current_step())
+
+    def _poll_live(self) -> None:
+        """Показывает, что делает поток живого режима."""
+        error = self._live.last_error
+        self._refresh()
+        if error is not None:
+            self._live_timer.stop()
+            self._live.stop()
+            self.movement_tab.set_live(False)
+            self._set_status(f"Живой режим остановлен: {error}", "error")
+            return
+        if self._live.direction is None:
+            self._set_status(
+                f"Живой режим: шагов {self._live.applied}, жду клавишу",
+                "info",
+            )
 
     def action_rotate(self, axis: str, degrees: float) -> None:
         """Поворот на шаг."""
@@ -213,7 +362,12 @@ class OverlayWindow(QWidget):
         self._refresh()
 
     def action_remember_point(self, slot: str) -> None:
-        """Запоминает текущее положение пропа как точку рулетки."""
+        """Считывает координаты из игры и запоминает их как точку рулетки."""
+        try:
+            self._session.capture()
+        except DomainError as error:
+            self._fail(error)
+            return
         span = self._session.remember_point(MeasureSlot(slot))
         point = MeasureSlot(slot)
         if span is None:

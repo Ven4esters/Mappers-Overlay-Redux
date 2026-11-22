@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -52,10 +53,29 @@ COMMAND_KEYS: dict[int, NumpadIntent] = {
     Qt.Key.Key_Minus: NumpadIntent.STEP_DOWN,
 }
 
+NUMPAD_VK: dict[int, Direction] = {
+    0x68: Direction.NORTH,
+    0x62: Direction.SOUTH,
+    0x64: Direction.WEST,
+    0x66: Direction.EAST,
+    0x67: Direction.NORTH_WEST,
+    0x69: Direction.NORTH_EAST,
+    0x61: Direction.SOUTH_WEST,
+    0x63: Direction.SOUTH_EAST,
+}
+
 NUMPAD_HINT = (
     "Numpad: 8/2/4/6 и 7/9/1/3 — движение, 0 — «Считать», 5 — «Сохранить F», "
     "Enter — применить, +/− — шаг. NumLock должен быть включён."
 )
+
+
+def held_direction(is_down: Callable[[int], bool]) -> Direction | None:
+    """Направление по зажатым клавишам Numpad (глобально, без фокуса)."""
+    for vk_code, direction in NUMPAD_VK.items():
+        if is_down(vk_code):
+            return direction
+    return None
 
 
 def numpad_action(key: int, modifiers: Qt.KeyboardModifier) -> NumpadAction | None:

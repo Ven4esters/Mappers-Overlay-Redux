@@ -39,6 +39,27 @@ VK_CODES: Final[dict[str, int]] = {
 }
 
 
+def _load_user32() -> Any:
+    """Возвращает ``user32.dll`` или ``None`` вне Windows."""
+    if sys.platform != "win32":
+        return None
+    return ctypes.WinDLL("user32", use_last_error=True)
+
+
+NUMPAD_VK_CODES: Final[dict[str, int]] = {
+    "numpad8": 0x68,
+    "numpad2": 0x62,
+    "numpad4": 0x64,
+    "numpad6": 0x66,
+    "numpad7": 0x67,
+    "numpad9": 0x69,
+    "numpad1": 0x61,
+    "numpad3": 0x63,
+}
+VK_NUMLOCK: Final = 0x90
+KEY_DOWN_MASK: Final = 0x8000
+
+
 class InputUnavailableError(RuntimeError):
     """Ввод недоступен: не Windows или вызов Win32 не удался."""
 
@@ -301,3 +322,47 @@ class NullInputBackend:
     def click(self, x: int, y: int) -> None:
         """Ничего не делает."""
         raise InputUnavailableError("ввод недоступен")
+
+
+class Win32KeyState:
+    """Состояние клавиш без перехвата: работает, даже когда фокус в окне игры.
+
+    ``GetAsyncKeyState`` не забирает нажатие у игры, поэтому клавиши одновременно
+    видит и оверлей, и клиент. Требует включённого NumLock: иначе Numpad шлёт
+    навигационные клавиши, а не цифры.
+    """
+
+    def __init__(self) -> None:
+        self._user32 = _load_user32()
+
+    def is_ready(self) -> bool:
+        """Доступно ли чтение состояния клавиш."""
+        return self._user32 is not None
+
+    def is_down(self, vk_code: int) -> bool:
+        """Нажата ли клавиша с указанным виртуальным кодом."""
+        if self._user32 is None:
+            return False
+        return bool(self._user32.GetAsyncKeyState(vk_code) & KEY_DOWN_MASK)
+
+    def num_lock_enabled(self) -> bool:
+        """Включён ли NumLock (на не-Windows — ``False``)."""
+        if self._user32 is None:
+            return False
+        return bool(self._user32.GetKeyState(VK_NUMLOCK) & 1)
+
+
+class NullKeyState:
+    """Заглушка: клавиши никогда не нажаты (тесты и не-Windows)."""
+
+    def is_ready(self) -> bool:
+        """Всегда ``False``."""
+        return False
+
+    def is_down(self, vk_code: int) -> bool:
+        """Всегда ``False``."""
+        return False
+
+    def num_lock_enabled(self) -> bool:
+        """Всегда ``False``."""
+        return False

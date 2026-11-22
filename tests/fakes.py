@@ -22,6 +22,7 @@ class FakeGamePanel:
         self.fail_write = False
         self.ignore_fields: set[FieldKey] = set()
         self.ignore_once_fields: set[FieldKey] = set()
+        self.keys: list[str] = []
 
     def is_available(self) -> bool:
         return self.available
@@ -63,6 +64,11 @@ class FakeGamePanel:
         if not self.available:
             raise PanelUnavailableError("панель недоступна")
         self.commits += 1
+
+    def tap_key(self, key: str) -> None:
+        if not self.available:
+            raise PanelUnavailableError("панель недоступна")
+        self.keys.append(key)
 
 
 class FakeInput:

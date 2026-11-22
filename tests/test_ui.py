@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,7 @@ from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
 
 from fakes import FakeGamePanel, build_calibration  # noqa: E402
-from test_keymap import press_key  # noqa: E402
+from test_keymap import press_key, release_key  # noqa: E402
 
 START = Pose(x=250.5, y=-810.25, z=31.0, rz=0.0)
 
@@ -42,7 +43,7 @@ def make_window(
         session,
         ConfigStore(tmp_path / "settings.json"),
         settings,
-        CatalogStore(tmp_path / "objects.json"),
+        catalog_store=CatalogStore(tmp_path / "objects.json"),
     )
     window.action_capture()
     return window, panel
@@ -173,6 +174,7 @@ def test_measure_tab_shows_object_length(tmp_path: Path, qt_app: object) -> None
     window.action_remember_point("a")
     assert window.measure_tab.value_text("distance") == "—"
     window.movement_tab.field_edited.emit(FieldKey.X.value, START.x + 4.5)
+    window.action_apply(commit=False)
     window.action_remember_point("b")
     assert window.measure_tab.value_text("planar") == "4.500 м"
     assert window.measure_tab.value_text("heading") == "90.0°"
@@ -182,6 +184,7 @@ def test_measure_step_becomes_shift_step(tmp_path: Path, qt_app: object) -> None
     window, _panel = make_window(tmp_path, qt_app)
     window.action_remember_point("a")
     window.movement_tab.field_edited.emit(FieldKey.Y.value, START.y + 2.0)
+    window.action_apply(commit=False)
     window.action_remember_point("b")
     window.measure_tab.step_requested.emit(2.0)
     assert window.movement_tab.current_step() == pytest.approx(2.0)
@@ -200,6 +203,7 @@ def test_measure_step_button_waits_for_two_points(tmp_path: Path, qt_app: object
     assert not window.measure_tab.btn_step.isEnabled()
     window.action_remember_point("a")
     window.movement_tab.field_edited.emit(FieldKey.X.value, START.x + 3.0)
+    window.action_apply(commit=False)
     window.action_remember_point("b")
     assert window.measure_tab.btn_step.isEnabled()
 
@@ -208,6 +212,7 @@ def test_measure_copy_puts_text_on_clipboard(tmp_path: Path, qt_app: object) -> 
     window, _panel = make_window(tmp_path, qt_app)
     window.action_remember_point("a")
     window.movement_tab.field_edited.emit(FieldKey.X.value, START.x + 1.0)
+    window.action_apply(commit=False)
     window.action_remember_point("b")
     window.measure_tab.btn_copy.click()
     assert "Замер" in window.measure_tab.result_text()
@@ -261,6 +266,7 @@ def measure_fence(window: OverlayWindow) -> None:
     """Меряет длину 4.5 м вдоль локальной оси Y и записывает её в габарит."""
     window.action_remember_point("a")
     window.movement_tab.field_edited.emit(FieldKey.Y.value, START.y + 4.5)
+    window.action_apply(commit=False)
     window.action_remember_point("b")
     window.action_measure_dimension(Dimension.LENGTH.value)
 
@@ -276,6 +282,7 @@ def test_measure_dimension_respects_rotation(tmp_path: Path, qt_app: object) -> 
     window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=90.0))
     window.action_remember_point("a")
     window.movement_tab.field_edited.emit(FieldKey.X.value, 4.5)
+    window.action_apply(commit=False)
     window.action_remember_point("b")
     window.action_measure_dimension(Dimension.LENGTH.value)
     assert window.objects_tab.dimension_text(Dimension.LENGTH) == "4.500 м"
@@ -333,3 +340,137 @@ def test_objects_are_loaded_on_start(tmp_path: Path, qt_app: object) -> None:
     store.save(Catalog().upsert(ObjectSpec(name="Забор", length=4.5)))
     window, _panel = make_window(tmp_path, qt_app)
     assert window.objects_tab.table.rowCount() == 1
+
+
+def test_remember_button_reads_coordinates_itself(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    panel.pose = Pose(x=1.0, y=2.0, z=3.0)
+    window.action_remember_point("a")
+    assert window.measure_tab.point_text("a") == "1.00, 2.00, 3.00"
+    assert panel.reads >= 2
+
+
+def test_numpad_hold_repeats_movement(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_8)
+    assert window._session.pose.y == pytest.approx(START.y + 0.1)
+    window._repeat_tick()
+    window._repeat_tick()
+    assert window._session.pose.y == pytest.approx(START.y + 0.3)
+
+
+def test_numpad_release_stops_repeat(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_8)
+    release_key(window, Qt.Key.Key_8)
+    window._repeat_tick()
+    assert window._session.pose.y == pytest.approx(START.y + 0.1)
+
+
+def test_numpad_flashes_arrow_button(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_8)
+    assert window.movement_tab._direction_buttons[Direction.NORTH].isDown()
+    release_key(window, Qt.Key.Key_8)
+    assert not window.movement_tab._direction_buttons[Direction.NORTH].isDown()
+
+
+def test_numpad_step_keys_do_not_move(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_Plus)
+    assert window._session.pending_fields() == ()
+
+
+def test_live_mode_clones_and_applies_in_game(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    window.action_live_toggled(True)
+    try:
+        assert panel.keys == ["c"]
+        assert window._live.is_running
+        press_key(window, Qt.Key.Key_8)
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and panel.commits == 0:
+            qt_app.processEvents()  # type: ignore[attr-defined]
+            time.sleep(0.01)
+        release_key(window, Qt.Key.Key_8)
+        assert panel.commits >= 1
+        assert panel.pose.y > START.y
+    finally:
+        window.action_live_toggled(False)
+    assert not window._live.is_running
+    assert window.lbl_status.text().startswith("Живой режим выключен")
+
+
+def test_live_mode_without_calibration_does_not_start(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    panel.available = False
+    window.action_live_toggled(True)
+    assert not window._live.is_running
+    assert not window.movement_tab.btn_live.isChecked()
+    assert window.lbl_status.property("level") == "error"
+
+
+def test_delete_clone_presses_configured_key(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    window.action_delete_clone()
+    assert panel.keys == ["delete"]
+
+
+class FakeKeyState:
+    """Глобальное состояние клавиш для живого режима."""
+
+    def __init__(self) -> None:
+        self.pressed: set[int] = set()
+
+    def is_ready(self) -> bool:
+        return True
+
+    def is_down(self, vk_code: int) -> bool:
+        return vk_code in self.pressed
+
+    def num_lock_enabled(self) -> bool:
+        return True
+
+
+def make_window_with_keys(
+    tmp_path: Path, qt_app: object
+) -> tuple[OverlayWindow, FakeGamePanel, object]:
+    settings = Settings(calibration=build_calibration())
+    panel = FakeGamePanel(START)
+    panel.configure(
+        calibration=settings.calibration,
+        timings=settings.timings,
+        length_decimals=settings.length_decimals,
+        confirm_key=settings.confirm_key,
+    )
+    session = MappingSession(panel, settings)
+    keys = FakeKeyState()
+    window = OverlayWindow(
+        session,
+        ConfigStore(tmp_path / "settings.json"),
+        settings,
+        catalog_store=CatalogStore(tmp_path / "objects.json"),
+        key_state=keys,  # type: ignore[arg-type]
+    )
+    window.action_capture()
+    return window, panel, keys
+
+
+def test_live_mode_reads_keys_without_window_focus(tmp_path: Path, qt_app: object) -> None:
+    window, panel, keys = make_window_with_keys(tmp_path, qt_app)
+    window.action_live_toggled(True)
+    try:
+        keys.pressed.add(0x68)  # Numpad 8
+        window._poll_keys()
+        assert window._live.direction is Direction.NORTH
+        assert window.movement_tab._direction_buttons[Direction.NORTH].isDown()
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and panel.commits == 0:
+            time.sleep(0.01)
+        keys.pressed.clear()
+        window._poll_keys()
+        assert window._live.direction is None
+        assert not window.movement_tab._direction_buttons[Direction.NORTH].isDown()
+        assert panel.commits >= 1
+    finally:
+        window.action_live_toggled(False)

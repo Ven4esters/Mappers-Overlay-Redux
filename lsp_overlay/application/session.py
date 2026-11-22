@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 from lsp_overlay.application.diagnostics import DiagnosticReport, run_diagnostics
 from lsp_overlay.application.errors import PanelUnavailableError
@@ -43,6 +44,7 @@ class MappingSession:
         self._tape = MeasureTape()
         self._catalog = catalog or Catalog()
         self._pending_dimensions: dict[Dimension, float] = {}
+        self._lock = threading.RLock()
 
     @property
     def pose(self) -> Pose:
@@ -149,6 +151,10 @@ class MappingSession:
 
     def capture(self) -> Pose:
         """Читает реальные координаты пропа и делает их точкой отсчёта."""
+        with self._lock:
+            return self._capture()
+
+    def _capture(self) -> Pose:
         pose = self._panel.read_pose().rounded(self._settings.length_decimals, angle_decimals=2)
         self._pose = pose
         self._panel_pose = pose
@@ -157,6 +163,10 @@ class MappingSession:
 
     def move(self, direction: Direction, step: float | None = None) -> Pose:
         """Сдвигает проп в локальном направлении с учётом его углов."""
+        with self._lock:
+            return self._move(direction, step)
+
+    def _move(self, direction: Direction, step: float | None) -> Pose:
         distance = self._settings.step if step is None else step
         candidate = move(
             self._pose,
@@ -205,6 +215,20 @@ class MappingSession:
 
     def apply(self, *, commit: bool = True) -> ApplyResult:
         """Пишет изменения в панель и (опционально) подтверждает ввод."""
+        with self._lock:
+            return self._apply(commit=commit)
+
+    def clone_object(self) -> None:
+        """Просит игру создать копию объекта (живой режим двигает копию)."""
+        LOGGER.info("Клонирую объект клавишей %s", self._settings.clone_key)
+        self._panel.tap_key(self._settings.clone_key)
+
+    def delete_clone(self) -> None:
+        """Нажимает клавишу удаления копии — только по явной команде пользователя."""
+        LOGGER.info("Удаляю копию клавишей %s", self._settings.clone_delete_key)
+        self._panel.tap_key(self._settings.clone_delete_key)
+
+    def _apply(self, *, commit: bool) -> ApplyResult:
         if self._panel_pose is None:
             raise PanelUnavailableError(
                 "Сначала нажмите «Считать из игры» — без этого неизвестно, где проп сейчас."

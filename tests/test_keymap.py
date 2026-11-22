@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from lsp_overlay.domain.directions import Direction
-from lsp_overlay.ui.keymap import NumpadIntent, numpad_action
+from lsp_overlay.ui.keymap import NUMPAD_VK, NumpadIntent, held_direction, numpad_action
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 
@@ -48,3 +48,20 @@ def press_key(widget: object, key: int, modifiers: Qt.KeyboardModifier = KEYPAD)
     """Отправляет нажатие клавиши в виджет так, как это сделал бы пользователь."""
     event = QKeyEvent(QEvent.Type.KeyPress, key, modifiers)
     widget.keyPressEvent(event)  # type: ignore[attr-defined]
+
+
+def release_key(widget: object, key: int, modifiers: Qt.KeyboardModifier = KEYPAD) -> None:
+    """Отправляет отпускание клавиши."""
+    event = QKeyEvent(QEvent.Type.KeyRelease, key, modifiers)
+    widget.keyReleaseEvent(event)  # type: ignore[attr-defined]
+
+
+def test_held_direction_reads_global_key_state() -> None:
+    pressed = {0x68}
+    assert held_direction(lambda code: code in pressed) is Direction.NORTH
+    assert held_direction(lambda code: False) is None
+
+
+def test_every_planar_direction_has_a_vk_code() -> None:
+    planar = {item for item in Direction if item not in (Direction.UP, Direction.DOWN)}
+    assert set(NUMPAD_VK.values()) == planar

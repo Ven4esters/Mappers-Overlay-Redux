@@ -15,7 +15,12 @@ from lsp_overlay.infrastructure.catalog_store import CatalogStore
 from lsp_overlay.infrastructure.clipboard import SystemClipboard
 from lsp_overlay.infrastructure.config_store import ConfigStore
 from lsp_overlay.infrastructure.panel import ClipboardPanel
-from lsp_overlay.infrastructure.win32_input import Win32InputBackend, enable_dpi_awareness
+from lsp_overlay.infrastructure.win32_input import (
+    NullKeyState,
+    Win32InputBackend,
+    Win32KeyState,
+    enable_dpi_awareness,
+)
 from lsp_overlay.logging_setup import setup_logging
 
 LOGGER = logging.getLogger(__name__)
@@ -76,7 +81,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     application = QApplication(sys.argv[:1])
     application.setApplicationName("LSP Mapper Overlay")
-    window = OverlayWindow(session, store, settings, CatalogStore())
+    key_state = Win32KeyState() if sys.platform == "win32" else NullKeyState()
+    if not key_state.is_ready():
+        LOGGER.info("Живой режим: чтение клавиш недоступно (не Windows)")
+    elif not key_state.num_lock_enabled():
+        LOGGER.warning("NumLock выключен: живой режим не увидит Numpad")
+    window = OverlayWindow(
+        session, store, settings, catalog_store=CatalogStore(), key_state=key_state
+    )
     window.show()
     _write_ready_marker(args.log_dir)
     LOGGER.info(
