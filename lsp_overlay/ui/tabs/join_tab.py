@@ -22,6 +22,7 @@ from lsp_overlay.domain.join import (
     MAX_JOIN_ANGLE,
     MIN_JOIN_ANGLE,
     MITRE_ANGLE,
+    AcrossField,
     JoinRequest,
     JoinScheme,
     JoinSide,
@@ -34,7 +35,8 @@ EMPTY_TEXT = "—"
 HINT = (
     "Стык считается в плане: «A» — предмет, который уже стоит, «B» — который приставляем. "
     "Буква Г: торец B к торцу A, внешние грани заподлицо (90°, 45° или свой угол). "
-    "Буква Т: торец B упирается в бок A. Координаты B пишутся в панель сразу, без F."
+    "Буква Т: торец B упирается в бок A. Координаты B пишутся в панель сразу, без F. "
+    "«Поперёк» — какой габарит считать глубиной детали в стыке."
 )
 
 
@@ -116,14 +118,31 @@ class JoinTab(QWidget):
         self.spin_angle.setSingleStep(5.0)
         self.spin_angle.valueChanged.connect(self._on_angle_value_changed)
         angles.addWidget(self.spin_angle, 1)
-        self.btn_90 = make_button("90°", "Прямой стык — буква Г", checkable=True)
-        self.btn_45 = make_button("45°", "Стык под 45° — фаска на угол", checkable=True)
+        self.btn_90 = make_button(
+            "90°", "Прямой стык — буква Г", object_name="stepButton", checkable=True
+        )
+        self.btn_45 = make_button(
+            "45°", "Стык под 45° — фаска на угол", object_name="stepButton", checkable=True
+        )
         self.btn_90.setChecked(True)
         self.btn_90.clicked.connect(lambda: self._set_angle(CORNER_ANGLE))
         self.btn_45.clicked.connect(lambda: self._set_angle(MITRE_ANGLE))
         for preset_button in (self.btn_90, self.btn_45):
             angles.addWidget(preset_button)
         column.addLayout(angles)
+
+        across_row = QHBoxLayout()
+        across_row.setSpacing(4)
+        across_row.addWidget(make_label("Поперёк", muted=True))
+        self.combo_across = QComboBox()
+        self.combo_across.setToolTip(
+            "Ширина — обычный поперечный габарит; толщина — если стыкуете плиты по толщине"
+        )
+        for field in AcrossField:
+            self.combo_across.addItem(field.label, field.value)
+        self.combo_across.currentIndexChanged.connect(self._on_geometry_changed)
+        across_row.addWidget(self.combo_across, 1)
+        column.addLayout(across_row)
 
         sides = QHBoxLayout()
         sides.setSpacing(8)
@@ -192,7 +211,12 @@ class JoinTab(QWidget):
         """Что и под каким углом приставляем."""
         scheme = JoinScheme.TEE if self.radio_tee.isChecked() else JoinScheme.CORNER
         side = JoinSide.LEFT if self.radio_left.isChecked() else JoinSide.RIGHT
-        return JoinRequest(scheme=scheme, angle=self.spin_angle.value(), side=side)
+        return JoinRequest(
+            scheme=scheme,
+            angle=self.spin_angle.value(),
+            side=side,
+            across=AcrossField(self.combo_across.currentData()),
+        )
 
     def selected_specs(self) -> tuple[ObjectSpec | None, ObjectSpec | None]:
         """Предметы A и B из списков."""

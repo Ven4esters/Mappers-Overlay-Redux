@@ -68,7 +68,7 @@ def test_window_has_seven_tabs(tmp_path: Path, qt_app: object) -> None:
 
 def test_join_places_second_object_without_pressing_f(tmp_path: Path, qt_app: object) -> None:
     window, panel = make_window(tmp_path, qt_app)
-    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0))
+    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, thickness=3.0))
     window.join_tab.combo_first.setCurrentIndex(0)
     window.join_tab.combo_second.setCurrentIndex(0)
     window.join_tab.place_requested.emit()
@@ -97,8 +97,8 @@ def test_join_tee_disables_angle_controls(tmp_path: Path, qt_app: object) -> Non
 
 def test_join_swap_makes_second_object_the_base(tmp_path: Path, qt_app: object) -> None:
     window, _panel = make_window(tmp_path, qt_app)
-    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0))
-    window.action_save_object(ObjectSpec(name="Забор", length=2.0, width=0.1, height=2.0))
+    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, thickness=3.0))
+    window.action_save_object(ObjectSpec(name="Забор", length=2.0, width=0.1, thickness=2.0))
     first = window.join_tab.selected_specs()[0]
     second = window.join_tab.selected_specs()[1]
     window.action_swap_join_objects()
@@ -112,7 +112,7 @@ def test_join_without_capture_warns(tmp_path: Path, qt_app: object) -> None:
     window = OverlayWindow(
         MappingSession(panel, settings), ConfigStore(tmp_path / "s.json"), settings
     )
-    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0))
+    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, thickness=3.0))
     window.join_tab.place_requested.emit()
     assert "Считать" in window.lbl_status.text()
 
@@ -231,6 +231,27 @@ def test_apply_without_capture_shows_error(tmp_path: Path, qt_app: object) -> No
     window.movement_tab.move_requested.emit(Direction.NORTH.value, 1.0)
     window.action_apply(commit=True)
     assert "Считать" in window.lbl_status.text()
+
+
+def test_join_can_switch_across_to_thickness(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    window.action_save_object(ObjectSpec(name="Плита", length=4.0, width=0.2, thickness=0.1))
+    window.join_tab.combo_first.setCurrentIndex(0)
+    window.join_tab.combo_second.setCurrentIndex(0)
+    index = window.join_tab.combo_across.findData("thickness")
+    window.join_tab.combo_across.setCurrentIndex(index)
+    window.join_tab.place_requested.emit()
+    assert panel.pose.x == pytest.approx(250.5 + 0.05 + 2.0)
+    assert panel.pose.y == pytest.approx(-810.25 + 1.95)
+
+
+def test_dimension_labels_in_objects_tab_have_thickness(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    headers = [
+        window.objects_tab.table.horizontalHeaderItem(index).text()
+        for index in range(window.objects_tab.table.columnCount())
+    ]
+    assert headers == ["Название", "Длина", "Ширина", "Толщина"]
 
 
 def test_height_is_editable_through_z_field(tmp_path: Path, qt_app: object) -> None:
@@ -407,7 +428,7 @@ def test_object_search_filters_table(tmp_path: Path, qt_app: object) -> None:
 
 def test_object_step_from_table(tmp_path: Path, qt_app: object) -> None:
     window, _panel = make_window(tmp_path, qt_app)
-    window.action_save_object(ObjectSpec(name="Забор", length=4.5, width=0.25, height=1.2))
+    window.action_save_object(ObjectSpec(name="Забор", length=4.5, width=0.25, thickness=1.2))
     assert window.objects_tab.select_name("Забор")
     window.objects_tab.btn_step.click()
     assert window.movement_tab.current_step() == pytest.approx(4.5)

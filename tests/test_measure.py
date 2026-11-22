@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from lsp_overlay.application.session import MappingSession
 from lsp_overlay.config import Settings
+from lsp_overlay.domain.catalog import Dimension
 from lsp_overlay.domain.errors import ValidationError
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.measure import MeasureSlot, MeasureTape, Span
@@ -28,6 +29,17 @@ def test_span_keeps_vertical_part_apart() -> None:
     assert span.planar == pytest.approx(0.0)
     assert span.vertical == pytest.approx(2.5)
     assert span.distance == pytest.approx(2.5)
+
+
+def test_thickness_is_measured_vertically() -> None:
+    span = Span.between(START, Pose(x=100.0, y=200.0, z=30.4))
+    assert span.dimension_value(Dimension.THICKNESS, (0.0, 0.0, 0.0)) == pytest.approx(0.4)
+
+
+def test_length_and_width_are_measured_along_own_axes() -> None:
+    span = Span.between(START, Pose(x=102.0, y=204.0, z=30.0))
+    assert span.dimension_value(Dimension.LENGTH, (0.0, 0.0, 0.0)) == pytest.approx(4.0)
+    assert span.dimension_value(Dimension.WIDTH, (0.0, 0.0, 0.0)) == pytest.approx(2.0)
 
 
 def test_heading_counts_clockwise_from_north() -> None:

@@ -168,7 +168,7 @@ def test_movement_respects_prop_yaw() -> None:
 
 def test_place_join_writes_second_object_without_confirming() -> None:
     session, panel = make_session()
-    wall = ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0)
+    wall = ObjectSpec(name="Стена", length=4.0, width=0.2, thickness=3.0)
     result = session.place_join(wall, wall, JoinRequest())
     assert result.fields
     assert panel.commits == 0
@@ -180,7 +180,7 @@ def test_place_join_writes_second_object_without_confirming() -> None:
 
 def test_place_join_can_be_chained_into_a_corner() -> None:
     session, panel = make_session()
-    wall = ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0)
+    wall = ObjectSpec(name="Стена", length=4.0, width=0.2, thickness=3.0)
     first = session.place_join(wall, wall, JoinRequest(scheme=JoinScheme.CORNER))
     second = session.place_join(
         wall, wall, JoinRequest(scheme=JoinScheme.CORNER, side=JoinSide.LEFT)
@@ -194,13 +194,13 @@ def test_place_join_can_be_chained_into_a_corner() -> None:
 def test_place_join_needs_captured_panel() -> None:
     panel = FakeGamePanel()
     session = MappingSession(panel, Settings())
-    wall = ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0)
+    wall = ObjectSpec(name="Стена", length=4.0, width=0.2, thickness=3.0)
     with pytest.raises(PanelUnavailableError, match="Считать"):
         session.place_join(wall, wall, JoinRequest())
 
 
 def test_place_join_stops_too_long_jump() -> None:
     session, _panel = make_session()
-    long_wall = ObjectSpec(name="Длинная", length=60.0, width=0.2, height=3.0)
+    long_wall = ObjectSpec(name="Длинная", length=60.0, width=0.2, thickness=3.0)
     with pytest.raises(JumpTooLargeError):
         session.place_join(long_wall, long_wall, JoinRequest())

@@ -94,9 +94,10 @@ class Span:
         """Длина предмета по одному габариту.
 
         ``Длина`` и ``Ширина`` берутся вдоль локальных осей предмета (поэтому поворот
-        пропа не мешает), ``Высота`` — по вертикали мира.
+        пропа не мешает), ``Толщина`` — по вертикали мира: её меряют, поставив проп
+        на верхнюю и на нижнюю грань плиты.
         """
-        if dimension is Dimension.HEIGHT:
+        if dimension is Dimension.THICKNESS:
             return self.vertical
         index = 1 if dimension is Dimension.LENGTH else 0
         return abs(self.local_offsets(angles)[index])

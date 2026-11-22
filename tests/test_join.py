@@ -13,6 +13,7 @@ from lsp_overlay.domain.join import (
     MAX_JOIN_ANGLE,
     MITRE_ANGLE,
     TEE_ANGLE,
+    AcrossField,
     JoinRequest,
     JoinScheme,
     JoinSide,
@@ -22,8 +23,8 @@ from lsp_overlay.domain.join import (
 )
 from lsp_overlay.domain.pose import Pose
 
-WALL = ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0)
-FENCE = ObjectSpec(name="Забор", length=2.0, width=0.1, height=2.0)
+WALL = ObjectSpec(name="Стена", length=4.0, width=0.2, thickness=3.0)
+FENCE = ObjectSpec(name="Забор", length=2.0, width=0.1, thickness=2.0)
 BASE = Pose(x=0.0, y=0.0, z=1.0, rz=0.0)
 
 
@@ -120,6 +121,21 @@ def test_second_object_never_overlaps_first() -> None:
     # центр B ушёл от точки контакта наружу, то есть B целиком снаружи A
     assert target.x > 0.05
     assert target.y > 1.0
+
+
+def test_join_can_use_thickness_as_across_size() -> None:
+    target = join_pose(
+        BASE, WALL, WALL, JoinRequest(scheme=JoinScheme.CORNER, across=AcrossField.THICKNESS)
+    )
+    # толщина 3.0 вместо ширины 0.2: B отходит от оси A дальше
+    assert target.x == pytest.approx(3.0 / 2.0 + 2.0)
+    assert target.y == pytest.approx(2.0 - 3.0 / 2.0)
+
+
+def test_join_requires_measured_across_size() -> None:
+    plate = ObjectSpec(name="Плита", length=4.0, width=0.2)
+    with pytest.raises(ValidationError, match="толщина"):
+        join_pose(BASE, plate, plate, JoinRequest(across=AcrossField.THICKNESS))
 
 
 def test_angles_are_normalized() -> None:

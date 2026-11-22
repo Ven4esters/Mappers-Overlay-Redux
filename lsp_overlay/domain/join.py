@@ -15,7 +15,7 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 
-from lsp_overlay.domain.catalog import ObjectSpec
+from lsp_overlay.domain.catalog import Dimension, ObjectSpec
 from lsp_overlay.domain.errors import ValidationError
 from lsp_overlay.domain.geometry import rotation_matrix, transform
 from lsp_overlay.domain.pose import Axis, Pose
@@ -26,6 +26,23 @@ MIN_JOIN_ANGLE = 5.0
 MAX_JOIN_ANGLE = 175.0
 TEE_ANGLE = 90.0
 ACROSS_EPSILON = 1e-9
+
+
+class AcrossField(StrEnum):
+    """Какой габарит считать поперечным размером при стыке."""
+
+    WIDTH = "width"
+    THICKNESS = "thickness"
+
+    @property
+    def dimension(self) -> Dimension:
+        """Габарит, из которого берётся поперечный размер."""
+        return Dimension.WIDTH if self is AcrossField.WIDTH else Dimension.THICKNESS
+
+    @property
+    def label(self) -> str:
+        """Название для интерфейса."""
+        return self.dimension.label
 
 
 class JoinScheme(StrEnum):
@@ -66,11 +83,14 @@ class JoinRequest:
     scheme: JoinScheme = JoinScheme.CORNER
     angle: float = CORNER_ANGLE
     side: JoinSide = JoinSide.RIGHT
+    across: AcrossField = AcrossField.WIDTH
 
     def validated(self) -> JoinRequest:
         """Проверяет угол и приводит его к допустимому диапазону."""
         if self.scheme is JoinScheme.TEE:
-            return JoinRequest(scheme=self.scheme, angle=TEE_ANGLE, side=self.side)
+            return JoinRequest(
+                scheme=self.scheme, angle=TEE_ANGLE, side=self.side, across=self.across
+            )
         if not math.isfinite(self.angle):
             raise ValidationError("угол стыка должен быть числом")
         if not MIN_JOIN_ANGLE <= self.angle <= MAX_JOIN_ANGLE:
@@ -78,19 +98,20 @@ class JoinRequest:
         return self
 
 
-def across_of(spec: ObjectSpec) -> float:
+def across_of(spec: ObjectSpec, field: AcrossField = AcrossField.WIDTH) -> float:
     """Поперечный размер предмета: он определяет, насколько глубоко деталь встаёт в стык."""
-    return spec.width
+    return spec.dimension(field.dimension)
 
 
-def _ensure_measurable(spec: ObjectSpec) -> None:
+def _ensure_measurable(spec: ObjectSpec, field: AcrossField) -> None:
     if spec.length <= ACROSS_EPSILON:
         raise ValidationError(
             f"у предмета «{spec.name}» не измерена длина — без неё стык не посчитать"
         )
-    if across_of(spec) <= ACROSS_EPSILON:
+    if across_of(spec, field) <= ACROSS_EPSILON:
         raise ValidationError(
-            f"у предмета «{spec.name}» не измерена ширина — без неё стык не посчитать"
+            f"у предмета «{spec.name}» не измерено «{field.label.lower()}» — "
+            "без него стык не посчитать"
         )
 
 
@@ -101,11 +122,11 @@ def local_offset(
 ) -> tuple[float, float]:
     """Смещение центра ``B`` в локальных осях ``A`` (поперёк, вдоль)."""
     request = request.validated()
-    _ensure_measurable(first)
-    _ensure_measurable(second)
+    _ensure_measurable(first, request.across)
+    _ensure_measurable(second, request.across)
     side = request.side.turn
-    half_across_first = across_of(first) / 2.0
-    half_across_second = across_of(second) / 2.0
+    half_across_first = across_of(first, request.across) / 2.0
+    half_across_second = across_of(second, request.across) / 2.0
     half_length_second = second.length / 2.0
 
     if request.scheme is JoinScheme.TEE:

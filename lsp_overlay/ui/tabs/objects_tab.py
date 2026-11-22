@@ -26,7 +26,7 @@ COLUMNS: tuple[tuple[str, int], ...] = (
     ("Название", 190),
     ("Длина", 70),
     ("Ширина", 70),
-    ("Высота", 70),
+    ("Толщина", 70),
 )
 EMPTY_TEXT = "—"
 HINT = (
@@ -159,7 +159,7 @@ class ObjectsTab(QWidget):
                 name=name,
                 length=self._dimensions.get(Dimension.LENGTH, 0.0),
                 width=self._dimensions.get(Dimension.WIDTH, 0.0),
-                height=self._dimensions.get(Dimension.HEIGHT, 0.0),
+                thickness=self._dimensions.get(Dimension.THICKNESS, 0.0),
             )
         except DomainError as error:
             self.status_message.emit(str(error), "error")
@@ -240,5 +240,5 @@ def _row_texts(spec: ObjectSpec) -> tuple[str, str, str, str]:
         spec.name,
         f"{format_length(spec.length, 2)} м",
         f"{format_length(spec.width, 2)} м",
-        f"{format_length(spec.height, 2)} м",
+        f"{format_length(spec.thickness, 2)} м",
     )

@@ -1,4 +1,9 @@
-"""Каталог предметов: название и три измеренных габарита."""
+"""Каталог предметов: название и три измеренных габарита.
+
+Габариты: ``Длина`` (вдоль длинной стороны), ``Ширина`` (поперёк) и ``Толщина``
+(третье измерение — толщина плиты/панели). Высоты в этой модели нет: мапперу она
+не нужна, а третье число — именно толщина.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +23,7 @@ class Dimension(StrEnum):
 
     LENGTH = "length"
     WIDTH = "width"
-    HEIGHT = "height"
+    THICKNESS = "thickness"
 
     @property
     def label(self) -> str:
@@ -26,13 +31,13 @@ class Dimension(StrEnum):
         return {
             Dimension.LENGTH: "Длина",
             Dimension.WIDTH: "Ширина",
-            Dimension.HEIGHT: "Высота",
+            Dimension.THICKNESS: "Толщина",
         }[self]
 
     @property
     def short(self) -> str:
         """Короткая подпись для компактных строк."""
-        return {"length": "Д", "width": "Ш", "height": "В"}[self.value]
+        return {"length": "Д", "width": "Ш", "thickness": "Т"}[self.value]
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +47,7 @@ class ObjectSpec:
     name: str
     length: float = 0.0
     width: float = 0.0
-    height: float = 0.0
+    thickness: float = 0.0
 
     def __post_init__(self) -> None:
         cleaned = self.name.strip()
@@ -70,7 +75,7 @@ class ObjectSpec:
             return replace(self, length=value)
         if dimension is Dimension.WIDTH:
             return replace(self, width=value)
-        return replace(self, height=value)
+        return replace(self, thickness=value)
 
     def dimension(self, dimension: Dimension) -> float:
         """Значение габарита."""
@@ -92,7 +97,7 @@ class ObjectSpec:
             "name": self.name,
             "length": self.length,
             "width": self.width,
-            "height": self.height,
+            "thickness": self.thickness,
         }
 
     @classmethod
@@ -100,12 +105,14 @@ class ObjectSpec:
         """Разбирает запись из JSON."""
         if not isinstance(data, dict):
             raise ValidationError("предмет должен быть объектом JSON")
+        thickness = data.get("thickness", data.get("height", 0.0))
         try:
             return cls(
                 name=str(data["name"]),
                 length=float(data.get("length", 0.0)),
                 width=float(data.get("width", 0.0)),
-                height=float(data.get("height", 0.0)),
+                # «height» — старое имя того же третьего габарита: файлы 2.6.x читаются как есть
+                thickness=0.0 if thickness is None else float(thickness),
             )
         except (KeyError, TypeError, ValueError) as error:
             raise ValidationError(f"битая запись предмета: {error}") from error
