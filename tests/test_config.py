@@ -93,3 +93,43 @@ def test_unknown_calibration_field_is_rejected() -> None:
 def test_non_object_root_is_rejected() -> None:
     with pytest.raises(ConfigError, match="объектом"):
         Settings.from_dict([])  # type: ignore[arg-type]
+
+
+def test_default_timings_are_fast() -> None:
+    from lsp_overlay.config import PanelTimings
+
+    timings = PanelTimings()
+    assert timings.click <= 0.05
+    assert timings.field <= 0.05
+    assert timings.commit <= 0.1
+    assert timings.clipboard <= 0.2
+
+
+def test_clipboard_timeout_survives_json_roundtrip() -> None:
+    from lsp_overlay.config import PanelTimings, Settings
+
+    settings = Settings(timings=PanelTimings(clipboard=0.3))
+    restored = Settings.from_dict(settings.to_dict())
+    assert restored.timings.clipboard == pytest.approx(0.3)
+
+
+def test_legacy_timings_are_migrated_to_fast_defaults() -> None:
+    from lsp_overlay.config import PanelTimings, Settings
+
+    legacy = {
+        "click": 0.08,
+        "field": 0.10,
+        "paste": 0.10,
+        "commit": 0.18,
+        "focus": 0.20,
+    }
+    settings = Settings.from_dict({"timings": legacy})
+    assert settings.timings == PanelTimings()
+
+
+def test_custom_timings_are_kept() -> None:
+    from lsp_overlay.config import Settings
+
+    settings = Settings.from_dict({"timings": {"click": 0.05, "field": 0.2}})
+    assert settings.timings.click == pytest.approx(0.05)
+    assert settings.timings.field == pytest.approx(0.2)

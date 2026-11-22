@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from lsp_overlay.application.errors import PanelUnavailableError
 from lsp_overlay.config import Calibration, PanelTimings, Point
@@ -18,6 +18,9 @@ from lsp_overlay.infrastructure.win32_input import InputBackend, InputUnavailabl
 LOGGER = logging.getLogger(__name__)
 DEFAULT_SLEEP: Callable[[float], None] = time.sleep
 READ_ATTEMPTS = 2
+CLIPBOARD_POLL = 0.004
+CURSOR_TOLERANCE = 4
+MARKER_PREFIX = "lsp-overlay-marker"
 
 
 class ClipboardPanel:
@@ -45,6 +48,7 @@ class ClipboardPanel:
         self._length_decimals = length_decimals
         self._confirm_key = confirm_key
         self._sleep = sleep
+        self._marker_seq = 0
 
     def is_available(self) -> bool:
         """Готова ли панель: есть калибровка и доступен ввод."""
@@ -66,8 +70,12 @@ class ClipboardPanel:
 
     def read_pose(self) -> Pose:
         """Читает все шесть полей."""
-        values = {key: self.read_field(key) for key in FieldKey}
+        values = self.read_fields(tuple(FieldKey))
         return Pose(**{key.value: values[key] for key in FieldKey})
+
+    def read_fields(self, keys: Sequence[FieldKey]) -> dict[FieldKey, float]:
+        """Читает только указанные поля — быстрее, чем вся панель."""
+        return {key: self.read_field(key) for key in keys}
 
     def read_field(self, key: FieldKey) -> float:
         """Читает одно поле; если в буфере мусор — пробует ещё раз."""
@@ -83,16 +91,12 @@ class ClipboardPanel:
     def _read_field_once(self, key: FieldKey) -> float:
         point = self._point(key)
         self._focus(point)
-        self._input.click(*point.as_tuple())
-        self._sleep(self._timings.click)
+        marker = self._write_marker()
+        self._click(point)
         self._input.press_combination("ctrl", "a")
         self._sleep(self._timings.field)
         self._input.press_combination("ctrl", "c")
-        self._sleep(self._timings.field)
-        try:
-            text = self._clipboard.get_text()
-        except ClipboardError as error:
-            raise PanelUnavailableError(str(error)) from error
+        text = self._wait_for_clipboard(marker)
         try:
             return parse_number(text)
         except DomainError as error:
@@ -108,8 +112,7 @@ class ClipboardPanel:
             self._focus(next(iter(points.values())))
         for key, value in values.items():
             point = points[key]
-            self._input.click(*point.as_tuple())
-            self._sleep(self._timings.click)
+            self._click(point)
             self._input.press_combination("ctrl", "a")
             self._sleep(self._timings.field)
             # в поле пишем чистое число: «°» оставляем только для отображения в оверлее
@@ -151,6 +154,50 @@ class ClipboardPanel:
         except InputUnavailableError as error:
             raise PanelUnavailableError(str(error)) from error
         self._sleep(self._timings.commit)
+
+    def _click(self, point: Point) -> None:
+        """Кликает и проверяет, что курсор остался на месте: мышь могла сдвинуть рукой.
+
+        Пока идёт макрос, двигать мышью нельзя: промах клика пишет число в чужое поле.
+        """
+        self._input.click(*point.as_tuple())
+        self._sleep(self._timings.click)
+        position = self._input.cursor_position()
+        if position is None:
+            return
+        if (
+            abs(position[0] - point.x) > CURSOR_TOLERANCE
+            or abs(position[1] - point.y) > CURSOR_TOLERANCE
+        ):
+            raise PanelUnavailableError(
+                "курсор сдвинули во время макроса — не двигайте мышь, пока идёт ввод"
+            )
+
+    def _write_marker(self) -> str:
+        """Кладёт в буфер уникальную метку: по ней видно, что ``Ctrl+C`` уже сработал."""
+        marker = f"{MARKER_PREFIX}{self._marker_seq}"
+        self._marker_seq += 1
+        try:
+            self._clipboard.set_text(marker)
+        except ClipboardError:
+            LOGGER.debug("Не удалось положить метку в буфер, читаю как есть")
+        return marker
+
+    def _wait_for_clipboard(self, marker: str) -> str:
+        """Ждёт, пока в буфере появится текст поля, но не дольше таймаута."""
+        deadline = self._timings.clipboard
+        waited = 0.0
+        text = marker
+        while waited <= deadline:
+            try:
+                text = self._clipboard.get_text()
+            except ClipboardError as error:
+                raise PanelUnavailableError(str(error)) from error
+            if text != marker and text.strip():
+                return text
+            self._sleep(CLIPBOARD_POLL)
+            waited += CLIPBOARD_POLL
+        return text
 
     def _focus(self, point: Point) -> None:
         """Активирует окно игры, если оно не в фокусе: первый клик иначе съедается."""

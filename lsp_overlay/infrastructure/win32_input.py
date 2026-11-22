@@ -99,6 +99,9 @@ class InputBackend(Protocol):
     def click(self, x: int, y: int) -> None:
         """Кликает левой кнопкой по экранной точке."""
 
+    def cursor_position(self) -> tuple[int, int] | None:
+        """Текущая позиция курсора или ``None``, если её не узнать."""
+
 
 if sys.platform == "win32":  # pragma: no cover - выполняется только на Windows
     _ULONG_PTR = ctypes.c_size_t
@@ -234,6 +237,15 @@ class Win32InputBackend:
         self.click(x, y)
         return True
 
+    def cursor_position(self) -> tuple[int, int] | None:
+        """Позиция курсора через ``GetCursorPos``."""
+        if sys.platform != "win32":  # pragma: no cover
+            return None
+        point = ctypes.wintypes.POINT()
+        if not _user32.GetCursorPos(ctypes.byref(point)):  # pragma: no cover
+            return None
+        return int(point.x), int(point.y)
+
     def tap_key(self, key: str) -> None:
         """Одиночное нажатие клавиши."""
         code = self._virtual_key(key)
@@ -330,6 +342,10 @@ class NullInputBackend:
     def click(self, x: int, y: int) -> None:
         """Ничего не делает."""
         raise InputUnavailableError("ввод недоступен")
+
+    def cursor_position(self) -> tuple[int, int] | None:
+        """Позиция курсора неизвестна."""
+        return None
 
 
 class Win32KeyState:

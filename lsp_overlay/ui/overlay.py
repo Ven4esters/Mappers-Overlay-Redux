@@ -10,6 +10,7 @@ from dataclasses import replace
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFocusEvent, QKeyEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -58,6 +59,7 @@ DOUBLE = 2.0
 REPEAT_INTERVAL_MS = 90
 REPEAT_TIMEOUT_S = 0.6
 MAX_LIVE_STEPS = 300
+BUSY_HINT = "Идёт обмен с панелью — не двигайте мышь"
 LIVE_POLL_MS = 250
 KEYS_POLL_MS = 60
 FLASH_MS = 120
@@ -258,11 +260,14 @@ class OverlayWindow(QWidget):
     # ----------------------------------------------------------------- действия
     def action_capture(self) -> None:
         """Читает реальные координаты пропа."""
+        self._busy("Считываю координаты — не двигайте мышь")
         try:
             pose = self._session.capture()
         except DomainError as error:
             self._fail(error)
             return
+        finally:
+            self._idle()
         self._set_status(f"Считано: {describe_pose(pose)}", "success")
         self._refresh()
 
@@ -288,6 +293,7 @@ class OverlayWindow(QWidget):
             self._stop_live()
 
     def _start_live(self) -> None:
+        self._busy("Клонирую объект — не двигайте мышь")
         try:
             self._session.clone_object()
             self._session.capture()
@@ -295,6 +301,8 @@ class OverlayWindow(QWidget):
             self.movement_tab.set_live(False)
             self._fail(error)
             return
+        finally:
+            self._idle()
         self._live.start()
         self._live_timer.start()
         if self._key_hook.is_available() and self._key_hook.start(self._on_hooked_key):
@@ -429,11 +437,14 @@ class OverlayWindow(QWidget):
 
     def action_remember_point(self, slot: str) -> None:
         """Считывает координаты из игры и запоминает их как точку рулетки."""
+        self._busy("Считываю координаты — не двигайте мышь")
         try:
             self._session.capture()
         except DomainError as error:
             self._fail(error)
             return
+        finally:
+            self._idle()
         span = self._session.remember_point(MeasureSlot(slot))
         point = MeasureSlot(slot)
         if span is None:
@@ -529,11 +540,14 @@ class OverlayWindow(QWidget):
 
     def action_apply(self, *, commit: bool) -> None:
         """Пишет изменения в игру."""
+        self._busy("Записываю поля — не двигайте мышь")
         try:
             result = self._session.apply(commit=commit)
         except DomainError as error:
             self._fail(error)
             return
+        finally:
+            self._idle()
         if not result.fields:
             self._set_status("Изменений нет — нечего записывать", "info")
         else:
@@ -546,6 +560,16 @@ class OverlayWindow(QWidget):
     def _fail(self, error: Exception) -> None:
         LOGGER.warning("Ошибка действия: %s", error)
         self._set_status(str(error), "error")
+
+    def _busy(self, text: str = BUSY_HINT) -> None:
+        """Говорит, что макрос забрал мышь, и успевает перерисовать строку состояния."""
+        self._set_status(text, "info")
+        self.setCursor(Qt.CursorShape.BusyCursor)
+        QApplication.processEvents()
+
+    def _idle(self) -> None:
+        """Возвращает обычный курсор после макроса."""
+        self.unsetCursor()
 
     def _set_status(self, text: str, level: str = "info") -> None:
         self.lbl_status.setText(text)

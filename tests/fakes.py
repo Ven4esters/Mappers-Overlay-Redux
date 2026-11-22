@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from lsp_overlay.application.errors import PanelUnavailableError
 from lsp_overlay.config import Calibration, Point
@@ -23,6 +23,7 @@ class FakeGamePanel:
         self.ignore_fields: set[FieldKey] = set()
         self.ignore_once_fields: set[FieldKey] = set()
         self.keys: list[str] = []
+        self.read_fields_calls: list[tuple[FieldKey, ...]] = []
 
     def is_available(self) -> bool:
         return self.available
@@ -44,6 +45,13 @@ class FakeGamePanel:
             raise PanelUnavailableError("панель недоступна")
         self.reads += 1
         return self.pose
+
+    def read_fields(self, keys: Sequence[FieldKey]) -> dict[FieldKey, float]:
+        if not self.available:
+            raise PanelUnavailableError("панель недоступна")
+        self.reads += 1
+        self.read_fields_calls.append(tuple(keys))
+        return {key: get_field(self.pose, key) for key in keys}
 
     def write_fields(self, values: Mapping[FieldKey, float]) -> None:
         if self.fail_write:
@@ -79,6 +87,8 @@ class FakeInput:
         self.ready = ready
         self.game = game
         self.needs_activation = False
+        self.cursor: tuple[int, int] | None = None
+        self.cursor_drift: tuple[int, int] | None = None
 
     def is_ready(self) -> bool:
         return self.ready
@@ -100,8 +110,15 @@ class FakeInput:
 
     def click(self, x: int, y: int) -> None:
         self.events.append(("click", f"{x},{y}"))
+        self.cursor = (x, y)
         if self.game is not None:
             self.game.handle_click(x, y)
+
+    def cursor_position(self) -> tuple[int, int] | None:
+        if self.cursor_drift is not None:
+            # имитация: руку положили на мышь и курсор уехал
+            return self.cursor_drift
+        return self.cursor
 
 
 class FakeClipboard:
@@ -110,12 +127,19 @@ class FakeClipboard:
     def __init__(self, text: str = "") -> None:
         self.text = text
         self.queue: list[str] = []
+        self.lazy_polls = 0
+        self._last_set = ""
 
     def get_text(self) -> str:
+        if self.lazy_polls > 0:
+            # имитация: Ctrl+C ещё не дошёл, в буфере лежит прежнее значение
+            self.lazy_polls -= 1
+            return self._last_set
         return self.queue.pop(0) if self.queue else self.text
 
     def set_text(self, text: str) -> None:
         self.text = text
+        self._last_set = text
 
 
 class FakeLspGame:

@@ -159,3 +159,46 @@ def test_tap_key_sends_configured_key() -> None:
     panel, _game, fake_input = make_panel()
     panel.tap_key("delete")
     assert ("key", "delete") in fake_input.events
+
+
+def test_read_waits_until_clipboard_gets_the_value() -> None:
+    panel, game, _input = make_panel()
+    game.clipboard.lazy_polls = 3
+    assert panel.read_field(FieldKey.Y) == pytest.approx(POSE.y)
+
+
+def test_read_gives_up_when_clipboard_stays_stale() -> None:
+    panel, game, _input = make_panel()
+    game.clipboard.lazy_polls = 10_000
+    with pytest.raises(PanelUnavailableError):
+        panel.read_field(FieldKey.Y)
+
+
+def test_mouse_drift_aborts_the_macro() -> None:
+    panel, _game, fake_input = make_panel()
+    fake_input.cursor_drift = (0, 0)
+    with pytest.raises(PanelUnavailableError, match="курсор сдвинули"):
+        panel.read_field(FieldKey.X)
+
+
+def test_read_fields_reads_only_requested_keys() -> None:
+    panel, _game, fake_input = make_panel()
+    values = panel.read_fields((FieldKey.X,))
+    assert values == {FieldKey.X: pytest.approx(POSE.x)}
+    clicks = [event for event in fake_input.events if event[0] == "click"]
+    assert len(clicks) == 1
+
+
+def test_writer_verifies_only_written_fields() -> None:
+    panel, _game, fake_input = make_panel()
+    from lsp_overlay.application.writer import FieldWriter
+
+    writer = FieldWriter(panel)
+    before = panel.read_pose()
+    fake_input.events.clear()
+    target = before.translated((0.0, 1.0, 0.0))
+    result = writer.write(before, target, (FieldKey.Y,))
+    assert result.verified
+    clicks = [event for event in fake_input.events if event[0] == "click"]
+    # клик на запись поля + клик на проверку одного поля, а не вся панель
+    assert len(clicks) == 2

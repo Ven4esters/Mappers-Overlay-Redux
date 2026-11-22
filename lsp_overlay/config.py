@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Final
 
 from lsp_overlay.domain.directions import DiagonalMode
 from lsp_overlay.domain.fields import FIELD_ORDER, FieldKey
@@ -44,15 +44,16 @@ class Point:
 class PanelTimings:
     """Паузы между действиями макроса, секунды."""
 
-    click: float = 0.08
-    field: float = 0.10
-    paste: float = 0.10
-    commit: float = 0.18
-    focus: float = 0.20
+    click: float = 0.03
+    field: float = 0.04
+    paste: float = 0.04
+    commit: float = 0.08
+    focus: float = 0.12
+    clipboard: float = 0.12
 
     def validated(self) -> PanelTimings:
         """Проверяет, что паузы в разумных пределах (0…1 с)."""
-        for name in ("click", "field", "paste", "commit", "focus"):
+        for name in ("click", "field", "paste", "commit", "focus", "clipboard"):
             value = getattr(self, name)
             if not math.isfinite(value) or not 0.0 <= value <= 2.0:
                 raise ConfigError(f"пауза {name} должна быть в диапазоне 0…2 с")
@@ -156,6 +157,7 @@ class Settings:
                 "paste": self.timings.paste,
                 "commit": self.timings.commit,
                 "focus": self.timings.focus,
+                "clipboard": self.timings.clipboard,
             },
             "calibration": {
                 "placeholder": list(self.calibration.placeholder.as_tuple())
@@ -213,14 +215,29 @@ def _point(value: Any) -> Point | None:
         raise ConfigError("координаты точки должны быть целыми") from error
 
 
+LEGACY_TIMINGS: Final[dict[str, float]] = {
+    "click": 0.08,
+    "field": 0.10,
+    "paste": 0.10,
+    "commit": 0.18,
+    "focus": 0.20,
+}
+
+
 def _timings_from(data: Mapping[str, Any]) -> PanelTimings:
+    """Читает паузы; файлы от версий ≤ 2.4.1 переводятся на новые быстрые значения."""
     defaults = PanelTimings()
+    if "clipboard" not in data and all(
+        float(data.get(name, value)) == value for name, value in LEGACY_TIMINGS.items()
+    ):
+        return defaults
     return PanelTimings(
         click=float(data.get("click", defaults.click)),
         field=float(data.get("field", defaults.field)),
         paste=float(data.get("paste", defaults.paste)),
         commit=float(data.get("commit", defaults.commit)),
         focus=float(data.get("focus", defaults.focus)),
+        clipboard=float(data.get("clipboard", defaults.clipboard)),
     )
 
 

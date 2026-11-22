@@ -95,13 +95,14 @@ class FieldWriter:
             ) from error
 
     def _mismatched(self, target: Pose, fields: Sequence[FieldKey]) -> list[FieldKey]:
-        actual = self._panel.read_pose()
+        """Сверяет только записанные поля: читать всю панель ради одного числа долго."""
+        actual = self._panel.read_fields(tuple(fields))
         return [
             key
             for key in fields
             if not values_match(
                 get_field(target, key),
-                get_field(actual, key),
+                actual[key],
                 angle=is_angle_field(key),
             )
         ]

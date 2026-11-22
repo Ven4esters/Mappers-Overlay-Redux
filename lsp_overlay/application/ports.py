@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol, runtime_checkable
 
 from lsp_overlay.config import Calibration, PanelTimings
@@ -33,6 +33,9 @@ class GamePanelPort(Protocol):
 
     def read_pose(self) -> Pose:
         """Читает все шесть полей из игры."""
+
+    def read_fields(self, keys: Sequence[FieldKey]) -> dict[FieldKey, float]:
+        """Читает только указанные поля — для проверки записи."""
 
     def write_fields(self, values: Mapping[FieldKey, float]) -> None:
         """Вставляет значения в указанные поля (без подтверждения)."""

@@ -586,3 +586,18 @@ def test_live_guard_stops_runaway(tmp_path: Path, qt_app: object) -> None:
     assert not window._live.is_running
     assert window.lbl_status.property("level") == "error"
     assert not window.movement_tab.btn_live.isChecked()
+
+
+def test_capture_warns_about_mouse_before_touching_panel(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    seen: dict[str, str] = {}
+    original = window._session.capture
+
+    def spy() -> Pose:
+        seen["status"] = window.lbl_status.text()
+        return original()
+
+    window._session.capture = spy  # type: ignore[method-assign]
+    window.action_capture()
+    assert "не двигайте мышь" in seen["status"]
+    assert window.lbl_status.text().startswith("Считано")
