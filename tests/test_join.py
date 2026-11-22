@@ -169,6 +169,26 @@ def test_tilt_moves_second_object_vertically() -> None:
     assert distance == pytest.approx(local)
 
 
+def test_matches_hand_placed_example_from_game() -> None:
+    """Сверка с ручной установкой игрока: A под 70°, стена 2.7 × 0.1, Г влево."""
+    base = Pose(x=-1847.342, y=420.077, z=128.316, rz=70.0)
+    wall = ObjectSpec(name="Стена March 0-64", length=2.7, width=2.5, thickness=0.1)
+    target = join_pose(base, wall, wall, corner(90.0, JoinSide.LEFT))
+    hand = Pose(x=-1849.037, y=419.168, z=128.316, rz=160.0)
+    assert target.rz == pytest.approx(hand.rz)
+    assert math.dist((target.x, target.y), (hand.x, hand.y)) == pytest.approx(0.038, abs=0.02)
+    # угол B стоит ровно в угле A
+    x, y = near_corner(wall, target, 90.0, JoinSide.LEFT, base.rz)
+    radians = math.radians(base.rz)
+    corner_x, corner_y = -0.05, 1.35
+    expected = (
+        base.x + corner_x * math.cos(radians) - corner_y * math.sin(radians),
+        base.y + corner_x * math.sin(radians) + corner_y * math.cos(radians),
+    )
+    assert x == pytest.approx(expected[0], abs=1e-9)
+    assert y == pytest.approx(expected[1], abs=1e-9)
+
+
 def test_angles_are_normalized() -> None:
     base = Pose(x=0.0, y=0.0, z=0.0, rz=170.0)
     target = join_pose(base, WALL, WALL, corner(side=JoinSide.LEFT))

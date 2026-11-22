@@ -128,6 +128,8 @@ def test_join_tab_shows_base_angle_and_across_value(tmp_path: Path, qt_app: obje
     window.join_tab.combo_second.setCurrentIndex(0)
     assert "угол 70.0°" in window.join_tab.base_line()
     assert window.join_tab.across_text() == "0.200 м"
+    assert "поперёк" in window.join_tab.shift_text()
+    assert "вдоль длины" in window.join_tab.shift_text()
     window.join_tab.place_requested.emit()
     assert "угол A 70.0° → B -20.0°" in window.lbl_status.text()
 

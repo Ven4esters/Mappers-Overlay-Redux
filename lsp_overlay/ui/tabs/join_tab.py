@@ -27,6 +27,7 @@ from lsp_overlay.domain.join import (
     JoinScheme,
     JoinSide,
     join_pose,
+    local_offset,
 )
 from lsp_overlay.domain.pose import Pose
 from lsp_overlay.ui.widgets import make_button, make_label, make_number_editor
@@ -171,7 +172,9 @@ class JoinTab(QWidget):
             value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self._value_labels[key] = value
             grid.addWidget(value, row, 1)
-        grid.addWidget(self.lbl_base, len(self._value_labels), 0, 1, 2)
+        self.lbl_shift = make_label(EMPTY_TEXT, muted=True, wrap=True)
+        grid.addWidget(self.lbl_shift, len(self._value_labels), 0, 1, 2)
+        grid.addWidget(self.lbl_base, len(self._value_labels) + 1, 0, 1, 2)
         return group
 
     def _build_actions(self) -> QWidget:
@@ -274,6 +277,7 @@ class JoinTab(QWidget):
         first, second = self.selected_specs()
         self._update_base_line()
         self._update_across_value(first, second)
+        self._update_shift_line(first, second)
         texts = dict.fromkeys(self._value_labels, EMPTY_TEXT)
         if first is not None and second is not None:
             try:
@@ -300,6 +304,24 @@ class JoinTab(QWidget):
         self.combo_first.blockSignals(False)
         self.combo_second.blockSignals(False)
         self._update_preview()
+
+    def _update_shift_line(self, first: ObjectSpec | None, second: ObjectSpec | None) -> None:
+        """Сдвиг от A в его собственных осях: поперёк и вдоль длины."""
+        if first is None or second is None:
+            self.lbl_shift.setText(EMPTY_TEXT)
+            return
+        try:
+            across, along = local_offset(first, second, self.request())
+        except DomainError:
+            self.lbl_shift.setText(EMPTY_TEXT)
+            return
+        self.lbl_shift.setText(
+            f"Сдвиг от A: {abs(across):.3f} м поперёк · {along:.3f} м вдоль длины"
+        )
+
+    def shift_text(self) -> str:
+        """Строка сдвига в осях A (для тестов)."""
+        return self.lbl_shift.text()
 
     def _update_base_line(self) -> None:
         pose = self._pose
