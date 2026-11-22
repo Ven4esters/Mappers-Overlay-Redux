@@ -501,6 +501,10 @@ class OverlayWindow(QWidget):
     def action_measure_dimension(self, dimension: str) -> None:
         """Записывает текущий замер в выбранный габарит предмета."""
         target = Dimension(dimension)
+        issue = self._session.measurement_issue(target)
+        if issue is not None:
+            self._set_status(issue, "error")
+            return
         value = self._session.record_dimension(target)
         if value is None:
             self._set_status("Сначала сделайте два разных замера", "warning")
@@ -689,7 +693,9 @@ class OverlayWindow(QWidget):
         self.btn_apply_commit.setEnabled(pending > 0)
 
     def _refresh_tape(self) -> None:
-        self.measure_tab.update_tape(self._session.tape_points(), self._session.span)
+        self.measure_tab.update_tape(
+            self._session.tape_points(), self._session.span, self._session.projections()
+        )
 
     def _refresh_objects(self) -> None:
         self.objects_tab.set_pending(self._session.pending_dimensions)

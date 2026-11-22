@@ -13,6 +13,10 @@ from lsp_overlay.domain.pose import Pose
 
 FULL_TURN = 360.0
 MIN_MEANINGFUL_SPAN = 0.001
+SMALL_DIMENSION = 0.02
+SIGNIFICANT_DISTANCE = 0.5
+ROTATION_TOLERANCE = 0.5
+ZERO_ANGLES: Vec3 = (0.0, 0.0, 0.0)
 
 
 class MeasureSlot(StrEnum):
@@ -37,11 +41,31 @@ class Span:
 
     point_a: Vec3
     point_b: Vec3
+    angles_a: Vec3 = ZERO_ANGLES
+    angles_b: Vec3 = ZERO_ANGLES
 
     @classmethod
     def between(cls, first: Pose, second: Pose) -> Span:
-        """Строит замер по двум позам (углы не важны, берётся позиция)."""
-        return cls(point_a=first.position, point_b=second.position)
+        """Строит замер по двум позам: позиции и углы пропа в каждой точке."""
+        return cls(
+            point_a=first.position,
+            point_b=second.position,
+            angles_a=first.angles,
+            angles_b=second.angles,
+        )
+
+    @property
+    def angles(self) -> Vec3:
+        """Углы пропа, по которым считаются длина и ширина — углы точки ``A``."""
+        return self.angles_a
+
+    @property
+    def prop_was_rotated(self) -> bool:
+        """Проп поворачивали между замерами — оси отсчёта могли измениться."""
+        return any(
+            abs(first - second) > ROTATION_TOLERANCE
+            for first, second in zip(self.angles_a, self.angles_b, strict=True)
+        )
 
     @property
     def delta(self) -> Vec3:
@@ -90,7 +114,7 @@ class Span:
         """Смещение в осях предмета: ``X`` вправо, ``Y`` вперёд, ``Z`` вверх."""
         return inverse_transform(self.delta, rotation_matrix(*angles))
 
-    def dimension_value(self, dimension: Dimension, angles: Vec3) -> float:
+    def dimension_value(self, dimension: Dimension, angles: Vec3 | None = None) -> float:
         """Длина предмета по одному габариту.
 
         ``Длина`` и ``Ширина`` берутся вдоль локальных осей предмета (поэтому поворот
@@ -100,7 +124,44 @@ class Span:
         if dimension is Dimension.THICKNESS:
             return self.vertical
         index = 1 if dimension is Dimension.LENGTH else 0
-        return abs(self.local_offsets(angles)[index])
+        reference = self.angles if angles is None else angles
+        return abs(self.local_offsets(reference)[index])
+
+    def projections(self) -> dict[Dimension, float]:
+        """Сколько выйдет по каждому габариту, если записать этот замер."""
+        offsets = self.local_offsets(self.angles)
+        return {
+            Dimension.LENGTH: abs(offsets[1]),
+            Dimension.WIDTH: abs(offsets[0]),
+            Dimension.THICKNESS: self.vertical,
+        }
+
+    def axis_hint(self, dimension: Dimension) -> str | None:
+        """Предупреждение, если замер не похож на выбранный габарит.
+
+        Две точки на разных краях стены легко измерить не по той оси: тогда проекция
+        на нужный габарит почти нулевая, хотя между точками метры. Молча записывать
+        такой «ноль» нельзя — из него потом считается стык.
+        """
+        if self.is_degenerate:
+            return None
+        if self.prop_was_rotated:
+            return (
+                "Проп поворачивали между замерами: длина и ширина считаются по углам "
+                "точки A. Поставьте обе точки при одном угле пропа."
+            )
+        value = self.dimension_value(dimension)
+        if value >= SMALL_DIMENSION or self.distance < SIGNIFICANT_DISTANCE:
+            return None
+        projections = self.projections()
+        line = " · ".join(
+            f"{other.label.lower()} {projections[other]:.2f} м" for other in Dimension
+        )
+        return (
+            f"Габарит «{dimension.label}»: {value:.3f} м, а между точками {self.distance:.2f} м — "
+            f"замер идёт почти вдоль другой оси. По этой линии: {line}. "
+            "Проверьте, какой габарит выбран, и угол пропа (RZ)."
+        )
 
     def length_for_step(self) -> float:
         """Шаг для стыковки вплотную: длина в плане, а если она нулевая — по прямой."""

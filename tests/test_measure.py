@@ -31,6 +31,47 @@ def test_span_keeps_vertical_part_apart() -> None:
     assert span.distance == pytest.approx(2.5)
 
 
+def test_projections_show_all_three_dimensions() -> None:
+    span = Span.between(START, Pose(x=102.0, y=204.0, z=30.4))
+    projections = span.projections()
+    assert projections[Dimension.LENGTH] == pytest.approx(4.0)
+    assert projections[Dimension.WIDTH] == pytest.approx(2.0)
+    assert projections[Dimension.THICKNESS] == pytest.approx(0.4)
+
+
+def test_axis_hint_stops_a_measurement_along_another_axis() -> None:
+    """Случай с игры: 2.68 м между точками, а «ширина» вышла 0.007 м."""
+    first = Pose(x=-1851.14, y=419.77, z=128.31, rz=70.0)
+    second = Pose(x=-1848.62, y=418.86, z=128.31, rz=70.0)
+    span = Span.between(first, second)
+    assert span.dimension_value(Dimension.WIDTH) < 0.02
+    hint = span.axis_hint(Dimension.WIDTH)
+    assert hint is not None
+    assert "другой оси" in hint
+    assert "Ширина" in hint
+    assert span.axis_hint(Dimension.LENGTH) is None
+
+
+def test_axis_hint_is_silent_for_a_correct_measurement() -> None:
+    span = Span.between(START, Pose(x=101.5, y=200.0, z=30.0, rz=0.0))
+    assert span.dimension_value(Dimension.WIDTH) == pytest.approx(1.5)
+    assert span.axis_hint(Dimension.WIDTH) is None
+
+
+def test_axis_hint_notices_prop_was_rotated() -> None:
+    first = Pose(x=100.0, y=200.0, z=30.0, rz=0.0)
+    second = Pose(x=100.0, y=204.0, z=30.0, rz=45.0)
+    span = Span.between(first, second)
+    hint = span.axis_hint(Dimension.LENGTH)
+    assert hint is not None
+    assert "поворачивали" in hint
+
+
+def test_small_distances_are_not_warned_about() -> None:
+    span = Span.between(START, Pose(x=100.0, y=200.1, z=30.0))
+    assert span.axis_hint(Dimension.WIDTH) is None
+
+
 def test_thickness_is_measured_vertically() -> None:
     span = Span.between(START, Pose(x=100.0, y=200.0, z=30.4))
     assert span.dimension_value(Dimension.THICKNESS, (0.0, 0.0, 0.0)) == pytest.approx(0.4)

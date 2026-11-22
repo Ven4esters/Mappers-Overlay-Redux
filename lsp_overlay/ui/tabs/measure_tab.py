@@ -99,7 +99,9 @@ class MeasureTab(QWidget):
             value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self._value_labels[key] = value
             grid.addWidget(value, row, 1)
-        grid.setRowStretch(len(rows), 1)
+        self.lbl_projection = make_label(EMPTY_TEXT, muted=True, wrap=True)
+        grid.addWidget(self.lbl_projection, len(rows), 0, 1, 2)
+        grid.setRowStretch(len(rows) + 1, 1)
         return group
 
     def _build_actions(self) -> QWidget:
@@ -158,10 +160,16 @@ class MeasureTab(QWidget):
         self.status_message.emit("Замер скопирован", "success")
 
     # ------------------------------------------------------------------- вывод
-    def update_tape(self, points: dict[MeasureSlot, Pose], span: Span | None) -> None:
-        """Показывает сохранённые точки и посчитанный по ним замер."""
+    def update_tape(
+        self,
+        points: dict[MeasureSlot, Pose],
+        span: Span | None,
+        projections: dict[Dimension, float] | None = None,
+    ) -> None:
+        """Показывает сохранённые точки, посчитанный замер и габариты по этой линии."""
         self._points = dict(points)
         self._span = span
+        self._update_projection(projections)
         for slot, label in self._point_labels.items():
             pose = self._points.get(slot)
             label.setText(EMPTY_TEXT if pose is None else _describe_point(pose))
@@ -187,6 +195,20 @@ class MeasureTab(QWidget):
         }
         for key, text in values.items():
             self._value_labels[key].setText(text)
+
+    def _update_projection(self, projections: dict[Dimension, float] | None) -> None:
+        if projections is None:
+            self.lbl_projection.setText("По этой линии: —")
+            return
+        parts = " · ".join(
+            f"{dimension.label.lower()} {format_length(projections[dimension], 3)} м"
+            for dimension in Dimension
+        )
+        self.lbl_projection.setText(f"По этой линии: {parts}")
+
+    def projection_text(self) -> str:
+        """Строка «по этой линии» (для подсказок и тестов)."""
+        return self.lbl_projection.text()
 
     def value_text(self, key: str) -> str:
         """Текст строки результата (для тестов и подсказок)."""

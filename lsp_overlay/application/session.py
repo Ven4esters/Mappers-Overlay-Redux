@@ -125,7 +125,21 @@ class MappingSession:
         span = self._tape.span()
         if span is None or span.is_degenerate:
             return None
-        return round(span.dimension_value(dimension, self._pose.angles), 3)
+        return round(span.dimension_value(dimension), 3)
+
+    def measurement_issue(self, dimension: Dimension) -> str | None:
+        """Почему замер не стоит записывать в этот габарит (например, ось не та)."""
+        span = self._tape.span()
+        if span is None or span.is_degenerate:
+            return None
+        return span.axis_hint(dimension)
+
+    def projections(self) -> dict[Dimension, float] | None:
+        """Что выйдет по каждому габариту, если записать замер как есть."""
+        span = self._tape.span()
+        if span is None or span.is_degenerate:
+            return None
+        return span.projections()
 
     @property
     def span(self) -> Span | None:

@@ -5,11 +5,12 @@ from lsp_overlay.application.errors import ApplyError, PanelUnavailableError
 from lsp_overlay.application.session import MappingSession
 from lsp_overlay.application.writer import FieldWriter
 from lsp_overlay.config import Settings
-from lsp_overlay.domain.catalog import ObjectSpec
+from lsp_overlay.domain.catalog import Dimension, ObjectSpec
 from lsp_overlay.domain.directions import DiagonalMode, Direction
 from lsp_overlay.domain.errors import JumpTooLargeError
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.join import JoinRequest, JoinScheme, JoinSide
+from lsp_overlay.domain.measure import MeasureSlot
 from lsp_overlay.domain.pose import Axis, Pose
 
 from fakes import FakeGamePanel
@@ -204,3 +205,17 @@ def test_place_join_stops_too_long_jump() -> None:
     long_wall = ObjectSpec(name="Длинная", length=60.0, width=0.2, thickness=3.0)
     with pytest.raises(JumpTooLargeError):
         session.place_join(long_wall, long_wall, JoinRequest())
+
+
+def test_session_reports_wrong_axis_before_recording() -> None:
+    """Проп переставили вдоль его длины, а записывают в «ширину» — предупреждаем."""
+    session, _panel = make_session(Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
+    session.remember_point(MeasureSlot.FIRST)
+    for _ in range(27):
+        session.move(Direction.NORTH, 0.1)
+    session.remember_point(MeasureSlot.SECOND)
+    issue = session.measurement_issue(Dimension.WIDTH)
+    assert issue is not None
+    assert "другой оси" in issue
+    assert session.measurement(Dimension.LENGTH) == pytest.approx(2.7, abs=0.01)
+    assert session.measurement_issue(Dimension.LENGTH) is None

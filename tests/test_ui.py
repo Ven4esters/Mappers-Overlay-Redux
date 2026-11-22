@@ -262,6 +262,26 @@ def test_height_is_editable_through_z_field(tmp_path: Path, qt_app: object) -> N
     assert panel.pose.z == pytest.approx(31.75)
 
 
+def test_measurement_along_wrong_axis_is_not_recorded(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
+    window.action_remember_point("a")
+    panel.pose = Pose(x=2.52, y=-0.91, z=0.0, rz=70.0)
+    window.action_remember_point("b")
+    window.action_measure_dimension("width")
+    assert "другой оси" in window.lbl_status.text()
+    assert window.objects_tab.dimension_text(Dimension.WIDTH) == "—"
+
+
+def test_measure_tab_shows_dimensions_for_the_line(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    window.action_remember_point("a")
+    panel.pose = Pose(x=252.5, y=-806.25, z=31.0)
+    window.action_remember_point("b")
+    text = window.measure_tab.projection_text()
+    assert "длина 4.000 м" in text
+    assert "ширина 2.000 м" in text
+
+
 def test_diagnostics_reports_success(tmp_path: Path, qt_app: object) -> None:
     window, _panel = make_window(tmp_path, qt_app)
     window.calibration_tab.diagnostics_requested.emit()
