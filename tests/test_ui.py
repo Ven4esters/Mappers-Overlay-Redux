@@ -501,23 +501,62 @@ def test_tilt_mode_with_flat_pose_is_a_plain_step(qt_app: QApplication) -> None:
 def test_alt_toggles_the_mode(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
-    assert window.movement.mode_text().startswith("Режим: по плоскости")
+    assert window.movement.mode_text() == "по плоскости"
     toggle_tilt(hotkeys)
-    assert window.movement.mode_text().startswith("Режим: по наклону")
+    assert window.movement.mode_text().startswith("по наклону")
     assert "Режим наклона включён" in window.status_text()
     toggle_tilt(hotkeys)
-    assert window.movement.mode_text().startswith("Режим: по плоскости")
+    assert window.movement.mode_text() == "по плоскости"
     assert "Режим наклона выключен" in window.status_text()
 
 
-def test_tilt_mode_shows_the_angles(qt_app: QApplication) -> None:
+def test_tilt_mode_shows_where_up_is(qt_app: QApplication) -> None:
+    """Компас: при RX вверх ведёт «влево», вниз — «вправо»."""
     hotkeys = FakeHotkeySource()
     window, _panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0, rz=20.0)
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
     )
     window.movement.press_capture()
     toggle_tilt(hotkeys)
-    assert "RX 30.0" in window.movement.mode_text()
+    text = window.movement.mode_text()
+    assert "вверх \u2190" in text
+    assert "вниз \u2192" in text
+
+
+def test_roll_shows_forward_as_up(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, ry=30.0)
+    )
+    window.movement.press_capture()
+    toggle_tilt(hotkeys)
+    assert "вверх \u2193" in window.movement.mode_text()
+
+
+def test_tilt_checkbox_switches_the_mode(qt_app: QApplication) -> None:
+    """Мышь тоже умеет: галочка на вкладке — тот же переключатель."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
+    )
+    window.movement.press_capture()
+    box = window.movement._tilt_box
+    box.click()
+    assert window.movement.mode_text().startswith("по наклону")
+    hotkeys.press(NUMPAD4)
+    hotkeys.release(NUMPAD4)
+    assert panel.pose().z == pytest.approx(START.z + 0.25, abs=0.001)
+    box.click()
+    assert window.movement.mode_text() == "по плоскости"
+
+
+def test_hotkey_toggle_updates_the_checkbox(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    toggle_tilt(hotkeys)
+    assert window.movement._tilt_box.isChecked() is True
+    toggle_tilt(hotkeys)
+    assert window.movement._tilt_box.isChecked() is False
 
 
 def test_tilt_mode_can_be_switched_during_the_hold(qt_app: QApplication) -> None:
@@ -567,7 +606,7 @@ def test_alt_held_still_turns_the_mode_on(qt_app: QApplication) -> None:
     window.movement.press_capture()
     hotkeys.hold_alt()
     hotkeys.press(NUMPAD4)
-    assert window.movement.mode_text().startswith("Режим: по наклону")
+    assert window.movement.mode_text().startswith("по наклону")
     assert panel.pose().z == pytest.approx(START.z + 0.25, abs=0.001)
 
 

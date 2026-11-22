@@ -126,11 +126,12 @@ class _HookHarness:
         self.source.key_event.connect(lambda vk, down, fresh: self.events.append((vk, down, fresh)))
         self._data = _KeyboardHookData(vk=0, scan=0, flags=0, time=0, extra=None)
 
-    def send(self, vk: int, is_down: bool) -> int:
+    def send(self, vk: int, is_down: bool, *, injected: bool = False) -> int:
         """Отправить нажатие или отпускание и вернуть решение хука."""
-        from map_overlay.infrastructure.hotkeys import WM_KEYDOWN, WM_KEYUP
+        from map_overlay.infrastructure.hotkeys import LLKHF_INJECTED, WM_KEYDOWN, WM_KEYUP
 
         self._data.vk = vk
+        self._data.flags = LLKHF_INJECTED if injected else 0
         message = WM_KEYDOWN if is_down else WM_KEYUP
         return int(self.source._decide(0, message, self.ctypes.addressof(self._data)))
 
@@ -165,3 +166,30 @@ def test_alt_tap_is_ignored_when_interception_is_off() -> None:
     hook.send(0x12, True)
     hook.send(0x12, False)
     assert hook.events == []
+
+
+def test_single_alt_tap_arrives_with_a_side_code() -> None:
+    """Настоящий хук присылает 0xA4 (левый Alt) — переключатель должен сработать."""
+    hook = _HookHarness()
+    hook.send(0xA4, True)
+    hook.send(0xA4, False)
+    assert hook.events == [(0x12, True, True)]
+
+
+def test_injected_keys_do_not_break_the_alt_tap() -> None:
+    """Ctrl+A/Ctrl+V оверлея не превращают нажатие Alt в комбинацию."""
+    hook = _HookHarness()
+    hook.send(0xA4, True)
+    hook.send(0x11, True, injected=True)
+    hook.send(0x41, True, injected=True)
+    hook.send(0x41, False, injected=True)
+    hook.send(0x11, False, injected=True)
+    hook.send(0xA4, False)
+    assert hook.events == [(0x12, True, True)]
+
+
+def test_side_codes_are_swallowed_for_bound_keys() -> None:
+    """Горячая клавиша на Ctrl сработает, хотя хук присылает 0xA2."""
+    hook = _HookHarness(bound=(0x11,))
+    assert hook.send(0xA2, True) == 1
+    assert hook.events == [(0x11, True, True)]

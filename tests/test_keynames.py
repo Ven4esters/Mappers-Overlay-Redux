@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import pytest
 from map_overlay.domain.keynames import (
+    VK_CONTROL,
     VK_DOWN,
     VK_ESCAPE,
     VK_F1,
+    VK_MENU,
     VK_NUMLOCK,
     VK_NUMPAD0,
     VK_NUMPAD9,
+    VK_SHIFT,
+    generic_vk,
     is_numpad,
     is_valid_vk,
     key_name,
@@ -48,3 +52,18 @@ def test_is_numpad(vk: int | None, expected: bool) -> None:
 )
 def test_is_valid_vk(vk: object, expected: bool) -> None:
     assert is_valid_vk(vk) is expected
+
+
+def test_side_variants_are_simplified() -> None:
+    """Хук присылает VK_LMENU (0xA4), а не VK_MENU (0x12) — сводим к общему коду."""
+    assert generic_vk(0xA4) == VK_MENU
+    assert generic_vk(0xA5) == VK_MENU
+    assert generic_vk(0xA0) == VK_SHIFT
+    assert generic_vk(0xA3) == VK_CONTROL
+    assert generic_vk(0x68) == 0x68
+
+
+def test_names_of_modifiers() -> None:
+    assert key_name(VK_MENU) == "Alt"
+    assert key_name(VK_SHIFT) == "Shift"
+    assert key_name(VK_CONTROL) == "Ctrl"

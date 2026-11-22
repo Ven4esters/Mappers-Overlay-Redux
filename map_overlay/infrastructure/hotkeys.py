@@ -20,7 +20,7 @@ from typing import ClassVar, Final
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from map_overlay.domain.keynames import VK_MENU, VK_NUMLOCK, key_name
+from map_overlay.domain.keynames import VK_MENU, VK_NUMLOCK, generic_vk, key_name
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,8 @@ WM_KEYUP: Final = 0x0101
 WM_SYSKEYDOWN: Final = 0x0104
 WM_SYSKEYUP: Final = 0x0105
 WM_QUIT: Final = 0x0012
+LLKHF_INJECTED: Final = 0x10
+"""Флаг «клавиша послана программой», а не нажата человеком."""
 HOOK_TIMEOUT_MS: Final = 2000
 
 _Fields = list[tuple[str, object]]
@@ -232,12 +234,13 @@ class WindowsHotkeySource(QThread):
         if code < 0:
             return self._pass_through(code, wparam, lparam)
         data = ctypes.cast(lparam, ctypes.POINTER(_KeyboardHookData)).contents
-        vk = int(data.vk)
+        vk = generic_vk(int(data.vk))
+        injected = bool(int(data.flags) & LLKHF_INJECTED)
         is_down = wparam in (WM_KEYDOWN, WM_SYSKEYDOWN)
         is_up = wparam in (WM_KEYUP, WM_SYSKEYUP)
         if not (is_down or is_up):
             return self._pass_through(code, wparam, lparam)
-        self._observe_alt(vk, is_down)
+        self._observe_alt(vk, is_down, injected)
         block = self._enabled and blocks_key(
             vk=vk,
             is_down=is_down,
@@ -260,13 +263,19 @@ class WindowsHotkeySource(QThread):
         self.key_event.emit(vk, is_down, fresh)
         return 1
 
-    def _observe_alt(self, vk: int, is_down: bool) -> None:
+    def _observe_alt(self, vk: int, is_down: bool, injected: bool = False) -> None:
         """Заметить одиночное нажатие Alt — им переключается режим наклона.
 
         Alt не забирается у игры: он проходит как обычно. Переключателем считается
         только одиночное нажатие, а комбинация (``Alt+Tab``, ``Alt+F4``,
         ``Alt+Num 8``) — нет, иначе режим менялся бы во время обычной работы.
+
+        Клавиши, которые оверлей посылает сам (``Ctrl+A``, ``Ctrl+V``), не считаются
+        нажатием человека: иначе во время шага любое нажатие Alt выглядело бы
+        комбинацией, и режим не переключался бы.
         """
+        if injected:
+            return
         if vk == VK_MENU:
             if is_down:
                 if not self._alt_down:

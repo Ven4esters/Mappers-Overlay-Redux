@@ -6,10 +6,23 @@ from typing import Final
 
 from PySide6.QtCore import QLocale, Signal
 from PySide6.QtGui import QDoubleValidator
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QHBoxLayout,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from map_overlay.domain.formatting import rounded
-from map_overlay.domain.movement import COORD_DECIMALS, MAX_STEP, MIN_STEP, validate_step
+from map_overlay.domain.movement import (
+    COORD_DECIMALS,
+    MAX_STEP,
+    MIN_STEP,
+    slope_directions,
+    validate_step,
+)
 from map_overlay.domain.pose import Pose
 from map_overlay.errors import ValidationError
 from map_overlay.ui.widgets import Card, DirectionPad, PoseGrid, button, label
@@ -24,6 +37,7 @@ class MovementTab(QWidget):
     capture_requested = Signal()
     confirm_requested = Signal()
     move_requested = Signal(object, float)
+    tilt_toggled = Signal(bool)
 
     def __init__(self, *, default_step: float, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -76,8 +90,14 @@ class MovementTab(QWidget):
         move_card.add_layout(step_row)
 
         mode_row = QHBoxLayout()
+        self._tilt_box = QCheckBox("Режим наклона", self)
+        self._tilt_box.setToolTip(
+            "Шаги идут по плоскости предмета. То же самое делает одно нажатие Alt."
+        )
+        self._tilt_box.toggled.connect(self.tilt_toggled.emit)
+        mode_row.addWidget(self._tilt_box)
         mode_row.addStretch(1)
-        self._mode_label = label("Режим: по плоскости · Alt", widget_role="muted")
+        self._mode_label = label("по плоскости", widget_role="muted")
         self._mode_label.setWordWrap(False)
         mode_row.addWidget(self._mode_label)
         move_card.add_layout(mode_row)
@@ -163,15 +183,22 @@ class MovementTab(QWidget):
         self._refresh_mode()
 
     def _refresh_mode(self) -> None:
-        if not self._tilt:
-            self._mode_label.setText("Режим: по плоскости · Alt")
-            self._mode_label.setProperty("role", "muted")
-        else:
-            angle = "" if self._pose is None else f" RX {self._pose.rx:.1f}°"
-            self._mode_label.setText(f"Режим: по наклону{angle} · Alt")
-            self._mode_label.setProperty("role", "ok")
+        if self._tilt_box.isChecked() != self._tilt:
+            self._tilt_box.blockSignals(True)
+            self._tilt_box.setChecked(self._tilt)
+            self._tilt_box.blockSignals(False)
+        self._mode_label.setText(self._mode_text())
+        self._mode_label.setProperty("role", "ok" if self._tilt else "muted")
         self._mode_label.style().unpolish(self._mode_label)
         self._mode_label.style().polish(self._mode_label)
+
+    def _mode_text(self) -> str:
+        if not self._tilt:
+            return "по плоскости"
+        if self._pose is None:
+            return "по наклону"
+        compass = _compass_text(self._pose)
+        return f"по наклону{compass}"
 
     def press_confirm(self) -> None:
         """Нажать «Сохранить F» (для тестов)."""
@@ -195,6 +222,19 @@ class MovementTab(QWidget):
         """Показать или скрыть предупреждение под карточкой сдвига."""
         self._warning.setText(text)
         self._warning.setVisible(bool(text))
+
+
+def _compass_text(pose: Pose) -> str:
+    """Куда идти вверх и вниз по плоскости предмета."""
+    up, down = slope_directions(pose)
+    if up is None and down is None:
+        return ""
+    parts = []
+    if up is not None:
+        parts.append(f"вверх {up.glyph}")
+    if down is not None:
+        parts.append(f"вниз {down.glyph}")
+    return " · " + " · ".join(parts)
 
 
 def _format_step(step: float) -> str:

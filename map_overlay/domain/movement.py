@@ -104,6 +104,26 @@ def _rotate(dx: float, dy: float, rz_degrees: float) -> tuple[float, float]:
     return dx * cos_a - dy * sin_a, dx * sin_a + dy * cos_a
 
 
+def slope_directions(pose: Pose) -> tuple[Direction | None, Direction | None]:
+    """Куда по плоскости предмета ведут «вверх» и «вниз».
+
+    Возвращает направления с наибольшим подъёмом и спуском: по ним видно, какую
+    клавишу нажимать, чтобы идти по наклону. Для горизонтальной плоскости —
+    ``(None, None)``.
+    """
+    best_up: Direction | None = None
+    best_down: Direction | None = None
+    up = down = 0.0
+    for direction in Direction:
+        dx, dy = _normalize(direction)
+        dz = _from_object_plane(dx, dy, pose)[2]
+        if dz > up + TOLERANCE:
+            up, best_up = dz, direction
+        if dz < down - TOLERANCE:
+            down, best_down = dz, direction
+    return best_up, best_down
+
+
 def changed_fields(before: Pose, after: Pose, *, tolerance: float = TOLERANCE) -> tuple[Field, ...]:
     """Поля, которые действительно отличаются (в порядке панели)."""
     return tuple(

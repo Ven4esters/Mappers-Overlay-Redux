@@ -155,6 +155,7 @@ class MainWindow(QMainWindow):
         self.movement.capture_requested.connect(self._capture)
         self.movement.confirm_requested.connect(self._confirm)
         self.movement.move_requested.connect(self._move)
+        self.movement.tilt_toggled.connect(self._set_tilt)
         self.calibration.points_changed.connect(self._calibration_changed)
         self.calibration.empty_point_changed.connect(self._empty_point_changed)
         self.calibration.status_message.connect(self._set_calibration_status)
