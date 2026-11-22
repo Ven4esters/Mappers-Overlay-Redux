@@ -52,7 +52,7 @@ def make_window(
     return window, panel
 
 
-def test_window_has_six_tabs(tmp_path: Path, qt_app: object) -> None:
+def test_window_has_seven_tabs(tmp_path: Path, qt_app: object) -> None:
     window, _panel = make_window(tmp_path, qt_app)
     titles = [window.tabs.tabText(index) for index in range(window.tabs.count())]
     assert titles == [
@@ -60,9 +60,71 @@ def test_window_has_six_tabs(tmp_path: Path, qt_app: object) -> None:
         "Повороты",
         "Рулетка",
         "Объекты",
+        "Стык",
         "Калибровка",
         "Настройки",
     ]
+
+
+def test_join_places_second_object_without_pressing_f(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0))
+    window.join_tab.combo_first.setCurrentIndex(0)
+    window.join_tab.combo_second.setCurrentIndex(0)
+    window.join_tab.place_requested.emit()
+    assert panel.commits == 0
+    assert panel.pose.x == pytest.approx(250.5 + 2.1)
+    assert panel.pose.y == pytest.approx(-810.25 + 1.9)
+    assert panel.pose.rz == pytest.approx(-90.0)
+    assert "без F" in window.lbl_status.text() or "F не нажат" in window.lbl_status.text()
+
+
+def test_join_45_button_sets_angle(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.join_tab.btn_45.click()
+    assert window.join_tab.request().angle == pytest.approx(45.0)
+    assert window.join_tab.btn_45.isChecked()
+    assert not window.join_tab.btn_90.isChecked()
+
+
+def test_join_tee_disables_angle_controls(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.join_tab.radio_tee.setChecked(True)
+    assert not window.join_tab.spin_angle.isEnabled()
+    assert not window.join_tab.btn_45.isEnabled()
+    assert window.join_tab.request().scheme.value == "tee"
+
+
+def test_join_swap_makes_second_object_the_base(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0))
+    window.action_save_object(ObjectSpec(name="Забор", length=2.0, width=0.1, height=2.0))
+    first = window.join_tab.selected_specs()[0]
+    second = window.join_tab.selected_specs()[1]
+    window.action_swap_join_objects()
+    assert window.join_tab.selected_specs()[0] == second
+    assert window.join_tab.selected_specs()[1] == first
+
+
+def test_join_without_capture_warns(tmp_path: Path, qt_app: object) -> None:
+    settings = Settings(calibration=build_calibration())
+    panel = FakeGamePanel(START)
+    window = OverlayWindow(
+        MappingSession(panel, settings), ConfigStore(tmp_path / "s.json"), settings
+    )
+    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0))
+    window.join_tab.place_requested.emit()
+    assert "Считать" in window.lbl_status.text()
+
+
+def test_join_without_dimensions_reports_error(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    window.action_save_object(ObjectSpec(name="Точка"))
+    window.join_tab.combo_first.setCurrentIndex(0)
+    window.join_tab.combo_second.setCurrentIndex(0)
+    window.join_tab.place_requested.emit()
+    assert "длина" in window.lbl_status.text()
+    assert panel.writes == []
 
 
 def test_capture_fills_coordinate_editors(tmp_path: Path, qt_app: object) -> None:

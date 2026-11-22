@@ -5,8 +5,11 @@ from lsp_overlay.application.errors import ApplyError, PanelUnavailableError
 from lsp_overlay.application.session import MappingSession
 from lsp_overlay.application.writer import FieldWriter
 from lsp_overlay.config import Settings
+from lsp_overlay.domain.catalog import ObjectSpec
 from lsp_overlay.domain.directions import DiagonalMode, Direction
+from lsp_overlay.domain.errors import JumpTooLargeError
 from lsp_overlay.domain.fields import FieldKey
+from lsp_overlay.domain.join import JoinRequest, JoinScheme, JoinSide
 from lsp_overlay.domain.pose import Axis, Pose
 
 from fakes import FakeGamePanel
@@ -161,3 +164,43 @@ def test_movement_respects_prop_yaw() -> None:
     moved = session.move(Direction.NORTH, 1.0)
     assert moved.x == pytest.approx(-1.0)
     assert moved.y == pytest.approx(0.0)
+
+
+def test_place_join_writes_second_object_without_confirming() -> None:
+    session, panel = make_session()
+    wall = ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0)
+    result = session.place_join(wall, wall, JoinRequest())
+    assert result.fields
+    assert panel.commits == 0
+    assert panel.pose.x == pytest.approx(PANEL_POSE.x + 2.1)
+    assert panel.pose.y == pytest.approx(PANEL_POSE.y + 1.9)
+    assert panel.pose.z == pytest.approx(PANEL_POSE.z)
+    assert session.pending_fields() == ()
+
+
+def test_place_join_can_be_chained_into_a_corner() -> None:
+    session, panel = make_session()
+    wall = ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0)
+    first = session.place_join(wall, wall, JoinRequest(scheme=JoinScheme.CORNER))
+    second = session.place_join(
+        wall, wall, JoinRequest(scheme=JoinScheme.CORNER, side=JoinSide.LEFT)
+    )
+    assert panel.pose.rz == pytest.approx(0.0)
+    assert panel.pose.x == pytest.approx(first.pose.x + 1.9)
+    assert panel.pose.y == pytest.approx(first.pose.y + 2.1)
+    assert second.verified
+
+
+def test_place_join_needs_captured_panel() -> None:
+    panel = FakeGamePanel()
+    session = MappingSession(panel, Settings())
+    wall = ObjectSpec(name="Стена", length=4.0, width=0.2, height=3.0)
+    with pytest.raises(PanelUnavailableError, match="Считать"):
+        session.place_join(wall, wall, JoinRequest())
+
+
+def test_place_join_stops_too_long_jump() -> None:
+    session, _panel = make_session()
+    long_wall = ObjectSpec(name="Длинная", length=60.0, width=0.2, height=3.0)
+    with pytest.raises(JumpTooLargeError):
+        session.place_join(long_wall, long_wall, JoinRequest())

@@ -43,6 +43,7 @@ from lsp_overlay.ui.keymap import (
 )
 from lsp_overlay.ui.styles import STYLESHEET
 from lsp_overlay.ui.tabs.calibration_tab import CalibrationTab
+from lsp_overlay.ui.tabs.join_tab import JoinTab
 from lsp_overlay.ui.tabs.measure_tab import MeasureTab
 from lsp_overlay.ui.tabs.movement_tab import STEP_MAX, STEP_MIN, MovementTab
 from lsp_overlay.ui.tabs.objects_tab import ObjectsTab
@@ -118,12 +119,14 @@ class OverlayWindow(QWidget):
         self.rotate_tab = RotateTab()
         self.measure_tab = MeasureTab()
         self.objects_tab = ObjectsTab()
+        self.join_tab = JoinTab()
         self.calibration_tab = CalibrationTab(self._settings.calibration)
         self.settings_tab = SettingsTab(self._settings)
         self.tabs.addTab(self.movement_tab, "Движение")
         self.tabs.addTab(self.rotate_tab, "Повороты")
         self.tabs.addTab(self.measure_tab, "Рулетка")
         self.tabs.addTab(self.objects_tab, "Объекты")
+        self.tabs.addTab(self.join_tab, "Стык")
         self.tabs.addTab(self.calibration_tab, "Калибровка")
         self.tabs.addTab(self.settings_tab, "Настройки")
         root.addWidget(self.tabs, 1)
@@ -175,6 +178,9 @@ class OverlayWindow(QWidget):
         self.objects_tab.delete_requested.connect(self.action_delete_object)
         self.objects_tab.object_saved.connect(self.action_save_object)
         self.objects_tab.status_message.connect(self._set_status)
+        self.join_tab.place_requested.connect(self.action_place_join)
+        self.join_tab.swap_requested.connect(self.action_swap_join_objects)
+        self.join_tab.status_message.connect(self._set_status)
         self.calibration_tab.calibration_changed.connect(self.action_calibration_changed)
         self.calibration_tab.status_message.connect(self._set_status)
         self.calibration_tab.diagnostics_requested.connect(self.action_diagnostics)
@@ -491,6 +497,40 @@ class OverlayWindow(QWidget):
         self._refresh_objects()
         self._set_status(f"«{name}» удалён из таблицы", "info")
 
+    def action_place_join(self) -> None:
+        """Ставит второй предмет вплотную к первому и пишет координаты в панель."""
+        first, second = self.join_tab.selected_specs()
+        if first is None or second is None:
+            self._set_status("Выберите оба предмета в списках «Стык»", "warning")
+            return
+        if self._session.panel_pose is None:
+            self._set_status("Сначала нажмите «Считать» — без этого неизвестно, где A", "warning")
+            return
+        self._busy("Ставлю второй предмет — не двигайте мышь")
+        try:
+            result = self._session.place_join(first, second, self.join_tab.request())
+        except DomainError as error:
+            self._fail(error)
+            return
+        finally:
+            self._idle()
+        if not result.fields:
+            self._set_status("B уже стоит на месте стыка — писать нечего", "info")
+        else:
+            names = ", ".join(key.value.upper() for key in result.fields)
+            self._set_status(
+                f"«{first.name}» → «{second.name}»: записано {names}, "
+                "F не нажат — предмет только показан",
+                "success",
+            )
+        self._refresh()
+
+    def action_swap_join_objects(self) -> None:
+        """Продолжает цепочку: базой стыка становится второй предмет."""
+        self.join_tab.swap_objects()
+        self._set_status("Стык продолжается от второго предмета", "info")
+        self._refresh()
+
     def action_clear_tape(self) -> None:
         """Сбрасывает оба замера."""
         self._session.clear_tape()
@@ -610,6 +650,7 @@ class OverlayWindow(QWidget):
 
     def _refresh(self) -> None:
         self.movement_tab.update_pose(self._session.pose, self._session.pending_fields())
+        self.join_tab.update_pose(self._session.pose)
         self._refresh_tape()
         pending = len(self._session.pending_fields())
         self.btn_apply.setEnabled(pending > 0)
@@ -621,6 +662,7 @@ class OverlayWindow(QWidget):
     def _refresh_objects(self) -> None:
         self.objects_tab.set_pending(self._session.pending_dimensions)
         self.objects_tab.show_catalog(self._session.catalog)
+        self.join_tab.show_catalog(self._session.catalog)
 
     def _load_catalog(self) -> None:
         if self._catalog_store is not None:

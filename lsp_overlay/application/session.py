@@ -13,6 +13,7 @@ from lsp_overlay.config import Calibration, PanelTimings, Settings
 from lsp_overlay.domain.catalog import Catalog, Dimension, ObjectSpec
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.fields import FIELD_ORDER, FieldKey, get_field
+from lsp_overlay.domain.join import JoinRequest, join_pose
 from lsp_overlay.domain.measure import MeasureSlot, MeasureTape, Span
 from lsp_overlay.domain.movement import move, rotate
 from lsp_overlay.domain.pose import Axis, Pose
@@ -212,6 +213,42 @@ class MappingSession:
             for key in FIELD_ORDER
             if abs(get_field(self._pose, key) - get_field(self._panel_pose, key)) > COMPARE_EPSILON
         )
+
+    def join_target(
+        self,
+        first: ObjectSpec,
+        second: ObjectSpec,
+        request: JoinRequest,
+        *,
+        base: Pose | None = None,
+    ) -> Pose:
+        """Поза, в которую встанет второй предмет при стыке с первым."""
+        return join_pose(base or self._pose, first, second, request).rounded(
+            self._settings.length_decimals, angle_decimals=2
+        )
+
+    def place_join(
+        self,
+        first: ObjectSpec,
+        second: ObjectSpec,
+        request: JoinRequest,
+        *,
+        commit: bool = False,
+    ) -> ApplyResult:
+        """Ставит второй предмет вплотную к первому: считает позу и пишет её в панель."""
+        with self._lock:
+            target = self.join_target(first, second, request)
+            ensure_within_limit(self._pose, target, self._settings.max_jump)
+            self._pose = target
+            LOGGER.info(
+                "Стык %s %s° с «%s»: «%s» → %s",
+                request.scheme.value,
+                request.angle,
+                first.name,
+                second.name,
+                target,
+            )
+            return self._apply(commit=commit)
 
     def apply(self, *, commit: bool = True) -> ApplyResult:
         """Пишет изменения в панель и (опционально) подтверждает ввод."""
