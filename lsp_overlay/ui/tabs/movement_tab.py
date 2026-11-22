@@ -19,7 +19,7 @@ from lsp_overlay.config import Settings
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.formatting import format_angle, format_length
-from lsp_overlay.domain.movement import MoveFrame
+from lsp_overlay.domain.movement import MoveFrame, move
 from lsp_overlay.domain.pose import Pose
 from lsp_overlay.ui.keymap import NUMPAD_HINT
 from lsp_overlay.ui.widgets import make_button, make_label, make_number_editor
@@ -31,6 +31,10 @@ STEP_MAX = 500.0
 HALF = 0.5
 DOUBLE = 2.0
 CAMERA_STEP = 45.0
+CAMERA_HINT = (
+    "Работает в осях мира: если стрелка уводит предмет вбок на экране, подберите угол так, "
+    "чтобы «↑» совпал с «вверх»"
+)
 
 ARROWS: tuple[tuple[Direction, str, int, int], ...] = (
     (Direction.NORTH_WEST, "↖", 0, 0),
@@ -118,6 +122,7 @@ class MovementTab(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
         row.addWidget(make_label("Камера", muted=True))
+        self._camera_buttons: list[QPushButton] = []
         self.lbl_rotation = make_label("0°", muted=True)
         self.lbl_rotation.setToolTip(
             "Насколько оси движения повёрнуты от севера — поправка на то, куда смотрит камера"
@@ -126,32 +131,54 @@ class MovementTab(QWidget):
             (-CAMERA_STEP, "Повернуть оси на 45° по часовой"),
             (CAMERA_STEP, "Повернуть оси на 45° против часовой"),
         ):
-            button = make_button(
-                f"{delta:+g}°",
-                f"{hint}: если стрелка уводит предмет вбок, подберите так, чтобы «↑» совпал "
-                "с «вверх» на экране",
-            )
+            button = make_button(f"{delta:+g}°", f"{hint}. {CAMERA_HINT}")
             button.clicked.connect(
                 lambda _checked=False, value=delta: self.move_rotation_changed.emit(value)
             )
+            self._camera_buttons.append(button)
             row.addWidget(button)
         row.addWidget(make_label("↑ смотрит «вверх» на экране", muted=True), 1)
         row.addWidget(self.lbl_rotation)
         return holder
 
+    def _unit_delta(
+        self, frame: MoveFrame, yaw: float, rotation: float, direction: Direction
+    ) -> tuple[float, float]:
+        """Куда уводит предмет один метр в направлении ``direction`` — в мировых X и Y."""
+        pose = Pose(x=0.0, y=0.0, z=0.0, rz=yaw)
+        result = move(pose, direction, 1.0, frame=frame, use_tilt=False, rotation=rotation)
+        return (result.x, result.y)
+
     def set_move_frame(self, frame: MoveFrame, yaw: float, rotation: float = 0.0) -> None:
-        """Пишет, в каких осях сейчас ходят стрелки: это первое, что путает."""
-        if frame is MoveFrame.WORLD and rotation:
-            text = f"Оси: мир, повёрнуты на {rotation:g}° — так, чтобы ↑ смотрел «вверх» на экране."
-        elif frame is MoveFrame.WORLD:
+        """Пишет, в каких осях ходят стрелки и насколько шаг задевает X и Y."""
+        north = self._unit_delta(frame, yaw, rotation, Direction.NORTH)
+        west = self._unit_delta(frame, yaw, rotation, Direction.WEST)
+        arrows = (
+            f"за 1 м: ↑ ΔX {north[0]:+.2f} · ΔY {north[1]:+.2f}, "
+            f"← ΔX {west[0]:+.2f} · ΔY {west[1]:+.2f}."
+        )
+        if frame is MoveFrame.PROP:
             text = (
-                "Оси: мир — ↑ двигает на север (+Y), → на восток (+X), при любом угле предмета. "
-                "Если стрелки смотрят вбок, поверните оси кнопками «Камера»."
+                f"Оси: предмет (угол {yaw:.1f}°) — {arrows} "
+                "Боковой шаг идёт по X и Y сразу: предмет едет ровно поперёк своей стороны."
+            )
+        elif rotation:
+            text = (
+                f"Оси: мир, повёрнуты на {rotation:g}° — {arrows} Так ↑ смотрит «вверх» на экране."
             )
         else:
-            text = f"Оси: предмет — ↑ двигает вдоль его длины (угол {yaw:.1f}°), а не на север"
+            text = (
+                f"Оси: мир — {arrows} Угол детали не учитывается: чтобы ← и → вели поперёк "
+                "неё, выберите «Предмет»."
+            )
         self.lbl_frame.setText(text)
         self.lbl_rotation.setText(f"{rotation:g}°")
+        for button in self._camera_buttons:
+            button.setEnabled(frame is MoveFrame.WORLD)
+
+    def camera_controls_enabled(self) -> bool:
+        """Доступны ли кнопки поправки на камеру: они нужны только в осях мира."""
+        return all(button.isEnabled() for button in self._camera_buttons)
 
     def rotation_text(self) -> str:
         """Поправка на камеру в градусах (для тестов)."""

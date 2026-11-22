@@ -41,6 +41,14 @@ def test_apply_without_capture_is_refused() -> None:
         session.apply()
 
 
+def make_default_session(pose: Pose) -> tuple[MappingSession, FakeGamePanel]:
+    """Сессия на настройках «из коробки»: проверяем умолчания, а не выбранный режим."""
+    panel = FakeGamePanel(pose)
+    session = MappingSession(panel, Settings())
+    session.capture()
+    return session, panel
+
+
 def test_move_marks_only_changed_fields() -> None:
     session, _panel = make_session()
     session.move(Direction.NORTH, 1.0)
@@ -170,13 +178,33 @@ def test_movement_respects_prop_yaw_in_prop_frame() -> None:
     assert moved.y == pytest.approx(0.0)
 
 
-def test_movement_uses_world_axes_by_default() -> None:
-    """По умолчанию стрелка «вверх» — это север, как бы ни был повёрнут предмет."""
-    session, _panel = make_session(Pose(x=0.0, y=0.0, rz=70.0))
+def test_world_frame_keeps_compass_axes() -> None:
+    """Режим «мир»: стрелка «вверх» — это север, как бы ни был повёрнут предмет."""
+    session, _panel = make_session(Pose(x=0.0, y=0.0, rz=70.0), frame=MoveFrame.WORLD)
     moved = session.move(Direction.NORTH, 1.0)
     assert moved.x == pytest.approx(0.0, abs=1e-9)
     assert moved.y == pytest.approx(1.0)
     assert session.move(Direction.EAST, 1.0).x == pytest.approx(1.0)
+
+
+def test_sideways_step_follows_prop_angle_by_default() -> None:
+    """Из коробки шаг вбок учитывает RZ: при угле 70° меняются и X, и Y."""
+    session, panel = make_default_session(Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
+    moved = session.move(Direction.WEST, 1.0)
+    assert moved.x == pytest.approx(-0.342, abs=1e-3)
+    assert moved.y == pytest.approx(-0.940, abs=1e-3)
+    assert session.apply().verified
+    assert panel.pose.x == pytest.approx(-0.342, abs=1e-3)
+    assert panel.pose.y == pytest.approx(-0.940, abs=1e-3)
+
+
+def test_sideways_steps_stay_on_a_straight_line() -> None:
+    """Повторные шаги вбок идут ровно: каждый добавляет ту же пару ΔX/ΔY."""
+    session, _panel = make_default_session(Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
+    first = session.move(Direction.WEST, 0.5)
+    second = session.move(Direction.WEST, 0.5)
+    assert second.x - first.x == pytest.approx(first.x, abs=1e-9)
+    assert second.y - first.y == pytest.approx(first.y, abs=1e-9)
 
 
 def test_place_join_writes_second_object_without_confirming() -> None:

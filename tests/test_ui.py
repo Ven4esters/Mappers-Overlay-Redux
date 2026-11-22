@@ -252,26 +252,59 @@ def test_settings_saved_applies_opacity_and_persists(tmp_path: Path, qt_app: obj
 
 
 def test_move_status_shows_where_the_prop_went(tmp_path: Path, qt_app: object) -> None:
-    """После шага видно, по каким осям и на сколько сдвинулся предмет."""
+    """После шага видно, по каким осям, с каким углом и на сколько сдвинулся предмет."""
     window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
     window.movement_tab.move_requested.emit(Direction.NORTH.value, 1.0)
     text = window.lbl_status.text()
-    assert "по осям мира" in text
-    assert "ΔX +0.000" in text
-    assert "ΔY +1.000" in text
+    assert "по осям предмета, угол 70.0°" in text
+    assert "ΔX -0.940" in text
+    assert "ΔY +0.342" in text
+
+
+def test_sideways_button_writes_both_axes_when_prop_is_turned(
+    tmp_path: Path, qt_app: object
+) -> None:
+    """При угле 70° кнопка «влево» пишет и X, и Y — предмет едет ровно поперёк."""
+    window, panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
+    window.movement_tab.move_requested.emit(Direction.WEST.value, 1.0)
+    text = window.lbl_status.text()
+    assert "ΔX -0.342" in text
+    assert "ΔY -0.940" in text
+    window.action_apply(commit=False)
+    assert panel.pose.x == pytest.approx(-0.342, abs=1e-3)
+    assert panel.pose.y == pytest.approx(-0.940, abs=1e-3)
+
+
+def test_frame_hint_shows_the_numbers_for_a_sideways_step(tmp_path: Path, qt_app: object) -> None:
+    """Подсказка показывает, что шаг вбок задевает обе оси."""
+    window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
+    text = window.movement_tab.frame_text()
+    assert "Оси: предмет (угол 70.0°)" in text
+    assert "← ΔX -0.34 · ΔY -0.94" in text
+    assert "по X и Y сразу" in text
+
+
+def test_camera_buttons_work_only_in_world_frame(tmp_path: Path, qt_app: object) -> None:
+    """Кнопки поправки на камеру нужны только в осях мира, в осях предмета они выключены."""
+    window, _panel = make_window(tmp_path, qt_app)
+    assert window.movement_tab.camera_controls_enabled() is False
+    tab = window.settings_tab
+    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveFrame.WORLD.value))
+    window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
+    assert window.movement_tab.camera_controls_enabled() is True
 
 
 def test_movement_frame_hint_follows_settings(tmp_path: Path, qt_app: object) -> None:
     """Подсказка под крестовиной говорит, в каких осях ходят стрелки."""
     window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
     window.action_capture()
-    assert "Оси: мир" in window.movement_tab.frame_text()
-    tab = window.settings_tab
-    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveFrame.PROP.value))
-    window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
-    assert window._settings.move_frame is MoveFrame.PROP
     assert "Оси: предмет" in window.movement_tab.frame_text()
-    assert "70.0°" in window.movement_tab.frame_text()
+    tab = window.settings_tab
+    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveFrame.WORLD.value))
+    window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
+    assert window._settings.move_frame is MoveFrame.WORLD
+    assert "Оси: мир" in window.movement_tab.frame_text()
+    assert "Угол детали не учитывается" in window.movement_tab.frame_text()
 
 
 def test_camera_correction_aligns_arrows(tmp_path: Path, qt_app: object) -> None:
@@ -279,6 +312,7 @@ def test_camera_correction_aligns_arrows(tmp_path: Path, qt_app: object) -> None
     window, panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
     window.action_capture()
     tab = window.settings_tab
+    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveFrame.WORLD.value))
     tab.spin_rotation.setValue(45.0)
     window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
     assert window._settings.move_rotation == pytest.approx(45.0)
@@ -294,6 +328,9 @@ def test_camera_buttons_turn_axes_by_45(tmp_path: Path, qt_app: object) -> None:
     """Кнопки «Камера» крутят оси на 45° и сразу сохраняют настройку."""
     window, panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=0.0))
     window.action_capture()
+    tab = window.settings_tab
+    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveFrame.WORLD.value))
+    window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
     assert window.movement_tab.rotation_text() == "0°"
     window.action_turn_move_axes(-45.0)
     assert window._settings.move_rotation == pytest.approx(-45.0)

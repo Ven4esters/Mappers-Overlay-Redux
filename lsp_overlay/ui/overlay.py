@@ -62,6 +62,7 @@ REPEAT_INTERVAL_MS = 90
 REPEAT_TIMEOUT_S = 0.6
 MAX_LIVE_STEPS = 300
 MAX_FULL_TURN = 360.0
+ROTATION_HINT_THRESHOLD = 0.5
 BUSY_HINT = "Идёт обмен с панелью — не двигайте мышь"
 MOVE_ARROWS: dict[Direction, str] = {
     Direction.NORTH: "↑",
@@ -319,7 +320,13 @@ class OverlayWindow(QWidget):
         """Показывает, что именно произошло: куда и на сколько сдвинулся предмет."""
         arrow = MOVE_ARROWS[target]
         frame = self._settings.move_frame
-        axes = "по осям мира" if frame is MoveFrame.WORLD else "по осям предмета"
+        axes = (
+            "по осям мира"
+            if frame is MoveFrame.WORLD
+            else f"по осям предмета, угол {before.rz:.1f}°"
+        )
+        if frame is MoveFrame.WORLD and abs(before.rz) > ROTATION_HINT_THRESHOLD:
+            axes += f" · угол детали {before.rz:.0f}° не учтён"
         return (
             f"{arrow} шаг {step:g} м ({axes}): "
             f"ΔX {after.x - before.x:+.3f} · ΔY {after.y - before.y:+.3f} → "

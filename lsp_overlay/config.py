@@ -16,7 +16,10 @@ from lsp_overlay.domain.fields import FIELD_ORDER, FieldKey
 from lsp_overlay.domain.movement import MAX_MOVE_ROTATION, MIN_MOVE_ROTATION, MoveFrame
 from lsp_overlay.domain.safety import DEFAULT_MAX_JUMP
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+#: С версии 3 стрелки по умолчанию ходят по осям предмета: боковой шаг учитывает RZ.
+PROP_FRAME_SCHEMA_VERSION = 3
+DEFAULT_MOVE_FRAME = MoveFrame.PROP
 DEFAULT_STEP_PRESETS: tuple[float, ...] = (0.05, 0.1, 0.25, 0.5, 1.0)
 DEFAULT_STEP = 0.1
 CONFIRM_KEYS: tuple[str, ...] = ("f", "enter")
@@ -104,7 +107,7 @@ class Settings:
     step_presets: tuple[float, ...] = DEFAULT_STEP_PRESETS
     diagonal_mode: DiagonalMode = DiagonalMode.SAME_DISTANCE
     use_tilt: bool = True
-    move_frame: MoveFrame = MoveFrame.WORLD
+    move_frame: MoveFrame = DEFAULT_MOVE_FRAME
     move_rotation: float = 0.0
     length_decimals: int = 4
     verify_after_paste: bool = True
@@ -208,7 +211,7 @@ class Settings:
             ),
             diagonal_mode=DiagonalMode(data.get("diagonal_mode", DiagonalMode.SAME_DISTANCE.value)),
             use_tilt=bool(data.get("use_tilt", True)),
-            move_frame=MoveFrame(str(data.get("move_frame", MoveFrame.WORLD.value))),
+            move_frame=_move_frame_from(data),
             move_rotation=float(data.get("move_rotation", 0.0)),
             length_decimals=int(data.get("length_decimals", 4)),
             verify_after_paste=bool(data.get("verify_after_paste", True)),
@@ -265,6 +268,28 @@ def _timings_from(data: Mapping[str, Any]) -> PanelTimings:
         focus=float(data.get("focus", defaults.focus)),
         clipboard=float(data.get("clipboard", defaults.clipboard)),
     )
+
+
+def _schema_version(data: Mapping[str, Any]) -> int:
+    """Версия файла настроек; файлы без версии считаются самыми старыми."""
+    try:
+        return int(data.get("version", 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _move_frame_from(data: Mapping[str, Any]) -> MoveFrame:
+    """Читает оси движения, переводя старый умолчальный «мир» на оси предмета."""
+    raw = data.get("move_frame")
+    if raw is None:
+        return DEFAULT_MOVE_FRAME
+    try:
+        frame = MoveFrame(str(raw))
+    except ValueError as error:
+        raise ConfigError(f"неизвестные оси движения: {raw}") from error
+    if frame is MoveFrame.WORLD and _schema_version(data) < PROP_FRAME_SCHEMA_VERSION:
+        return DEFAULT_MOVE_FRAME
+    return frame
 
 
 def _calibration_from(data: Mapping[str, Any]) -> Calibration:

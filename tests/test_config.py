@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from lsp_overlay.config import (
+    PROP_FRAME_SCHEMA_VERSION,
     SCHEMA_VERSION,
     Calibration,
     ConfigError,
@@ -30,9 +31,24 @@ def test_round_trip_keeps_values() -> None:
 
 
 def test_move_frame_round_trip() -> None:
-    settings = Settings(move_frame=MoveFrame.PROP)
-    assert Settings.from_dict(settings.to_dict()).move_frame is MoveFrame.PROP
-    assert Settings().move_frame is MoveFrame.WORLD
+    settings = Settings(move_frame=MoveFrame.WORLD)
+    assert Settings.from_dict(settings.to_dict()).move_frame is MoveFrame.WORLD
+    assert Settings().move_frame is MoveFrame.PROP
+
+
+def test_old_world_frame_migrates_to_prop() -> None:
+    """Файл от 2.10.x (оси мира) переводится на оси предмета: боковой шаг учитывает RZ."""
+    old = Settings().to_dict()
+    old["version"] = PROP_FRAME_SCHEMA_VERSION - 1
+    old["move_frame"] = MoveFrame.WORLD.value
+    assert Settings.from_dict(old).move_frame is MoveFrame.PROP
+
+
+def test_unknown_move_frame_is_rejected() -> None:
+    data = Settings().to_dict()
+    data["move_frame"] = "лунные оси"
+    with pytest.raises(ConfigError, match="оси движения"):
+        Settings.from_dict(data)
 
 
 def test_move_rotation_round_trip() -> None:
