@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import time
 from dataclasses import replace
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QFocusEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -19,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from lsp_overlay import __version__
 from lsp_overlay.application.live import LiveMover
-from lsp_overlay.application.ports import KeyStatePort
+from lsp_overlay.application.ports import KeyHookPort, KeyStatePort
 from lsp_overlay.application.session import MappingSession
 from lsp_overlay.config import Calibration, Settings
 from lsp_overlay.domain.catalog import Dimension, ObjectSpec
@@ -31,7 +32,14 @@ from lsp_overlay.domain.measure import MeasureSlot
 from lsp_overlay.domain.pose import Axis, Pose
 from lsp_overlay.infrastructure.catalog_store import CatalogStore
 from lsp_overlay.infrastructure.config_store import ConfigStore
-from lsp_overlay.ui.keymap import NumpadAction, NumpadIntent, held_direction, numpad_action
+from lsp_overlay.infrastructure.global_keys import NullKeyHook
+from lsp_overlay.ui.keymap import (
+    NUMPAD_VK,
+    NumpadAction,
+    NumpadIntent,
+    held_direction,
+    numpad_action,
+)
 from lsp_overlay.ui.styles import STYLESHEET
 from lsp_overlay.ui.tabs.calibration_tab import CalibrationTab
 from lsp_overlay.ui.tabs.measure_tab import MeasureTab
@@ -48,6 +56,8 @@ MINIMUM_HEIGHT = 320
 HALF = 0.5
 DOUBLE = 2.0
 REPEAT_INTERVAL_MS = 90
+REPEAT_TIMEOUT_S = 0.6
+MAX_LIVE_STEPS = 300
 LIVE_POLL_MS = 250
 KEYS_POLL_MS = 60
 FLASH_MS = 120
@@ -64,6 +74,7 @@ class OverlayWindow(QWidget):
         *,
         catalog_store: CatalogStore | None = None,
         key_state: KeyStatePort | None = None,
+        key_hook: KeyHookPort | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -72,6 +83,9 @@ class OverlayWindow(QWidget):
         self._settings = settings
         self._catalog_store = catalog_store
         self._key_state = key_state
+        self._key_hook: KeyHookPort = key_hook or NullKeyHook()
+        self._hooked_direction: Direction | None = None
+        self._last_key_time = 0.0
         self._live = LiveMover(session)
         self._repeat_direction: Direction | None = None
         self.setWindowTitle(WINDOW_TITLE)
@@ -165,6 +179,11 @@ class OverlayWindow(QWidget):
         self.settings_tab.settings_saved.connect(self.action_settings_saved)
         self.settings_tab.status_message.connect(self._set_status)
 
+    def focusOutEvent(self, event: QFocusEvent) -> None:  # noqa: N802 - переопределение Qt
+        """Фокус ушёл (макрос кликнул в игре) — отпускание клавиши мы уже не увидим."""
+        self._stop_repeat()
+        super().focusOutEvent(event)
+
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - переопределение Qt
         """Numpad: движение и быстрые команды (стрелки заняты игрой)."""
         action = numpad_action(event.key(), event.modifiers())
@@ -191,6 +210,7 @@ class OverlayWindow(QWidget):
 
     def _start_repeat(self, direction: Direction) -> None:
         self._repeat_direction = direction
+        self._last_key_time = time.monotonic()
         if not self._repeat_timer.isActive():
             self._repeat_timer.start()
 
@@ -204,6 +224,11 @@ class OverlayWindow(QWidget):
         """Шаг автоповтора, пока клавиша зажата."""
         direction = self._repeat_direction
         if direction is None:
+            self._stop_repeat()
+            return
+        if time.monotonic() - self._last_key_time > REPEAT_TIMEOUT_S:
+            # отпускание могло не дойти: окно потеряло фокус, пока макрос кликал в игре
+            LOGGER.warning("Автоповтор остановлен: клавиша давно не нажималась")
             self._stop_repeat()
             return
         self._run_numpad(NumpadAction(intent=NumpadIntent.MOVE, direction=direction))
@@ -272,8 +297,13 @@ class OverlayWindow(QWidget):
             return
         self._live.start()
         self._live_timer.start()
-        if self._global_keys_ready():
+        if self._key_hook.is_available() and self._key_hook.start(self._on_hooked_key):
+            LOGGER.info("Живой режим: Numpad перехватывается хуком")
+        elif self._global_keys_ready():
+            LOGGER.warning("Хук недоступен: клавиши читаются опросом, игра их тоже видит")
             self._keys_timer.start()
+        else:
+            LOGGER.warning("Живой режим без глобальных клавиш: двигайте кнопками оверлея")
         self._refresh()
         self._set_status(
             "Живой режим: двигайте копию Numpad — изменения сразу уходят в игру",
@@ -281,9 +311,11 @@ class OverlayWindow(QWidget):
         )
 
     def _stop_live(self) -> None:
+        self._key_hook.stop()
         self._live.stop()
         self._live_timer.stop()
         self._keys_timer.stop()
+        self._hooked_direction = None
         self.movement_tab.unflash_all()
         self.movement_tab.set_live(False)
         self._refresh()
@@ -300,6 +332,23 @@ class OverlayWindow(QWidget):
             self._fail(error)
             return
         self._set_status("Копия удалена", "info")
+
+    def _on_hooked_key(self, vk_code: int, pressed: bool) -> None:
+        """Событие перехваченной клавиши Numpad: игра её уже не увидит."""
+        if not self._live.is_running:
+            return
+        direction = NUMPAD_VK.get(vk_code)
+        if direction is None:
+            return
+        if pressed:
+            self._hooked_direction = direction
+            self.movement_tab.flash_direction(direction)
+            self._live.steer(direction, self.movement_tab.current_step())
+            return
+        if self._hooked_direction is direction:
+            self._hooked_direction = None
+            self._live.release()
+        self.movement_tab.unflash_direction(direction)
 
     def _global_keys_ready(self) -> bool:
         return self._key_state is not None and self._key_state.is_ready()
@@ -318,8 +367,25 @@ class OverlayWindow(QWidget):
         self.movement_tab.flash_direction(direction)
         self._live.steer(direction, self.movement_tab.current_step())
 
+    def _guard_live(self) -> bool:
+        """Останавливает живой режим, если шагов стало слишком много подряд."""
+        if self._live.applied < MAX_LIVE_STEPS:
+            return False
+        self._live.stop()
+        self._live_timer.stop()
+        self._key_hook.stop()
+        self._keys_timer.stop()
+        self.movement_tab.set_live(False)
+        self._set_status(
+            f"Живой режим остановлен предохранителем: {self._live.applied} шагов подряд",
+            "error",
+        )
+        return True
+
     def _poll_live(self) -> None:
         """Показывает, что делает поток живого режима."""
+        if self._guard_live():
+            return
         error = self._live.last_error
         self._refresh()
         if error is not None:

@@ -140,3 +140,22 @@ def test_focus_is_skipped_when_window_is_active() -> None:
     assert not any(
         event[0] == "focus" and event[1].startswith("click") for event in fake_input.events
     )
+
+
+def test_read_field_retries_when_clipboard_has_garbage() -> None:
+    panel, game, _input = make_panel()
+    game.clipboard.queue = ["Добро пожаловать, "]
+    assert panel.read_field(FieldKey.X) == pytest.approx(POSE.x)
+
+
+def test_read_field_gives_up_after_two_bad_attempts() -> None:
+    panel, game, _input = make_panel()
+    game.clipboard.queue = ["мусор", "мусор"]
+    with pytest.raises(PanelUnavailableError, match="не число"):
+        panel.read_field(FieldKey.X)
+
+
+def test_tap_key_sends_configured_key() -> None:
+    panel, _game, fake_input = make_panel()
+    panel.tap_key("delete")
+    assert ("key", "delete") in fake_input.events

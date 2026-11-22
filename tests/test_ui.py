@@ -18,8 +18,11 @@ from lsp_overlay.domain.pose import Pose  # noqa: E402
 from lsp_overlay.infrastructure.catalog_store import CatalogStore  # noqa: E402
 from lsp_overlay.infrastructure.config_store import ConfigStore  # noqa: E402
 from lsp_overlay.ui.overlay import OverlayWindow  # noqa: E402
-from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtGui import QGuiApplication  # noqa: E402
+from PySide6.QtCore import QEvent, Qt  # noqa: E402
+from PySide6.QtGui import (
+    QFocusEvent,  # noqa: E402
+    QGuiApplication,  # noqa: E402
+)
 
 from fakes import FakeGamePanel, build_calibration  # noqa: E402
 from test_keymap import press_key, release_key  # noqa: E402
@@ -474,3 +477,112 @@ def test_live_mode_reads_keys_without_window_focus(tmp_path: Path, qt_app: objec
         assert panel.commits >= 1
     finally:
         window.action_live_toggled(False)
+
+
+class FakeKeyHook:
+    """Глобальный хук клавиш для тестов."""
+
+    def __init__(self) -> None:
+        self.callback: object = None
+        self.started = 0
+        self.stopped = 0
+
+    def is_available(self) -> bool:
+        return True
+
+    def start(self, callback: object) -> bool:
+        self.callback = callback
+        self.started += 1
+        return True
+
+    def stop(self) -> None:
+        self.stopped += 1
+        self.callback = None
+
+    def press(self, vk_code: int) -> None:
+        self.callback(vk_code, True)  # type: ignore[operator]
+
+    def release(self, vk_code: int) -> None:
+        self.callback(vk_code, False)  # type: ignore[operator]
+
+
+def make_window_with_hook(
+    tmp_path: Path, qt_app: object
+) -> tuple[OverlayWindow, FakeGamePanel, FakeKeyHook]:
+    settings = Settings(calibration=build_calibration())
+    panel = FakeGamePanel(START)
+    panel.configure(
+        calibration=settings.calibration,
+        timings=settings.timings,
+        length_decimals=settings.length_decimals,
+        confirm_key=settings.confirm_key,
+    )
+    session = MappingSession(panel, settings)
+    hook = FakeKeyHook()
+    window = OverlayWindow(
+        session,
+        ConfigStore(tmp_path / "settings.json"),
+        settings,
+        catalog_store=CatalogStore(tmp_path / "objects.json"),
+        key_hook=hook,  # type: ignore[arg-type]
+    )
+    window.action_capture()
+    return window, panel, hook
+
+
+def test_live_mode_hooks_numpad_so_game_does_not_see_it(tmp_path: Path, qt_app: object) -> None:
+    window, panel, hook = make_window_with_hook(tmp_path, qt_app)
+    window.action_live_toggled(True)
+    try:
+        assert hook.started == 1
+        hook.press(0x68)  # Numpad 8
+        assert window._live.direction is Direction.NORTH
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and panel.commits == 0:
+            time.sleep(0.01)
+        hook.release(0x68)
+        assert window._live.direction is None
+        assert panel.commits >= 1
+    finally:
+        window.action_live_toggled(False)
+    assert hook.stopped >= 1
+
+
+def test_live_mode_ignores_hooked_commands(tmp_path: Path, qt_app: object) -> None:
+    window, _panel, hook = make_window_with_hook(tmp_path, qt_app)
+    window.action_live_toggled(True)
+    try:
+        hook.press(0x65)  # Numpad 5 — не направление
+        assert window._live.direction is None
+    finally:
+        window.action_live_toggled(False)
+
+
+def test_focus_loss_stops_autorepeat(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_8)
+    window._repeat_timer.start()
+    window.focusOutEvent(QFocusEvent(QEvent.Type.FocusOut))
+    assert not window._repeat_timer.isActive()
+    window._repeat_tick()
+    assert window._session.pose.y == pytest.approx(START.y + 0.1)
+
+
+def test_autorepeat_stops_when_key_events_are_lost(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    press_key(window, Qt.Key.Key_8)
+    window._last_key_time = time.monotonic() - 5.0
+    window._repeat_tick()
+    assert not window._repeat_timer.isActive()
+    assert window._session.pose.y == pytest.approx(START.y + 0.1)
+
+
+def test_live_guard_stops_runaway(tmp_path: Path, qt_app: object) -> None:
+    window, _panel, _hook = make_window_with_hook(tmp_path, qt_app)
+    window.action_live_toggled(True)
+    window._live.steer(Direction.NORTH, 0.1)
+    window._live._applied = 10_000  # type: ignore[attr-defined]
+    window._poll_live()
+    assert not window._live.is_running
+    assert window.lbl_status.property("level") == "error"
+    assert not window.movement_tab.btn_live.isChecked()

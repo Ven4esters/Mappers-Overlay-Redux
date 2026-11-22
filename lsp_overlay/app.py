@@ -14,6 +14,7 @@ from lsp_overlay.config import Settings
 from lsp_overlay.infrastructure.catalog_store import CatalogStore
 from lsp_overlay.infrastructure.clipboard import SystemClipboard
 from lsp_overlay.infrastructure.config_store import ConfigStore
+from lsp_overlay.infrastructure.global_keys import NullKeyHook, Win32KeyHook
 from lsp_overlay.infrastructure.panel import ClipboardPanel
 from lsp_overlay.infrastructure.win32_input import (
     NullKeyState,
@@ -86,8 +87,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         LOGGER.info("Живой режим: чтение клавиш недоступно (не Windows)")
     elif not key_state.num_lock_enabled():
         LOGGER.warning("NumLock выключен: живой режим не увидит Numpad")
+    key_hook = Win32KeyHook() if key_state.is_ready() else NullKeyHook()
     window = OverlayWindow(
-        session, store, settings, catalog_store=CatalogStore(), key_state=key_state
+        session,
+        store,
+        settings,
+        catalog_store=CatalogStore(),
+        key_state=key_state,
+        key_hook=key_hook,
     )
     window.show()
     _write_ready_marker(args.log_dir)

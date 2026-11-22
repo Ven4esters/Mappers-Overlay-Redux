@@ -17,6 +17,7 @@ from lsp_overlay.infrastructure.win32_input import InputBackend, InputUnavailabl
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_SLEEP: Callable[[float], None] = time.sleep
+READ_ATTEMPTS = 2
 
 
 class ClipboardPanel:
@@ -69,7 +70,17 @@ class ClipboardPanel:
         return Pose(**{key.value: values[key] for key in FieldKey})
 
     def read_field(self, key: FieldKey) -> float:
-        """Читает одно поле через ``Ctrl+A`` + ``Ctrl+C``."""
+        """Читает одно поле; если в буфере мусор — пробует ещё раз."""
+        last_error: DomainError | None = None
+        for _attempt in range(READ_ATTEMPTS):
+            try:
+                return self._read_field_once(key)
+            except DomainError as error:
+                last_error = error
+                LOGGER.warning("Поле %s не прочиталось, повтор: %s", key.value.upper(), error)
+        raise PanelUnavailableError(str(last_error)) from last_error
+
+    def _read_field_once(self, key: FieldKey) -> float:
         point = self._point(key)
         self._focus(point)
         self._input.click(*point.as_tuple())
@@ -87,7 +98,7 @@ class ClipboardPanel:
         except DomainError as error:
             raise PanelUnavailableError(
                 f"поле {key.value.upper()} прочитано как «{text}» — это не число. "
-                "Проверьте калибровку или нажмите F в игре."
+                "Закройте уведомления поверх игры, проверьте калибровку или нажмите F."
             ) from error
 
     def write_fields(self, values: Mapping[FieldKey, float]) -> None:

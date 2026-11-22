@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Protocol, runtime_checkable
 
 from lsp_overlay.config import Calibration, PanelTimings
@@ -56,3 +56,17 @@ class KeyStatePort(Protocol):
 
     def num_lock_enabled(self) -> bool:
         """Включён ли NumLock (иначе Numpad шлёт другие клавиши)."""
+
+
+@runtime_checkable
+class KeyHookPort(Protocol):
+    """Глобальный перехват Numpad: клавиши гасятся и не доходят до игры."""
+
+    def is_available(self) -> bool:
+        """Есть ли возможность перехватывать клавиши вне окна оверлея."""
+
+    def start(self, callback: Callable[[int, bool], None]) -> bool:
+        """Ставит хук; ``callback(vk_code, pressed)`` зовётся на нажатие и отпускание."""
+
+    def stop(self) -> None:
+        """Снимает хук."""

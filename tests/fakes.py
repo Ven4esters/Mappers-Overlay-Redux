@@ -109,9 +109,10 @@ class FakeClipboard:
 
     def __init__(self, text: str = "") -> None:
         self.text = text
+        self.queue: list[str] = []
 
     def get_text(self) -> str:
-        return self.text
+        return self.queue.pop(0) if self.queue else self.text
 
     def set_text(self, text: str) -> None:
         self.text = text
