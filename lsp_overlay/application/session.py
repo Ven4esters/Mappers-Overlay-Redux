@@ -204,7 +204,7 @@ class MappingSession:
         return self._panel_pose
 
     def pending_fields(self) -> tuple[FieldKey, ...]:
-        """Поля, которые отличаются от прочитанных из игры."""
+        """Поля, которые отличаются от прочитанных из игры (их и пишем)."""
         if self._panel_pose is None:
             return FIELD_ORDER
         return tuple(
@@ -235,7 +235,7 @@ class MappingSession:
             )
         fields = self.pending_fields()
         result = self._writer.write(self._panel_pose, self._pose, fields)
-        if commit:
+        if commit and result.fields:
             self._panel.commit()
         self._panel_pose = self._pose
         return result

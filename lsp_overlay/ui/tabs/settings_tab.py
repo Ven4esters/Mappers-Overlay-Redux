@@ -100,6 +100,11 @@ class SettingsTab(QWidget):
             "Клавиша удаления копии — нажимается только по кнопке «Убрать копию»"
         )
         form.addRow("Клавиша удаления копии", self.edit_clone_delete_key)
+        self.chk_live_commit = QCheckBox("Подтверждать F в живом режиме (ставить предмет)")
+        self.chk_live_commit.setToolTip(
+            "Выключено: живой режим только показывает, где окажется предмет, и не нажимает F."
+        )
+        form.addRow(self.chk_live_commit)
         return group
 
     def _build_appearance_group(self) -> QGroupBox:
@@ -140,6 +145,7 @@ class SettingsTab(QWidget):
         )
         self.edit_clone_key.setText(settings.clone_key)
         self.edit_clone_delete_key.setText(settings.clone_delete_key)
+        self.chk_live_commit.setChecked(settings.live_commit)
         self.slider_opacity.setValue(int(round(settings.overlay_opacity * OPACITY_SCALE)))
         self.chk_on_top.setChecked(settings.always_on_top)
 
@@ -164,6 +170,7 @@ class SettingsTab(QWidget):
             clone_delete_key=(
                 self.edit_clone_delete_key.text().strip().lower() or DEFAULT_CLONE_DELETE_KEY
             ),
+            live_commit=self.chk_live_commit.isChecked(),
             overlay_opacity=self.slider_opacity.value() / OPACITY_SCALE,
             always_on_top=self.chk_on_top.isChecked(),
             timings=self._settings.timings,

@@ -133,3 +133,19 @@ def test_custom_timings_are_kept() -> None:
     settings = Settings.from_dict({"timings": {"click": 0.05, "field": 0.2}})
     assert settings.timings.click == pytest.approx(0.05)
     assert settings.timings.field == pytest.approx(0.2)
+
+
+def test_live_commit_is_off_by_default() -> None:
+    assert Settings().live_commit is False
+
+
+def test_live_commit_survives_json_roundtrip() -> None:
+    settings = Settings(live_commit=True)
+    restored = Settings.from_dict(settings.to_dict())
+    assert restored.live_commit is True
+
+
+def test_old_settings_file_without_live_commit_keeps_f_off() -> None:
+    data = Settings().to_dict()
+    data.pop("live_commit")
+    assert Settings.from_dict(data).live_commit is False

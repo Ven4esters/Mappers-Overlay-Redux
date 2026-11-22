@@ -44,13 +44,42 @@ def test_live_applies_steps_to_game_until_release() -> None:
         live.release()
         steps = live.applied
         assert panel.pose.y > START.y + 0.5
-        assert panel.commits >= 2
         assert panel.writes
+        assert panel.commits == 0, "живой режим не должен подтверждать F сам"
         time.sleep(0.05)
         assert live.applied >= steps
     finally:
         live.stop()
     assert not live.is_running
+
+
+def test_live_with_commit_setting_presses_f() -> None:
+    panel = FakeGamePanel(START)
+    session = MappingSession(panel, Settings())
+    session.capture()
+    live = LiveMover(session, commit=True, tick=TICK)
+    live.start()
+    try:
+        live.steer(Direction.NORTH, 0.5)
+        wait_for(lambda: panel.commits >= 2)
+    finally:
+        live.stop()
+    assert panel.commits >= 2
+
+
+def test_live_commit_switches_on_the_fly() -> None:
+    live, panel, _session = make_live()
+    live.start()
+    try:
+        live.steer(Direction.NORTH, 0.5)
+        wait_for(lambda: live.applied >= 1)
+        assert panel.commits == 0
+        live.set_commit(True)
+        assert live.commit
+        waited = panel.commits
+        wait_for(lambda: panel.commits > waited)
+    finally:
+        live.stop()
 
 
 def test_live_does_not_move_without_direction() -> None:

@@ -105,6 +105,7 @@ class Settings:
     confirm_key: str = "f"
     clone_key: str = DEFAULT_CLONE_KEY
     clone_delete_key: str = DEFAULT_CLONE_DELETE_KEY
+    live_commit: bool = False
     calibration: Calibration = field(default_factory=Calibration.empty)
     timings: PanelTimings = field(default_factory=PanelTimings)
     overlay_opacity: float = 0.94
@@ -149,6 +150,7 @@ class Settings:
             "confirm_key": self.confirm_key,
             "clone_key": self.clone_key,
             "clone_delete_key": self.clone_delete_key,
+            "live_commit": self.live_commit,
             "overlay_opacity": self.overlay_opacity,
             "always_on_top": self.always_on_top,
             "timings": {
@@ -192,6 +194,7 @@ class Settings:
             confirm_key=str(data.get("confirm_key", "f")).lower(),
             clone_key=str(data.get("clone_key", DEFAULT_CLONE_KEY)).lower(),
             clone_delete_key=str(data.get("clone_delete_key", DEFAULT_CLONE_DELETE_KEY)).lower(),
+            live_commit=bool(data.get("live_commit", False)),
             overlay_opacity=float(data.get("overlay_opacity", 0.94)),
             always_on_top=bool(data.get("always_on_top", True)),
             timings=_timings_from(timings_data),

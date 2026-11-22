@@ -15,6 +15,15 @@ from lsp_overlay.domain.safety import values_match
 LOGGER = logging.getLogger(__name__)
 
 
+def _same(previous: Pose, target: Pose, key: FieldKey) -> bool:
+    """Совпадает ли поле в двух позах с тем же допуском, что и проверка чтения."""
+    return values_match(
+        get_field(previous, key),
+        get_field(target, key),
+        angle=is_angle_field(key),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ApplyResult:
     """Что именно записали и подтвердилось ли это чтением."""
@@ -25,7 +34,7 @@ class ApplyResult:
 
 
 class FieldWriter:
-    """Пишет только изменившиеся поля и перечитывает их после вставки.
+    """Пишет только те поля, чьё значение реально отличается от прежнего.
 
     Если панель не приняла значение (промах клика, не сработал ``Ctrl+A``,
     дописанные цифры), прежние значения возвращаются в поля, а наружу летит
@@ -43,9 +52,16 @@ class FieldWriter:
             raise PanelUnavailableError(
                 "Панель игры недоступна: задайте точки в «Калибровке» и откройте меню пропа."
             )
-        ordered = tuple(fields)
-        if not ordered:
+        changed = tuple(key for key in fields if not _same(previous, target, key))
+        if not changed:
+            LOGGER.debug("Нечего писать: значения уже на месте")
             return ApplyResult(fields=(), verified=False, pose=target)
+        ordered = changed
+        LOGGER.debug(
+            "К записи %s, без изменений %s",
+            [key.value for key in ordered],
+            [key.value for key in fields if key not in ordered],
+        )
 
         values = {key: get_field(target, key) for key in ordered}
         self._panel.write_fields(values)

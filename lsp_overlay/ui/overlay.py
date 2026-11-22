@@ -88,7 +88,7 @@ class OverlayWindow(QWidget):
         self._key_hook: KeyHookPort = key_hook or NullKeyHook()
         self._hooked_direction: Direction | None = None
         self._last_key_time = 0.0
-        self._live = LiveMover(session)
+        self._live = LiveMover(session, commit=settings.live_commit)
         self._repeat_direction: Direction | None = None
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(MINIMUM_WIDTH, MINIMUM_HEIGHT)
@@ -303,6 +303,7 @@ class OverlayWindow(QWidget):
             return
         finally:
             self._idle()
+        self._live.set_commit(self._settings.live_commit)
         self._live.start()
         self._live_timer.start()
         if self._key_hook.is_available() and self._key_hook.start(self._on_hooked_key):
@@ -313,10 +314,12 @@ class OverlayWindow(QWidget):
         else:
             LOGGER.warning("Живой режим без глобальных клавиш: двигайте кнопками оверлея")
         self._refresh()
-        self._set_status(
-            "Живой режим: двигайте копию Numpad — изменения сразу уходят в игру",
-            "success",
+        hint = (
+            "каждый шаг подтверждается F"
+            if self._settings.live_commit
+            else "F не нажимается: видно, куда встанет предмет"
         )
+        self._set_status(f"Живой режим: двигайте копию Numpad — {hint}", "success")
 
     def _stop_live(self) -> None:
         self._key_hook.stop()
@@ -327,8 +330,9 @@ class OverlayWindow(QWidget):
         self.movement_tab.unflash_all()
         self.movement_tab.set_live(False)
         self._refresh()
+        tail = "с подтверждением F" if self._settings.live_commit else "без подтверждения F"
         self._set_status(
-            f"Живой режим выключен, шагов в игре: {self._live.applied}",
+            f"Живой режим выключен, шагов: {self._live.applied} ({tail})",
             "info",
         )
 
@@ -521,6 +525,7 @@ class OverlayWindow(QWidget):
         self._apply_calibration_to_panel(settings.calibration)
         self._apply_window_options()
         self._save_settings()
+        self._live.set_commit(settings.live_commit)
         self.movement_tab.set_step(settings.step)
         self.btn_apply_commit.setText(f"Сохранить {settings.confirm_key.upper()}")
         self._set_status("Настройки сохранены", "success")
@@ -549,11 +554,14 @@ class OverlayWindow(QWidget):
         finally:
             self._idle()
         if not result.fields:
-            self._set_status("Изменений нет — нечего записывать", "info")
+            self._set_status("Значения уже на месте — писать нечего", "info")
         else:
             names = ", ".join(key.value.upper() for key in result.fields)
             suffix = " и сохранено (F)" if commit else ""
-            self._set_status(f"Записано: {names}{suffix}", "success")
+            self._set_status(
+                f"Записано только изменённое: {names}{suffix}",
+                "success",
+            )
         self._refresh()
 
     # ------------------------------------------------------------------ сервис

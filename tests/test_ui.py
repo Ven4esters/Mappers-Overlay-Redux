@@ -138,6 +138,28 @@ def test_settings_saved_applies_opacity_and_persists(tmp_path: Path, qt_app: obj
     assert (tmp_path / "settings.json").exists()
 
 
+def test_live_commit_checkbox_toggles_confirmation(tmp_path: Path, qt_app: object) -> None:
+    window, panel = make_window(tmp_path, qt_app)
+    tab = window.settings_tab
+    assert tab.chk_live_commit.isChecked() is False
+    tab.chk_live_commit.setChecked(True)
+    window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
+    assert window._settings.live_commit is True
+    assert window._live.commit is True
+    window.action_live_toggled(True)
+    try:
+        press_key(window, Qt.Key.Key_8)
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and panel.commits == 0:
+            qt_app.processEvents()  # type: ignore[attr-defined]
+            time.sleep(0.01)
+        release_key(window, Qt.Key.Key_8)
+        assert panel.commits >= 1
+    finally:
+        window.action_live_toggled(False)
+    assert window._settings.live_commit is True
+
+
 def test_apply_without_capture_shows_error(tmp_path: Path, qt_app: object) -> None:
     settings = Settings(calibration=build_calibration())
     panel = FakeGamePanel(START)
@@ -392,11 +414,12 @@ def test_live_mode_clones_and_applies_in_game(tmp_path: Path, qt_app: object) ->
         assert window._live.is_running
         press_key(window, Qt.Key.Key_8)
         deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline and panel.commits == 0:
+        while time.monotonic() < deadline and not panel.writes:
             qt_app.processEvents()  # type: ignore[attr-defined]
             time.sleep(0.01)
         release_key(window, Qt.Key.Key_8)
-        assert panel.commits >= 1
+        assert panel.writes
+        assert panel.commits == 0
         assert panel.pose.y > START.y
     finally:
         window.action_live_toggled(False)
@@ -468,13 +491,14 @@ def test_live_mode_reads_keys_without_window_focus(tmp_path: Path, qt_app: objec
         assert window._live.direction is Direction.NORTH
         assert window.movement_tab._direction_buttons[Direction.NORTH].isDown()
         deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline and panel.commits == 0:
+        while time.monotonic() < deadline and not panel.writes:
             time.sleep(0.01)
         keys.pressed.clear()
         window._poll_keys()
         assert window._live.direction is None
         assert not window.movement_tab._direction_buttons[Direction.NORTH].isDown()
-        assert panel.commits >= 1
+        assert panel.writes
+        assert panel.commits == 0
     finally:
         window.action_live_toggled(False)
 
@@ -538,11 +562,12 @@ def test_live_mode_hooks_numpad_so_game_does_not_see_it(tmp_path: Path, qt_app: 
         hook.press(0x68)  # Numpad 8
         assert window._live.direction is Direction.NORTH
         deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline and panel.commits == 0:
+        while time.monotonic() < deadline and not panel.writes:
             time.sleep(0.01)
         hook.release(0x68)
         assert window._live.direction is None
-        assert panel.commits >= 1
+        assert panel.writes
+        assert panel.commits == 0
     finally:
         window.action_live_toggled(False)
     assert hook.stopped >= 1

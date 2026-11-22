@@ -70,6 +70,23 @@ def test_apply_writes_nothing_when_nothing_changed() -> None:
     assert panel.writes == []
 
 
+def test_apply_does_not_press_f_when_nothing_changed() -> None:
+    session, panel = make_session()
+    result = session.apply(commit=True)
+    assert result.fields == ()
+    assert panel.commits == 0
+
+
+def test_apply_skips_change_smaller_than_tolerance() -> None:
+    session, panel = make_session()
+    session.move(Direction.NORTH, 0.001)
+    assert session.pending_fields() == (FieldKey.Y,)
+    result = session.apply(commit=True)
+    assert result.fields == ()
+    assert panel.writes == []
+    assert panel.commits == 0
+
+
 def test_rotation_updates_only_angle_field() -> None:
     session, _panel = make_session()
     session.rotate(Axis.YAW, 10.0)
