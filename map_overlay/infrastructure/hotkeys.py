@@ -110,6 +110,8 @@ class WindowsHotkeySource(QThread):
         self._owner_of: Callable[..., int] | None = None
         self._own_pid: Callable[[], int] | None = None
         self._swallowed: set[int] = set()
+        self._alt_down = False
+        self._alt_alone = False
         self._error_logged = False
         self.failed = False
 
@@ -156,15 +158,6 @@ class WindowsHotkeySource(QThread):
         if sys.platform != "win32":
             return None
         return bool(ctypes.windll.user32.GetKeyState(VK_NUMLOCK) & 1)
-
-    def alt_down(self) -> bool:
-        """Зажат ли Alt.
-
-        Состояние спрашивается у системы, а не берётся из события: Alt могут
-        нажать или отпустить уже во время удержания стрелки, и следующий шаг
-        должен пойти по новому режиму.
-        """
-        return self.key_down(VK_MENU)
 
     def key_down(self, vk: int) -> bool:
         """Зажата ли клавиша прямо сейчас.
@@ -244,6 +237,7 @@ class WindowsHotkeySource(QThread):
         is_up = wparam in (WM_KEYUP, WM_SYSKEYUP)
         if not (is_down or is_up):
             return self._pass_through(code, wparam, lparam)
+        self._observe_alt(vk, is_down)
         block = self._enabled and blocks_key(
             vk=vk,
             is_down=is_down,
@@ -265,6 +259,29 @@ class WindowsHotkeySource(QThread):
             logger.info("Хук забрал клавишу %s", key_name(vk))
         self.key_event.emit(vk, is_down, fresh)
         return 1
+
+    def _observe_alt(self, vk: int, is_down: bool) -> None:
+        """Заметить одиночное нажатие Alt — им переключается режим наклона.
+
+        Alt не забирается у игры: он проходит как обычно. Переключателем считается
+        только одиночное нажатие, а комбинация (``Alt+Tab``, ``Alt+F4``,
+        ``Alt+Num 8``) — нет, иначе режим менялся бы во время обычной работы.
+        """
+        if vk == VK_MENU:
+            if is_down:
+                if not self._alt_down:
+                    self._alt_down = True
+                    self._alt_alone = True
+                return
+            self._alt_down = False
+            alone = self._alt_alone
+            self._alt_alone = False
+            if alone and self._enabled and not self._learning:
+                logger.info("Alt нажат один: переключаю режим наклона")
+                self.key_event.emit(VK_MENU, True, True)
+            return
+        if self._alt_down:
+            self._alt_alone = False
 
     def _foreground_is_ours(self) -> bool:
         """Активно ли окно оверлея (а не игра или другая программа)."""

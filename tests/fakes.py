@@ -197,14 +197,12 @@ class FakeHotkeySource:
         *,
         available: bool = True,
         num_lock: bool | None = True,
-        alt: bool = False,
     ) -> None:
         self._callback: Callable[[int, bool, bool], None] | None = None
         self.bound_keys: Collection[int] = ()
         self.learning = False
         self.enabled = True
         self.started = False
-        self.alt = alt
         self._available = available
         self._num_lock = num_lock
         self._down: set[int] = set()
@@ -230,9 +228,6 @@ class FakeHotkeySource:
     def is_available(self) -> bool:
         return self._available
 
-    def alt_down(self) -> bool:
-        return self.alt
-
     def key_down(self, vk: int) -> bool:
         return vk in self._down
 
@@ -252,6 +247,10 @@ class FakeHotkeySource:
 
     def release(self, vk: int) -> None:
         self.press(vk, is_down=False)
+
+    def hold_alt(self) -> None:
+        """Показать Alt физически зажатым, не посылая события: комбинация Alt+клавиша."""
+        self._down.add(0x12)
 
     def forget(self, vk: int) -> None:
         """«Потерять» клавишу: система не прислала ``keyup``, но клавиша уже отжата."""

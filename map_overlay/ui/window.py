@@ -28,7 +28,7 @@ from map_overlay.domain.actions import Action
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import Field
 from map_overlay.domain.formatting import format_delta, format_value
-from map_overlay.domain.keynames import COMMON_GAME_KEYS, VK_ESCAPE, key_name
+from map_overlay.domain.keynames import COMMON_GAME_KEYS, VK_ESCAPE, VK_MENU, key_name
 from map_overlay.domain.movement import COORD_DECIMALS
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
@@ -58,10 +58,7 @@ HEARTBEAT_MS = 250
 BUSY_TICK_MS = 500
 STUCK_HINT_S = 5.0
 HOLD_REPEAT_MS = 150
-"""Как часто повторять шаг, пока направление на Numpad зажато."""
-
-HOLD_MISS_LIMIT = 3
-"""Сколько тактов подряд клавиша может считаться отжатой, прежде чем удержание снимется."""
+"""Пауза перед следующим шагом удержания: отсчитывается от конца предыдущего."""
 
 NUM_LOCK_CHECK_MS = 3000
 """Как часто проверять NumLock: без него Numpad посылает другие клавиши."""
@@ -81,7 +78,7 @@ class MainWindow(QMainWindow):
         self._router = HotkeyRouter(context.settings.hotkeys)
         self._busy_text = ""
         self._held: tuple[Action, int] | None = None
-        self._hold_misses = 0
+        self._tilt_mode = False
         self._num_lock_state: bool | None = None
         self._learn_timer = QTimer(self)
         self._learn_timer.setSingleShot(True)
@@ -148,7 +145,7 @@ class MainWindow(QMainWindow):
         self._heartbeat.timeout.connect(diagnostics.beat)
         self._heartbeat.start()
         self._hold_timer = QTimer(self)
-        self._hold_timer.setInterval(HOLD_REPEAT_MS)
+        self._hold_timer.setSingleShot(True)
         self._hold_timer.timeout.connect(self._hold_tick)
         self._num_lock_timer = QTimer(self)
         self._num_lock_timer.setInterval(NUM_LOCK_CHECK_MS)
@@ -328,6 +325,7 @@ class MainWindow(QMainWindow):
 
     def _moved(self, result: object) -> None:
         self._set_busy(False)
+        self._schedule_hold_step()
         step_result = cast(StepResult, result)
         self._pose = step_result.pose
         self.movement.set_pose(step_result.pose)
@@ -357,10 +355,10 @@ class MainWindow(QMainWindow):
         if not pose.has_tilt:
             return ""
         parts: list[str] = []
-        if abs(pose.rx) > 1e-9:
+        if abs(pose.rx) > 1e-9 and not self._tilt_mode:
             parts.append(
-                f"RX {format_value(pose.rx, COORD_DECIMALS)}°: Alt + направление ведёт по "
-                "наклону (при RX > 0 «вперёд» поднимает), без Alt — по плоскости."
+                f"RX {format_value(pose.rx, COORD_DECIMALS)}°: нажмите Alt один раз, "
+                "чтобы шаги шли по наклону (при RX > 0 «вперёд» поднимает)."
             )
         if abs(pose.ry) > 1e-9:
             parts.append(f"RY {format_value(pose.ry, COORD_DECIMALS)}° не учитывается.")
@@ -377,6 +375,9 @@ class MainWindow(QMainWindow):
             if is_down:
                 self._finish_learning(vk)
             return
+        if vk == VK_MENU and is_down and fresh:
+            self._toggle_tilt()
+            return
         action = self._router.handle(vk, is_down, fresh)
         if action is not None:
             logger.info("Клавиша %s → %s", key_name(vk), action.label)
@@ -384,6 +385,35 @@ class MainWindow(QMainWindow):
             return
         if not is_down:
             self._release_key(vk)
+
+    def _refresh_tilt_warning(self) -> None:
+        """Подсказка про наклон зависит от режима: включён он или нет."""
+        pose = self._pose
+        self.movement.set_warning("" if pose is None else self._tilt_warning(pose))
+
+    def _toggle_tilt(self) -> None:
+        """Переключить режим наклона: Alt нажимают один раз, а не держат.
+
+        Держать Alt нельзя: пока он зажат, игра не применяет правки панели к
+        объекту — значения доходят до интерфейса и теряются.
+        """
+        self._set_tilt(not self._tilt_mode)
+
+    def _set_tilt(self, enabled: bool) -> None:
+        if enabled == self._tilt_mode:
+            return
+        self._tilt_mode = enabled
+        self.movement.set_tilt(enabled)
+        self._refresh_tilt_warning()
+        if enabled:
+            logger.info("Режим наклона включён")
+            self._set_status(
+                "Режим наклона включён: направления ведут по RX. Alt — выключить.",
+                STATUS_OK,
+            )
+        else:
+            logger.info("Режим наклона выключен")
+            self._set_status("Режим наклона выключен: шаги идут по плоскости.")
 
     def _dispatch(self, action: Action, vk: int) -> None:
         if action is Action.CAPTURE:
@@ -393,27 +423,29 @@ class MainWindow(QMainWindow):
             self._confirm()
             return
         if action.direction is not None:
+            if self._hotkeys.key_down(VK_MENU) and not self._tilt_mode:
+                # Привычка «Alt + направление» тоже включает режим.
+                self._set_tilt(True)
             self._start_hold(action, vk)
 
     # --- удержание направления -------------------------------------------
 
     def _start_hold(self, action: Action, vk: int) -> None:
-        """Начать удержание: первый шаг сразу, дальше — по таймеру."""
+        """Начать удержание: первый шаг сразу, следующие — друг за другом."""
         self._stop_hold()
         self._held = (action, vk)
-        self._hold_timer.start(HOLD_REPEAT_MS)
         self._hold_tick(force=True)
 
     def _hold_tick(self, *, force: bool = False) -> None:
-        """Повторить шаг, пока клавиша зажата.
+        """Сделать очередной шаг удержания.
 
-        ``force`` — такт вызван самим нажатием: событие уже доказывает, что клавишу
+        ``force`` — вызов из самого нажатия: событие уже доказывает, что клавишу
         нажали, поэтому состояние клавиши не перепроверяется. Без этого быстрое
-        нажатие (отпустили раньше, чем интерфейс обработал событие) не давало шага
-        вовсе — «Numpad не реагирует».
+        нажатие не давало шага вовсе.
 
-        Пропускает такт, если панель ещё занята предыдущим шагом: очередь шагов
-        не копится, иначе оверлей «уезжал» бы после отпускания клавиши.
+        Следующий шаг ставится не по общему таймеру, а после завершения текущего
+        (:meth:`_schedule_hold_step`): один шаг занимает около секунды, и обмен
+        с панелью сам задаёт темп — движение идёт без пауз и рывков.
         """
         held = self._held
         if held is None:
@@ -423,20 +455,26 @@ class MainWindow(QMainWindow):
         if not self.settings_tab.hotkeys_enabled():
             self._stop_hold()
             return
-        if not force:
-            if not self._hotkeys.key_down(vk):
-                self._hold_misses += 1
-                if self._hold_misses >= HOLD_MISS_LIMIT:
-                    logger.debug("Удержание %s снято: клавиша не нажата", action.label)
-                    self._stop_hold()
-                return
-            self._hold_misses = 0
+        if not force and not self._hotkeys.key_down(vk):
+            logger.debug("Удержание %s снято: клавиша не нажата", action.label)
+            self._stop_hold()
+            return
+        if force and self._hotkeys.key_down(VK_MENU):
+            logger.warning(
+                "Alt зажат во время шага: игра может не применить изменение. "
+                "Режим наклона включается одним нажатием Alt"
+            )
         if self._runner.is_busy():
             return
-        if not self._step_once(action, tilt=self._hotkeys.alt_down()):
+        if not self._step_once(action):
             self._stop_hold()
 
-    def _step_once(self, action: Action, *, tilt: bool) -> bool:
+    def _schedule_hold_step(self) -> None:
+        """Поставить следующий шаг удержания сразу после завершения текущего."""
+        if self._held is not None:
+            self._hold_timer.start(HOLD_REPEAT_MS)
+
+    def _step_once(self, action: Action) -> bool:
         direction = action.direction
         if direction is None:
             return False
@@ -446,7 +484,7 @@ class MainWindow(QMainWindow):
             logger.warning("Шаг не начат: %s", exc)
             self._set_status(str(exc), STATUS_WARN)
             return False
-        return self._move(direction, step, tilt=tilt)
+        return self._move(direction, step, tilt=self._tilt_mode)
 
     def _release_key(self, vk: int) -> None:
         """Отпускание клавиши прекращает удержание."""
@@ -456,7 +494,6 @@ class MainWindow(QMainWindow):
     def _stop_hold(self) -> None:
         self._hold_timer.stop()
         self._held = None
-        self._hold_misses = 0
 
     def _start_learning(self, action: object) -> None:
         self._stop_hold()

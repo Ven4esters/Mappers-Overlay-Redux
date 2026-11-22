@@ -177,6 +177,7 @@ def test_show_point_for_unknown_field_is_explained(qt_app: QApplication) -> None
     assert "не откалибровано" in window.status_text()
 
 
+VK_MENU = 0x12
 NUMPAD0 = 0x60
 NUMPAD2 = 0x62
 NUMPAD4 = 0x64
@@ -425,13 +426,19 @@ def test_numpad_diagonals_match_the_game(
 # --- наклон по Alt ---------------------------------------------------------
 
 
+def toggle_tilt(hotkeys: FakeHotkeySource) -> None:
+    """Нажать Alt один раз, как это делает хук при одиночном нажатии."""
+    hotkeys.press(VK_MENU)
+    hotkeys.release(VK_MENU)
+
+
 def test_alt_moves_forward_along_the_slope(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
     )
     window.movement.press_capture()
-    hotkeys.alt = True
+    toggle_tilt(hotkeys)
     hotkeys.press(NUMPAD8)
     hotkeys.release(NUMPAD8)
     assert panel.pose().x == pytest.approx(START.x + 0.433, abs=0.001)
@@ -446,7 +453,7 @@ def test_alt_back_descends(qt_app: QApplication) -> None:
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
     )
     window.movement.press_capture()
-    hotkeys.alt = True
+    toggle_tilt(hotkeys)
     hotkeys.press(NUMPAD2)
     hotkeys.release(NUMPAD2)
     assert panel.pose().z == pytest.approx(START.z - 0.25, abs=0.001)
@@ -458,7 +465,7 @@ def test_alt_sideways_keeps_the_height(qt_app: QApplication) -> None:
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
     )
     window.movement.press_capture()
-    hotkeys.alt = True
+    toggle_tilt(hotkeys)
     hotkeys.press(NUMPAD4)
     hotkeys.release(NUMPAD4)
     assert panel.pose().y == pytest.approx(START.y + 0.5, abs=0.001)
@@ -466,24 +473,46 @@ def test_alt_sideways_keeps_the_height(qt_app: QApplication) -> None:
     assert panel.written_fields == [Field.Y]
 
 
-def test_alt_without_tilt_is_a_plain_step(qt_app: QApplication) -> None:
+def test_tilt_mode_with_flat_pose_is_a_plain_step(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
     window.movement.press_capture()
-    hotkeys.alt = True
+    toggle_tilt(hotkeys)
     hotkeys.press(NUMPAD8)
     hotkeys.release(NUMPAD8)
     assert panel.written_fields == [Field.X]
 
 
-def test_alt_can_be_pressed_during_the_hold(qt_app: QApplication) -> None:
+def test_alt_toggles_the_mode(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    assert window.movement.mode_text().startswith("Режим: по плоскости")
+    toggle_tilt(hotkeys)
+    assert window.movement.mode_text().startswith("Режим: по наклону")
+    assert "Режим наклона включён" in window.status_text()
+    toggle_tilt(hotkeys)
+    assert window.movement.mode_text().startswith("Режим: по плоскости")
+    assert "Режим наклона выключен" in window.status_text()
+
+
+def test_tilt_mode_shows_the_angle(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
+    )
+    window.movement.press_capture()
+    toggle_tilt(hotkeys)
+    assert "RX 30.0" in window.movement.mode_text()
+
+
+def test_tilt_mode_can_be_switched_during_the_hold(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
     )
     window.movement.press_capture()
     hotkeys.press(NUMPAD8)
-    hotkeys.alt = True
+    toggle_tilt(hotkeys)
     window._hold_tick()
     assert panel.pose().x == pytest.approx(START.x + 0.5 + 0.433, abs=0.001)
     assert panel.pose().z == pytest.approx(START.z + 0.25, abs=0.001)
@@ -504,6 +533,41 @@ def test_hold_repeats_the_step_on_the_timer(qt_app: QApplication) -> None:
     assert window._hold_timer.interval() == 150
 
 
+def test_next_step_is_scheduled_right_after_the_previous_one(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(NUMPAD8)
+    # Шаг завершился — следующий уже поставлен, паузы «до конца такта» нет.
+    assert window._hold_timer.isActive()
+    assert window._hold_timer.interval() == 150
+
+
+def test_alt_held_still_turns_the_mode_on(qt_app: QApplication) -> None:
+    """Привычка «Alt + направление» работает: режим включается, шаг идёт по наклону."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(
+        qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
+    )
+    window.movement.press_capture()
+    hotkeys.hold_alt()
+    hotkeys.press(NUMPAD8)
+    assert window.movement.mode_text().startswith("Режим: по наклону")
+    assert panel.pose().z == pytest.approx(START.z + 0.25, abs=0.001)
+
+
+def test_held_alt_is_reported_in_the_log(
+    qt_app: QApplication, caplog: pytest.LogCaptureFixture
+) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.hold_alt()
+    with caplog.at_level("WARNING"):
+        hotkeys.press(NUMPAD8)
+    assert "Alt зажат" in caplog.text
+
+
 def test_release_stops_the_hold(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
@@ -521,8 +585,7 @@ def test_hold_stops_when_the_keyup_was_lost(qt_app: QApplication) -> None:
     window.movement.press_capture()
     hotkeys.press(NUMPAD8)
     hotkeys.forget(NUMPAD8)
-    for _ in range(3):
-        window._hold_tick()
+    window._hold_tick()
     assert not window._hold_timer.isActive()
     assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
 
@@ -537,8 +600,7 @@ def test_quick_tap_still_makes_the_step(
     monkeypatch.setattr(hotkeys, "key_down", lambda _vk: False)
     hotkeys.press(NUMPAD8)
     assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
-    for _ in range(3):
-        window._hold_tick()
+    window._hold_tick()
     assert not window._hold_timer.isActive()
     assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
 

@@ -74,7 +74,6 @@ def test_modifier_state_off_windows_is_off() -> None:
     from map_overlay.infrastructure.hotkeys import WindowsHotkeySource
 
     source = WindowsHotkeySource()
-    assert source.alt_down() is False
     assert source.key_down(0x68) is False
 
 
@@ -107,3 +106,62 @@ def test_hook_decides_fresh_press_and_autorepeat(
     assert events == [(0x68, True, True), (0x68, True, False), (0x68, False, False)]
     # В журнал попадает только само нажатие: автоповтор и отпускание молчат.
     assert caplog.text.count("Хук забрал клавишу Num 8") == 1
+
+
+class _HookHarness:
+    """Хук с поддельным событием клавиатуры: проверяем решение без Windows."""
+
+    def __init__(self, bound: tuple[int, ...] = (0x68,), learning: bool = False) -> None:
+        import ctypes
+
+        from map_overlay.infrastructure.hotkeys import WindowsHotkeySource, _KeyboardHookData
+
+        self.ctypes = ctypes
+        self.source = WindowsHotkeySource()
+        self.source._bound = frozenset(bound)
+        self.source._learning = learning
+        self.source._enabled = True
+        self.source._call_next = lambda *args: 0
+        self.events: list[tuple[int, bool, bool]] = []
+        self.source.key_event.connect(lambda vk, down, fresh: self.events.append((vk, down, fresh)))
+        self._data = _KeyboardHookData(vk=0, scan=0, flags=0, time=0, extra=None)
+
+    def send(self, vk: int, is_down: bool) -> int:
+        """Отправить нажатие или отпускание и вернуть решение хука."""
+        from map_overlay.infrastructure.hotkeys import WM_KEYDOWN, WM_KEYUP
+
+        self._data.vk = vk
+        message = WM_KEYDOWN if is_down else WM_KEYUP
+        return int(self.source._decide(0, message, self.ctypes.addressof(self._data)))
+
+
+def test_single_alt_tap_is_reported_as_toggle() -> None:
+    hook = _HookHarness()
+    # Alt не забирается у игры: отпускание и нажатие проходят как есть.
+    assert hook.send(0x12, True) == 0
+    assert hook.send(0x12, False) == 0
+    assert hook.events == [(0x12, True, True)]
+
+
+def test_alt_with_another_key_is_a_combination() -> None:
+    hook = _HookHarness()
+    hook.send(0x12, True)
+    hook.send(0x68, True)
+    hook.send(0x68, False)
+    hook.send(0x12, False)
+    assert (0x12, True, True) not in hook.events
+
+
+def test_alt_tap_is_ignored_while_learning() -> None:
+    hook = _HookHarness(learning=True)
+    hook.send(0x12, True)
+    hook.send(0x12, False)
+    assert hook.events == []
+
+
+def test_alt_tap_is_ignored_when_interception_is_off() -> None:
+    hook = _HookHarness()
+    hook.source._enabled = False
+    hook.send(0x12, True)
+    hook.send(0x12, False)
+    assert hook.events == []

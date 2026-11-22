@@ -28,6 +28,7 @@ class MovementTab(QWidget):
     def __init__(self, *, default_step: float, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._pose: Pose | None = None
+        self._tilt = False
         self._build(default_step)
 
     def _build(self, default_step: float) -> None:
@@ -74,18 +75,26 @@ class MovementTab(QWidget):
         step_row.addStretch(1)
         move_card.add_layout(step_row)
 
+        mode_row = QHBoxLayout()
+        mode_row.addStretch(1)
+        self._mode_label = label("Режим: по плоскости · Alt", widget_role="muted")
+        self._mode_label.setWordWrap(False)
+        mode_row.addWidget(self._mode_label)
+        move_card.add_layout(mode_row)
+
         move_card.add(
             label(
                 "Одна стрелка — один шаг; те же действия есть на Numpad. Зажмите клавишу — "
-                "шаг повторяется каждые 0,15 с, отпустите — движение останавливается.",
+                "шаг повторяется сразу за предыдущим, отпустите — движение останавливается.",
                 widget_role="muted",
             )
         )
         move_card.add(
             label(
-                "Alt + направление ведёт по наклону RX: при RX > 0 «вперёд» поднимает, "
-                "«назад» опускает; влево и вправо остаются в плоскости. В панель пишутся "
-                "только изменившиеся поля, после вставки значение проверяется.",
+                "Одно нажатие Alt включает режим наклона: направления ведут по RX (при RX > 0 "
+                "«вперёд» поднимает, «назад» опускает; влево и вправо остаются в плоскости). "
+                "Ещё одно нажатие — выключить. Держать Alt не нужно: пока он зажат, игра "
+                "не применяет правки панели.",
                 widget_role="muted",
             )
         )
@@ -142,6 +151,27 @@ class MovementTab(QWidget):
         self._pose = pose
         self._grid.set_pose(pose)
         self._pad.set_enabled(pose is not None)
+        self._refresh_mode()
+
+    def mode_text(self) -> str:
+        """Подпись режима движения (для тестов)."""
+        return self._mode_label.text()
+
+    def set_tilt(self, enabled: bool) -> None:
+        """Показать, идут ли шаги по наклону RX."""
+        self._tilt = enabled
+        self._refresh_mode()
+
+    def _refresh_mode(self) -> None:
+        if not self._tilt:
+            self._mode_label.setText("Режим: по плоскости · Alt")
+            self._mode_label.setProperty("role", "muted")
+        else:
+            angle = "" if self._pose is None else f" RX {self._pose.rx:.1f}°"
+            self._mode_label.setText(f"Режим: по наклону{angle} · Alt")
+            self._mode_label.setProperty("role", "ok")
+        self._mode_label.style().unpolish(self._mode_label)
+        self._mode_label.style().polish(self._mode_label)
 
     def press_confirm(self) -> None:
         """Нажать «Сохранить F» (для тестов)."""
