@@ -328,7 +328,7 @@ class MainWindow(QMainWindow):
         )
 
     def _move(self, direction: object, step: float, *, tilt: bool = False) -> bool:
-        """Сделать шаг; ``tilt`` — по плоскости экрана (клавиша Alt).
+        """Сделать шаг; ``tilt`` — режим высоты (клавиша Alt): 8 вверх, 2 вниз.
 
         Returns:
             ``True``, если задача поставлена: ``False`` — шаг невозможен.
@@ -344,16 +344,9 @@ class MainWindow(QMainWindow):
             )
             return False
         selected = cast(Direction, direction)
-        if tilt and selected.is_diagonal:
-            logger.info("Шаг не начат: в режиме по экрану диагонали отключены")
-            self._stop_hold()
-            self._set_status(
-                "В режиме по экрану диагонали отключены: шагайте Num 8, 2, 4 или 6. "
-                "Alt — выключить режим.",
-                STATUS_WARN,
-            )
-            return False
-        suffix = " (по экрану)" if tilt else ""
+        suffix = ""
+        if tilt and selected in (Direction.FORWARD, Direction.BACK):
+            suffix = " (вверх)" if selected is Direction.FORWARD else " (вниз)"
         self._begin_busy(f"Шаг {selected.label} на {step:g} м{suffix}…")
         self._runner.submit(
             lambda: session.step(selected, step, tilt=tilt),
@@ -381,9 +374,10 @@ class MainWindow(QMainWindow):
         written = ", ".join(field.label for field in step_result.written) or "ничего"
         deltas = f"ΔX {format_delta(step_result.delta_x)} · ΔY {format_delta(step_result.delta_y)}"
         slope = ""
-        if step_result.tilted:
+        if step_result.delta_z:
             deltas = f"{deltas} · ΔZ {format_delta(step_result.delta_z)}"
-            slope = " · по экрану"
+        if step_result.tilted:
+            slope = " · Alt: вверх/вниз"
         self._set_status(
             f"Шаг: {deltas} → {pose_text(step_result.pose)} · записано: {written}{slope}",
             STATUS_OK,
@@ -400,7 +394,7 @@ class MainWindow(QMainWindow):
         self._set_status(message, STATUS_ERROR)
 
     def _tilt_warning(self, pose: Pose) -> str:
-        """Подсказка про режим по экрану: только когда он выключен."""
+        """Подсказка про режим высоты: только когда он выключен и предмет наклонён."""
         if self._tilt_mode or not pose.has_tilt:
             return ""
         angles = " · ".join(
@@ -409,8 +403,8 @@ class MainWindow(QMainWindow):
             if abs(pose.value(field)) > 1e-9
         )
         return (
-            f"{angles}: нажмите Alt — шаги пойдут по экрану (Num 8 — вверх-вправо, "
-            "Num 4 — вверх-влево), сейчас они идут строго по горизонтали."
+            f"{angles}: нажмите Alt — Num 8 будет поднимать предмет, Num 2 опускать. "
+            "Сейчас они идут вперёд и назад."
         )
 
     # --- горячие клавиши --------------------------------------------------
@@ -436,12 +430,12 @@ class MainWindow(QMainWindow):
             self._release_key(vk)
 
     def _refresh_tilt_warning(self) -> None:
-        """Подсказка про режим по экрану зависит от того, включён он или нет."""
+        """Подсказка про режим высоты зависит от того, включён он или нет."""
         pose = self._pose
         self.movement.set_warning("" if pose is None else self._tilt_warning(pose))
 
     def _toggle_tilt(self) -> None:
-        """Переключить режим по экрану: Alt нажимают один раз, а не держат.
+        """Переключить режим высоты: Alt нажимают один раз, а не держат.
 
         Держать Alt нельзя: пока он зажат, игра не применяет правки панели к
         объекту — значения доходят до интерфейса и теряются.
@@ -455,15 +449,15 @@ class MainWindow(QMainWindow):
         self.movement.set_tilt(enabled)
         self._refresh_tilt_warning()
         if enabled:
-            logger.info("Режим по экрану включён")
+            logger.info("Режим высоты включён")
             self._set_status(
-                "Режим по экрану включён: Num 8 — вверх-вправо, Num 4 — вверх-влево, "
-                "Num 2 — вниз-влево, Num 6 — вниз-вправо. Alt — выключить.",
+                "Режим высоты включён: Num 8 — вверх, Num 2 — вниз. Остальные клавиши "
+                "работают как обычно. Alt — выключить.",
                 STATUS_OK,
             )
         else:
-            logger.info("Режим по экрану выключен")
-            self._set_status("Режим по экрану выключен: шаги идут строго по горизонтали.")
+            logger.info("Режим высоты выключен")
+            self._set_status("Режим высоты выключен: Num 8 — вперёд, Num 2 — назад.")
 
     def _dispatch(self, action: Action, vk: int) -> None:
         if action is Action.CAPTURE:
@@ -512,7 +506,7 @@ class MainWindow(QMainWindow):
         if force and self._hotkeys.key_down(VK_MENU):
             logger.warning(
                 "Alt зажат во время шага: игра может не применить изменение. "
-                "Режим по экрану включается одним нажатием Alt"
+                "Режим высоты включается одним нажатием Alt"
             )
         if self._runner.is_busy():
             return

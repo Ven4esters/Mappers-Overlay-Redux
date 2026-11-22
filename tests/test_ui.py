@@ -187,6 +187,9 @@ NUMPAD5 = 0x65
 NUMPAD6 = 0x66
 NUMPAD7 = 0x67
 NUMPAD8 = 0x68
+NUMPAD9 = 0x69
+NUMPAD1 = 0x61
+NUMPAD3 = 0x63
 F1 = 0x70
 ESCAPE = 0x1B
 
@@ -438,24 +441,8 @@ def toggle_tilt(hotkeys: FakeHotkeySource) -> None:
     hotkeys.release(VK_MENU)
 
 
-def test_screen_left_goes_up_left(qt_app: QApplication) -> None:
-    """``Num 4`` в режиме по экрану: ``Y`` в плюс, ``Z`` в плюс."""
-    hotkeys = FakeHotkeySource()
-    window, panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=45.0)
-    )
-    window.movement.press_capture()
-    toggle_tilt(hotkeys)
-    hotkeys.press(NUMPAD4)
-    hotkeys.release(NUMPAD4)
-    assert panel.pose().y == pytest.approx(START.y + 0.354, abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z + 0.354, abs=0.001)
-    assert panel.written_fields == [Field.Y, Field.Z]
-    assert "по экрану" in window.status_text()
-
-
-def test_screen_forward_goes_up_right(qt_app: QApplication) -> None:
-    """``Num 8``: ``Y`` в минус, ``Z`` в плюс — правый верхний угол."""
+def test_alt_forward_goes_up(qt_app: QApplication) -> None:
+    """``Num 8`` в режиме высоты поднимает предмет: меняется только ``Z``."""
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=45.0)
@@ -465,12 +452,13 @@ def test_screen_forward_goes_up_right(qt_app: QApplication) -> None:
     hotkeys.press(NUMPAD8)
     hotkeys.release(NUMPAD8)
     assert panel.pose().x == pytest.approx(START.x, abs=0.001)
-    assert panel.pose().y == pytest.approx(START.y - 0.354, abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z + 0.354, abs=0.001)
-    assert panel.written_fields == [Field.Y, Field.Z]
+    assert panel.pose().y == pytest.approx(START.y, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z + 0.5, abs=0.001)
+    assert panel.written_fields == [Field.Z]
+    assert "Alt: вверх/вниз" in window.status_text()
 
 
-def test_screen_back_goes_down_left(qt_app: QApplication) -> None:
+def test_alt_back_goes_down(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=45.0)
@@ -479,33 +467,30 @@ def test_screen_back_goes_down_left(qt_app: QApplication) -> None:
     toggle_tilt(hotkeys)
     hotkeys.press(NUMPAD2)
     hotkeys.release(NUMPAD2)
-    assert panel.pose().y == pytest.approx(START.y + 0.354, abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z - 0.354, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z - 0.5, abs=0.001)
+    assert panel.written_fields == [Field.Z]
 
 
-def test_screen_right_goes_down_right(qt_app: QApplication) -> None:
+def test_alt_keeps_left_and_right_as_they_were(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=45.0)
     )
     window.movement.press_capture()
     toggle_tilt(hotkeys)
-    hotkeys.press(NUMPAD6)
-    hotkeys.release(NUMPAD6)
-    assert panel.pose().y == pytest.approx(START.y - 0.354, abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z - 0.354, abs=0.001)
+    hotkeys.press(NUMPAD4)
+    hotkeys.release(NUMPAD4)
+    assert panel.pose().y == pytest.approx(START.y + 0.5, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z, abs=0.001)
 
 
-def test_screen_mode_does_not_depend_on_the_angles(qt_app: QApplication) -> None:
-    """Экранные направления одинаковы при любых углах предмета."""
+def test_alt_keeps_diagonals_working(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
-    window, panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=0.0, ry=30.0, rz=20.0)
-    )
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
     window.movement.press_capture()
     toggle_tilt(hotkeys)
-    hotkeys.press(NUMPAD8)
-    hotkeys.release(NUMPAD8)
+    hotkeys.press(NUMPAD9)
+    hotkeys.release(NUMPAD9)
     assert panel.pose().y == pytest.approx(START.y - 0.354, abs=0.001)
     assert panel.pose().z == pytest.approx(START.z + 0.354, abs=0.001)
 
@@ -513,82 +498,44 @@ def test_screen_mode_does_not_depend_on_the_angles(qt_app: QApplication) -> None
 def test_alt_toggles_the_mode(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
-    assert window.movement.mode_text().startswith("по горизонтали")
+    assert window.movement.mode_text() == "8/2 — вперёд/назад"
     toggle_tilt(hotkeys)
-    assert window.movement.mode_text().startswith("по экрану")
-    assert "Режим по экрану включён" in window.status_text()
+    assert window.movement.mode_text() == "8 \u2191 вверх · 2 \u2193 вниз"
+    assert "Режим высоты включён" in window.status_text()
     toggle_tilt(hotkeys)
-    assert window.movement.mode_text().startswith("по горизонтали")
-    assert "Режим по экрану выключен" in window.status_text()
+    assert window.movement.mode_text() == "8/2 — вперёд/назад"
+    assert "Режим высоты выключен" in window.status_text()
 
 
-def test_mode_shows_the_screen_map(qt_app: QApplication) -> None:
-    """В подписи видно, куда ведут клавиши: ``8`` — вверх-вправо, ``4`` — вверх-влево."""
+def test_pad_tooltips_show_the_alt_mode(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
     window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
-    toggle_tilt(hotkeys)
-    text = window.movement.mode_text()
-    assert "8 \u2197" in text
-    assert "4 \u2196" in text
-    assert "2 \u2199" in text
-    assert "6 \u2198" in text
-
-
-def test_screen_mode_has_no_diagonals(qt_app: QApplication) -> None:
-    """``Num 7`` в режиме по экрану не двигает: диагонали отключены."""
-    hotkeys = FakeHotkeySource()
-    window, panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=45.0)
-    )
-    window.movement.press_capture()
-    toggle_tilt(hotkeys)
-    hotkeys.press(NUMPAD7)
-    hotkeys.release(NUMPAD7)
-    assert panel.pose() == replace(START, rx=45.0)
-    assert "диагонали отключены" in window.status_text()
-
-
-def test_pad_disables_diagonal_buttons_in_the_mode(qt_app: QApplication) -> None:
-    hotkeys = FakeHotkeySource()
-    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
-    window.movement.press_capture()
+    forward = window.movement.arrow(Direction.FORWARD)
+    back = window.movement.arrow(Direction.BACK)
     diagonal = window.movement.arrow(Direction.FORWARD_LEFT)
-    forward = window.movement.arrow(Direction.FORWARD)
-    assert diagonal.isEnabled() is True
+    assert "X +" in forward.toolTip()
     toggle_tilt(hotkeys)
-    assert diagonal.isEnabled() is False
-    assert forward.isEnabled() is True
-    toggle_tilt(hotkeys)
-    assert diagonal.isEnabled() is True
-
-
-def test_pad_shows_screen_arrows_in_the_mode(qt_app: QApplication) -> None:
-    hotkeys = FakeHotkeySource()
-    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
-    forward = window.movement.arrow(Direction.FORWARD)
+    assert "вверх на шаг (Alt)" in forward.toolTip()
+    assert "вниз на шаг (Alt)" in back.toolTip()
+    assert "вверх-влево" in diagonal.toolTip()
     assert forward.text() == "\u2191"
     toggle_tilt(hotkeys)
-    assert forward.text() == "\u2197"
-    assert "вверх-вправо" in forward.toolTip()
-    toggle_tilt(hotkeys)
-    assert forward.text() == "\u2191"
+    assert "X +" in forward.toolTip()
 
 
 def test_tilt_checkbox_switches_the_mode(qt_app: QApplication) -> None:
     """Мышь тоже умеет: галочка на вкладке — тот же переключатель."""
     hotkeys = FakeHotkeySource()
-    window, panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=45.0)
-    )
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
     window.movement.press_capture()
     box = window.movement._tilt_box
     box.click()
-    assert window.movement.mode_text().startswith("по экрану")
-    hotkeys.press(NUMPAD4)
-    hotkeys.release(NUMPAD4)
-    assert panel.pose().z == pytest.approx(START.z + 0.354, abs=0.001)
+    assert window.movement.mode_text() == "8 \u2191 вверх · 2 \u2193 вниз"
+    hotkeys.press(NUMPAD8)
+    hotkeys.release(NUMPAD8)
+    assert panel.pose().z == pytest.approx(START.z + 0.5, abs=0.001)
     box.click()
-    assert window.movement.mode_text().startswith("по горизонтали")
+    assert window.movement.mode_text() == "8/2 — вперёд/назад"
 
 
 def test_hotkey_toggle_updates_the_checkbox(qt_app: QApplication) -> None:
@@ -602,15 +549,13 @@ def test_hotkey_toggle_updates_the_checkbox(qt_app: QApplication) -> None:
 
 def test_tilt_mode_can_be_switched_during_the_hold(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
-    window, panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=45.0)
-    )
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
     window.movement.press_capture()
-    hotkeys.press(NUMPAD4)
+    hotkeys.press(NUMPAD8)
     toggle_tilt(hotkeys)
     window._hold_tick()
-    assert panel.pose().y == pytest.approx(START.y + 0.5 + 0.354, abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z + 0.354, abs=0.001)
+    assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z + 0.5, abs=0.001)
 
 
 # --- удержание направления -------------------------------------------------
@@ -639,7 +584,7 @@ def test_next_step_is_scheduled_right_after_the_previous_one(qt_app: QApplicatio
 
 
 def test_alt_held_still_turns_the_mode_on(qt_app: QApplication) -> None:
-    """Привычка «Alt + направление» работает: режим включается, шаг идёт по экрану."""
+    """Привычка «Alt + направление» работает: режим включается, шаг как обычно."""
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=30.0)
@@ -647,8 +592,9 @@ def test_alt_held_still_turns_the_mode_on(qt_app: QApplication) -> None:
     window.movement.press_capture()
     hotkeys.hold_alt()
     hotkeys.press(NUMPAD4)
-    assert window.movement.mode_text().startswith("по экрану")
-    assert panel.pose().z == pytest.approx(START.z + 0.354, abs=0.001)
+    assert window.movement.mode_text() == "8 \u2191 вверх · 2 \u2193 вниз"
+    assert panel.pose().z == pytest.approx(START.z, abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y + 0.5, abs=0.001)
 
 
 def test_held_alt_is_reported_in_the_log(
@@ -896,7 +842,7 @@ def test_write_field_does_not_start_a_step(qt_app: QApplication) -> None:
     window._set_busy(True)
     hotkeys.press(VK_MENU)
     hotkeys.release(VK_MENU)
-    assert window.movement.mode_text().startswith("по горизонтали")
+    assert window.movement.mode_text() == "8/2 — вперёд/назад"
     window._set_busy(False)
     assert panel.pose() == START
 

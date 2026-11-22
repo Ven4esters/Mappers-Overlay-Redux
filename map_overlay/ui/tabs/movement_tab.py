@@ -20,7 +20,7 @@ from map_overlay.domain.movement import (
     COORD_DECIMALS,
     MAX_STEP,
     MIN_STEP,
-    screen_hint,
+    alt_hint,
     validate_step,
 )
 from map_overlay.domain.pose import Pose
@@ -90,15 +90,15 @@ class MovementTab(QWidget):
         move_card.add_layout(step_row)
 
         mode_row = QHBoxLayout()
-        self._tilt_box = QCheckBox("Режим по экрану", self)
+        self._tilt_box = QCheckBox("Режим высоты", self)
         self._tilt_box.setToolTip(
-            "Шаги идут по плоскости экрана: Num 8 — вверх-вправо, Num 4 — вверх-влево, "
-            "Num 2 — вниз-влево, Num 6 — вниз-вправо. То же делает одно нажатие Alt."
+            "Num 8 поднимает предмет, Num 2 опускает. Остальные клавиши работают как "
+            "обычно. То же делает одно нажатие Alt."
         )
         self._tilt_box.toggled.connect(self.tilt_toggled.emit)
         mode_row.addWidget(self._tilt_box)
         mode_row.addStretch(1)
-        self._mode_label = label("по горизонтали · диагонали по экрану", widget_role="muted")
+        self._mode_label = label("8/2 — вперёд/назад", widget_role="muted")
         self._mode_label.setWordWrap(False)
         mode_row.addWidget(self._mode_label)
         move_card.add_layout(mode_row)
@@ -112,12 +112,10 @@ class MovementTab(QWidget):
         )
         move_card.add(
             label(
-                "Одно нажатие Alt включает режим по экрану: шаг идёт в плоскости экрана — "
-                "Num 8 вверх-вправо, Num 4 вверх-влево, Num 2 вниз-влево, Num 6 вниз-вправо, "
-                "X при этом не меняется. Диагональные клавиши в этом режиме не работают: они "
-                "и без Alt ведут по экрану (Num 9 вверх-вправо, Num 7 вверх-влево, Num 1 "
-                "вниз-влево, Num 3 вниз-вправо). Ещё одно нажатие — выключить. Держать Alt не "
-                "нужно: пока он зажат, игра не применяет правки панели.",
+                "Одно нажатие Alt включает режим высоты: Num 8 поднимает предмет (Z в плюс), "
+                "Num 2 опускает (Z в минус). Остальные клавиши не меняются: Num 4/6 — по "
+                "горизонтали, диагонали — по экрану. Ещё одно нажатие — выключить. Держать "
+                "Alt не нужно: пока он зажат, игра не применяет правки панели.",
                 widget_role="muted",
             )
         )
@@ -181,9 +179,9 @@ class MovementTab(QWidget):
         return self._mode_label.text()
 
     def set_tilt(self, enabled: bool) -> None:
-        """Показать, идут ли шаги по плоскости экрана."""
+        """Показать, включён ли режим высоты."""
         self._tilt = enabled
-        self._pad.set_screen_mode(enabled)
+        self._pad.set_alt_mode(enabled)
         self._refresh_mode()
 
     def _refresh_mode(self) -> None:
@@ -198,8 +196,8 @@ class MovementTab(QWidget):
 
     def _mode_text(self) -> str:
         if not self._tilt:
-            return "по горизонтали · диагонали по экрану"
-        return f"по экрану · {screen_hint()}"
+            return "8/2 — вперёд/назад"
+        return alt_hint()
 
     def press_confirm(self) -> None:
         """Нажать «Сохранить F» (для тестов)."""

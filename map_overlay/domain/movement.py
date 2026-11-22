@@ -46,30 +46,18 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     Диагональ — это шаг по прямой: вектор ``(±1, ±1)`` нормализуется, поэтому
     предмет проходит ровно ``step`` метров, а не ``step · √2``.
 
-    С ``tilt=True`` (в интерфейсе — режим по экрану, клавиша ``Alt``) шаг идёт
-    в плоскости экрана, а не в плоскости предмета:
+    С ``tilt=True`` (в интерфейсе — режим высоты, клавиша ``Alt``) меняется только
+    смысл клавиш «вперёд-назад»: ``Num 8`` поднимает предмет (``Z`` в плюс),
+    ``Num 2`` опускает (``Z`` в минус). Остальные клавиши работают как обычно:
+    ``Num 4/6`` — по горизонтали с поворотом от ``RZ``, диагонали — по экрану.
 
-    * ``Num 8`` — вверх-вправо, ``Num 2`` — вниз-влево;
-    * ``Num 4`` — вверх-влево, ``Num 6`` — вниз-вправо;
-    * диагонали клавиш дают чистые «вверх», «вниз», «влево», «вправо»;
-    * ``X`` не меняется — в глубину шаг не уходит;
-    * длина шага сохраняется: ``√(ΔY² + ΔZ²) = step``, диагональ тоже.
-
-    Углы ``RX``/``RY``/``RZ`` на этот режим не влияют: экранные оси заданы
-    камерой, а не поворотом предмета.
-
-    **Диагональные клавиши в обычном режиме** повторяют направления режима по
-    экрану, только наоборот: ``Num 9`` — вверх-вправо, ``Num 7`` — вверх-влево,
-    ``Num 1`` — вниз-влево, ``Num 3`` — вниз-вправо (``ΔY = dy · step``,
-    ``ΔZ = dx · step``). Прямые клавиши ``Num 8/2/4/6`` по-прежнему идут по
-    горизонтали и поворачиваются вместе с ``RZ``.
     """
     validate_step(step)
-    if tilt and direction.is_diagonal:
-        raise ValidationError("В режиме по экрану диагонали отключены: шагайте Num 8, 2, 4 или 6")
     dx, dy = _normalize(direction)
-    if tilt:
-        world_dx, world_dy, world_dz = _from_screen(dx, dy)
+    if tilt and direction in (Direction.FORWARD, Direction.BACK):
+        # Режим высоты: «вперёд-назад» превращается в «вверх-вниз» по Z.
+        world_dx, world_dy = 0.0, 0.0
+        world_dz = 1.0 if direction is Direction.FORWARD else -1.0
     elif direction.is_diagonal:
         world_dx, world_dy, world_dz = _diagonal_on_screen(dx, dy)
     else:
@@ -83,28 +71,6 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     if world_dz:
         moved = replace(moved, z=rounded(pose.z + world_dz * step, COORD_DECIMALS))
     return moved
-
-
-def _from_screen(dx: float, dy: float) -> tuple[float, float, float]:
-    """Единичный шаг в плоскости экрана в мировых осях ``(X, Y, Z)``.
-
-    Камера смотрит вдоль ``X``, поэтому на экране вправо — это ``−Y``, а вверх —
-    ``+Z``. Клавиши задают не оси, а диагонали экрана (``Num 8`` — вверх-вправо,
-    ``Num 4`` — вверх-влево), то есть карта повёрнута на 45°:
-
-    * ``Num 8`` → ``(−1, +1)``: ``ΔY −``, ``ΔZ +``;
-    * ``Num 2`` → ``(+1, −1)``: ``ΔY +``, ``ΔZ −``;
-    * ``Num 4`` → ``(+1, +1)``: ``ΔY +``, ``ΔZ +``;
-    * ``Num 6`` → ``(−1, −1)``: ``ΔY −``, ``ΔZ −``;
-    * диагонали клавиш попадают на чистые оси экрана.
-
-    Сумма квадратов всегда равна единице, поэтому длина шага сохраняется.
-    ``X`` не меняется: в глубину шаг не уходит.
-    """
-    root = math.sqrt(2.0)
-    world_dy = (-dx + dy) / root
-    world_dz = (dx + dy) / root
-    return 0.0, world_dy, world_dz
 
 
 def _diagonal_on_screen(dx: float, dy: float) -> tuple[float, float, float]:
@@ -130,34 +96,24 @@ def _rotate(dx: float, dy: float, rz_degrees: float) -> tuple[float, float]:
     return dx * cos_a - dy * sin_a, dx * sin_a + dy * cos_a
 
 
-SCREEN_TITLES: Final[dict[Direction, str]] = {
-    Direction.FORWARD: "вверх-вправо",
-    Direction.BACK: "вниз-влево",
-    Direction.LEFT: "вверх-влево",
-    Direction.RIGHT: "вниз-вправо",
-    Direction.FORWARD_LEFT: "вверх",
-    Direction.FORWARD_RIGHT: "вправо",
-    Direction.BACK_LEFT: "влево",
-    Direction.BACK_RIGHT: "вниз",
+DIAGONAL_TITLES: Final[dict[Direction, str]] = {
+    Direction.FORWARD_LEFT: "вверх-влево",
+    Direction.FORWARD_RIGHT: "вверх-вправо",
+    Direction.BACK_LEFT: "вниз-влево",
+    Direction.BACK_RIGHT: "вниз-вправо",
 }
-"""Куда ведёт направление в режиме по экрану."""
+"""Куда ведёт диагональная клавиша: она всегда идёт по экрану (``Y`` и ``Z``)."""
 
-SCREEN_GLYPHS: Final[dict[Direction, str]] = {
-    Direction.FORWARD: "\u2197",
-    Direction.BACK: "\u2199",
-    Direction.LEFT: "\u2196",
-    Direction.RIGHT: "\u2198",
-    Direction.FORWARD_LEFT: "\u2191",
-    Direction.FORWARD_RIGHT: "\u2192",
-    Direction.BACK_LEFT: "\u2190",
-    Direction.BACK_RIGHT: "\u2193",
+ALT_TITLES: Final[dict[Direction, str]] = {
+    Direction.FORWARD: "вверх",
+    Direction.BACK: "вниз",
 }
-"""Значки направлений на экране: те же клавиши, но другая сторона."""
+"""Что делают ``Num 8`` и ``Num 2`` при включённом режиме высоты."""
 
 
-def screen_hint() -> str:
-    """Короткая подсказка «клавиша — куда» для режима по экрану."""
-    return "8 \u2197 · 4 \u2196 · 2 \u2199 · 6 \u2198"
+def alt_hint() -> str:
+    """Подсказка режима высоты: что делают клавиши при нажатом ``Alt``."""
+    return "8 \u2191 вверх · 2 \u2193 вниз"
 
 
 def changed_fields(before: Pose, after: Pose, *, tolerance: float = TOLERANCE) -> tuple[Field, ...]:

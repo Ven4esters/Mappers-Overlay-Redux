@@ -10,7 +10,7 @@ VK_CONTROL: Final = 0x11
 VK_ENTER: Final = 0x0D
 VK_ESCAPE: Final = 0x1B
 VK_SPACE: Final = 0x20
-#: Alt — переключатель режима по экрану; сам по себе не перехватывается.
+#: Alt — переключатель режима высоты; сам по себе не перехватывается.
 VK_MENU: Final = 0x12
 VK_LEFT: Final = 0x25
 VK_UP: Final = 0x26
@@ -97,7 +97,7 @@ def generic_vk(vk: int) -> int:
 
     Хук клавиатуры сообщает конкретную клавишу: левый Alt приходит как ``VK_LMENU``
     (``0xA4``), а не как ``VK_MENU`` (``0x12``). Без сведения не работали бы ни
-    переключатель режима по экрану на Alt, ни горячие клавиши на Shift и Ctrl.
+    переключатель режима высоты на Alt, ни горячие клавиши на Shift и Ctrl.
     """
     return _SIDE_VARIANTS.get(vk, vk)
 

@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import Field
 from map_overlay.domain.formatting import format_value
-from map_overlay.domain.movement import COORD_DECIMALS, SCREEN_GLYPHS, SCREEN_TITLES
+from map_overlay.domain.movement import ALT_TITLES, COORD_DECIMALS, DIAGONAL_TITLES
 from map_overlay.domain.pose import Pose
 
 CARD_MARGIN: Final = 14
@@ -133,7 +133,7 @@ class DirectionPad(QWidget):
         self._buttons: list[QPushButton] = []
         self._by_direction: dict[Direction, QPushButton] = {}
         self._enabled = True
-        self._screen_mode = False
+        self._alt_mode = False
         self._step_label = QLabel("шаг")
         self._step_label.setProperty("role", "stepLabel")
         self._step_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -147,7 +147,7 @@ class DirectionPad(QWidget):
     def _axis_tooltip(self, direction: Direction) -> str:
         """Подсказка для обычного режима: прямые — оси, диагонали — стороны экрана."""
         if direction.is_diagonal:
-            return f"{direction.label}: {SCREEN_TITLES[direction]} на шаг (по экрану)"
+            return f"{direction.label}: {DIAGONAL_TITLES[direction]} на шаг (по экрану)"
         dx, dy = direction.axes
         parts = []
         if dx:
@@ -167,21 +167,16 @@ class DirectionPad(QWidget):
         """Кнопка направления (нужна тестам и подсказкам)."""
         return self._by_direction[direction]
 
-    def set_screen_mode(self, enabled: bool) -> None:
-        """Перерисовать стрелки под режим по экрану.
-
-        В режиме по экрану клавиши ведут не по осям, а по диагоналям экрана,
-        поэтому и значки на кнопках другие: ``Num 8`` — ``↗``, ``Num 4`` — ``↖``.
-        """
-        self._screen_mode = enabled
+    def set_alt_mode(self, enabled: bool) -> None:
+        """Показать в подсказках режим высоты: ``Num 8`` — вверх, ``Num 2`` — вниз."""
+        self._alt_mode = enabled
         for direction, item in self._by_direction.items():
-            if enabled:
-                item.setText(SCREEN_GLYPHS[direction])
-                item.setToolTip(f"{direction.label}: {SCREEN_TITLES[direction]} на шаг")
-            else:
-                item.setText(direction.glyph)
+            if enabled and direction in ALT_TITLES:
+                item.setToolTip(f"{direction.label}: {ALT_TITLES[direction]} на шаг (Alt)")
+            elif direction.is_diagonal:
                 item.setToolTip(self._axis_tooltip(direction))
-        self._sync_enabled()
+            else:
+                item.setToolTip(self._axis_tooltip(direction))
 
     def set_step_text(self, text: str) -> None:
         """Подпись в центре крестовины."""
@@ -193,10 +188,9 @@ class DirectionPad(QWidget):
         self._sync_enabled()
 
     def _sync_enabled(self) -> None:
-        """Диагонали в режиме по экрану недоступны: шаг идёт только по четырём сторонам."""
-        for direction, item in self._by_direction.items():
-            blocked = self._screen_mode and direction.is_diagonal
-            item.setEnabled(self._enabled and not blocked)
+        """Включить или выключить все стрелки (режим высоты ничего не блокирует)."""
+        for item in self._by_direction.values():
+            item.setEnabled(self._enabled)
 
 
 def add_row(layout: QHBoxLayout, widgets: Iterable[QWidget], *, stretch_last: bool = True) -> None:

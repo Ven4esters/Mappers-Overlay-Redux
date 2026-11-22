@@ -149,77 +149,61 @@ def test_changed_fields_ignores_submillimetre_noise() -> None:
     assert changed_fields(BASE, slightly) == ()
 
 
-SCREEN = Pose(x=100.0, y=200.0, z=50.0, rx=45.0, ry=0.0, rz=0.0)
+ALT = Pose(x=100.0, y=200.0, z=50.0, rx=45.0, ry=0.0, rz=0.0)
 HALF = math.sqrt(0.5)
 
 
-def test_screen_forward_goes_up_right() -> None:
-    """``Num 8``: ``Y`` в минус, ``Z`` в плюс — на экране вверх-вправо."""
-    result = shifted(SCREEN, Direction.FORWARD, 1.0, tilt=True)
-    assert result.x == SCREEN.x
-    assert result.y == pytest.approx(200.0 - HALF, abs=0.001)
-    assert result.z == pytest.approx(50.0 + HALF, abs=0.001)
+def test_alt_forward_goes_up() -> None:
+    """``Num 8`` с ``Alt``: ``Z`` в плюс на весь шаг, ``X`` и ``Y`` на месте."""
+    result = shifted(ALT, Direction.FORWARD, 1.0, tilt=True)
+    assert (result.x, result.y) == (ALT.x, ALT.y)
+    assert result.z == pytest.approx(51.0, abs=0.001)
 
 
-def test_screen_back_goes_down_left() -> None:
-    """``Num 2`` — противоположность ``Num 8``."""
-    result = shifted(SCREEN, Direction.BACK, 1.0, tilt=True)
-    assert result.y == pytest.approx(200.0 + HALF, abs=0.001)
-    assert result.z == pytest.approx(50.0 - HALF, abs=0.001)
+def test_alt_back_goes_down() -> None:
+    result = shifted(ALT, Direction.BACK, 1.0, tilt=True)
+    assert (result.x, result.y) == (ALT.x, ALT.y)
+    assert result.z == pytest.approx(49.0, abs=0.001)
 
 
-def test_screen_left_goes_up_left() -> None:
-    """``Num 4`` остаётся как был: ``Y`` в плюс, ``Z`` в плюс."""
-    result = shifted(SCREEN, Direction.LEFT, 1.0, tilt=True)
-    assert result.y == pytest.approx(200.0 + HALF, abs=0.001)
-    assert result.z == pytest.approx(50.0 + HALF, abs=0.001)
+def test_alt_left_and_right_stay_horizontal() -> None:
+    """``Num 4/6`` в режиме высоты работают как обычно — по ``Y``, с поворотом ``RZ``."""
+    left = shifted(ALT, Direction.LEFT, 1.0, tilt=True)
+    assert left.y == pytest.approx(201.0, abs=0.001)
+    assert left.z == ALT.z
+    right = shifted(ALT, Direction.RIGHT, 1.0, tilt=True)
+    assert right.y == pytest.approx(199.0, abs=0.001)
+    assert right.z == ALT.z
 
 
-def test_screen_right_goes_down_right() -> None:
-    result = shifted(SCREEN, Direction.RIGHT, 1.0, tilt=True)
-    assert result.y == pytest.approx(200.0 - HALF, abs=0.001)
-    assert result.z == pytest.approx(50.0 - HALF, abs=0.001)
+def test_alt_keeps_the_diagonals_on_screen() -> None:
+    """Диагонали в режиме высоты не меняются: они и так идут по экрану."""
+    without = shifted(ALT, Direction.FORWARD_RIGHT, 1.0)
+    with_alt = shifted(ALT, Direction.FORWARD_RIGHT, 1.0, tilt=True)
+    assert with_alt == without
+    assert with_alt.y == pytest.approx(200.0 - HALF, abs=0.001)
+    assert with_alt.z == pytest.approx(50.0 + HALF, abs=0.001)
 
 
-@pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
-def test_screen_diagonals_are_refused(direction: Direction) -> None:
-    """В режиме по экрану диагонали не двигают: их просто нет."""
-    with pytest.raises(ValidationError):
-        shifted(SCREEN, direction, 1.0, tilt=True)
+@pytest.mark.parametrize("angles", [(0.0, 0.0, 0.0), (30.0, 20.0, 10.0), (-60.0, 45.0, 90.0)])
+def test_alt_height_does_not_depend_on_the_angles(angles: tuple[float, float, float]) -> None:
+    pose = replace(ALT, rx=angles[0], ry=angles[1], rz=angles[2])
+    result = shifted(pose, Direction.FORWARD, 1.0, tilt=True)
+    assert result.z == pytest.approx(pose.z + 1.0, abs=0.001)
+    assert (result.x, result.y) == (pose.x, pose.y)
 
 
-@pytest.mark.parametrize("direction", [d for d in Direction if not d.is_diagonal])
-def test_screen_step_keeps_its_length(direction: Direction) -> None:
-    result = shifted(SCREEN, direction, 1.0, tilt=True)
-    distance = math.dist((SCREEN.y, SCREEN.z), (result.y, result.z))
-    assert distance == pytest.approx(1.0, abs=0.002)
-
-
-@pytest.mark.parametrize("direction", [d for d in Direction if not d.is_diagonal])
-def test_screen_step_never_touches_x(direction: Direction) -> None:
-    """В глубину шаг не уходит: ``X`` остаётся на месте."""
-    assert shifted(SCREEN, direction, 1.0, tilt=True).x == SCREEN.x
-
-
-def test_screen_mode_ignores_the_angles() -> None:
-    """Экранные оси задаёт камера, а не поворот предмета."""
-    expected = shifted(SCREEN, Direction.FORWARD, 1.0, tilt=True)
-    for angles in ((0.0, 0.0, 0.0), (30.0, 20.0, 10.0), (-60.0, 45.0, 90.0)):
-        pose = replace(SCREEN, rx=angles[0], ry=angles[1], rz=angles[2])
-        result = shifted(pose, Direction.FORWARD, 1.0, tilt=True)
-        assert (result.y - pose.y, result.z - pose.z) == pytest.approx(
-            (expected.y - SCREEN.y, expected.z - SCREEN.z), abs=0.001
-        )
+@pytest.mark.parametrize("direction", [Direction.FORWARD, Direction.BACK])
+def test_alt_never_touches_the_ground_axes(direction: Direction) -> None:
+    result = shifted(ALT, direction, 2.5, tilt=True)
+    assert (result.x, result.y) == (ALT.x, ALT.y)
+    assert abs(result.z - ALT.z) == pytest.approx(2.5, abs=0.001)
 
 
 def test_tilt_is_rounded_to_millimetres() -> None:
-    result = shifted(SCREEN, Direction.LEFT, 0.333, tilt=True)
-    assert result.y == 200.235
-    assert result.z == 50.235
+    result = shifted(ALT, Direction.FORWARD, 0.333, tilt=True)
+    assert result.z == 50.333
 
 
 def test_changed_fields_sees_height_on_tilt() -> None:
-    assert changed_fields(SCREEN, shifted(SCREEN, Direction.LEFT, 0.5, tilt=True)) == (
-        Field.Y,
-        Field.Z,
-    )
+    assert changed_fields(ALT, shifted(ALT, Direction.FORWARD, 0.5, tilt=True)) == (Field.Z,)

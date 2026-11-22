@@ -317,7 +317,7 @@ class WindowsHotkeySource(QThread):
         return 1
 
     def _observe_alt(self, vk: int, is_down: bool, injected: bool = False) -> None:
-        """Заметить одиночное нажатие Alt — им переключается режим по экрану.
+        """Заметить одиночное нажатие Alt — им переключается режим высоты.
 
         Alt не забирается у игры: он проходит как обычно. Переключателем считается
         только одиночное нажатие, а комбинация (``Alt+Tab``, ``Alt+F4``,
@@ -339,7 +339,7 @@ class WindowsHotkeySource(QThread):
             alone = self._alt_alone
             self._alt_alone = False
             if alone and self._enabled and not self._learning:
-                logger.info("Alt нажат один: переключаю режим по экрану")
+                logger.info("Alt нажат один: переключаю режим высоты")
                 self.key_event.emit(VK_MENU, True, True)
             return
         if self._alt_down:

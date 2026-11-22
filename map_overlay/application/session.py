@@ -17,7 +17,6 @@ from map_overlay.errors import (
     NotCalibratedError,
     ParseError,
     PoseNotCapturedError,
-    ValidationError,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,7 +30,7 @@ class StepResult:
     pose: Pose
     written: tuple[Field, ...]
     tilted: bool = False
-    """Шаг считался по плоскости экрана (в интерфейсе — Alt)."""
+    """Шаг считался в режиме высоты (в интерфейсе — Alt): менялся ``Z``."""
 
     @property
     def delta_x(self) -> float:
@@ -45,7 +44,7 @@ class StepResult:
 
     @property
     def delta_z(self) -> float:
-        """Изменение Z (ненулевое только при шаге по экрану)."""
+        """Изменение Z (ненулевое при шаге вверх/вниз и по диагонали экрана)."""
         return self.pose.z - self.previous.z
 
 
@@ -119,7 +118,7 @@ class MappingSession:
     def step(self, direction: Direction, step: float, *, tilt: bool = False) -> StepResult:
         """Сдвинуть предмет на шаг в направлении и записать изменения.
 
-        ``tilt`` включает шаг по плоскости экрана: меняются ``Y`` и ``Z``.
+        ``tilt`` включает режим высоты: ``Num 8`` поднимает, ``Num 2`` опускает.
 
         Raises:
             PoseNotCapturedError: если поза ещё не считана.
@@ -131,15 +130,14 @@ class MappingSession:
             raise PoseNotCapturedError(
                 "Сначала нажмите «Считать»: оверлей не знает текущих координат"
             )
-        if tilt and direction.is_diagonal:
-            raise ValidationError(
-                "В режиме по экрану диагонали отключены: шагайте Num 8, 2, 4 или 6"
-            )
         target = shifted(self._pose, direction, validate_step(step), tilt=tilt)
         written = self._writer.write_changes(self._pose, target)
         result = StepResult(previous=self._pose, pose=target, written=written, tilted=tilt)
         self._pose = target
-        suffix = " по экрану" if tilt else ""
+        if tilt and direction in (Direction.FORWARD, Direction.BACK):
+            suffix = " (вверх)" if direction is Direction.FORWARD else " (вниз)"
+        else:
+            suffix = ""
         logger.info(
             "Шаг %s на %.3f м%s: записаны %s",
             direction.label,

@@ -129,27 +129,29 @@ def test_failed_write_keeps_previous_pose() -> None:
 
 
 def test_tilted_step_writes_height_and_marks_result() -> None:
+    """Режим высоты: ``Num 8`` пишет только ``Z``, ``X`` и ``Y`` остаются."""
     tilted = Pose(x=10.0, y=20.0, z=30.0, rx=30.0)
     panel = FakePanel(tilted)
     session = make_session(panel)
     session.capture()
-    result = session.step(Direction.LEFT, 1.0, tilt=True)
-    assert panel.pose().z == pytest.approx(30.707, abs=0.001)
-    assert panel.pose().y == pytest.approx(20.707, abs=0.001)
-    assert Field.Z in result.written
+    result = session.step(Direction.FORWARD, 1.0, tilt=True)
+    assert panel.pose().z == pytest.approx(31.0, abs=0.001)
+    assert panel.pose().y == pytest.approx(20.0, abs=0.001)
+    assert panel.pose().x == pytest.approx(10.0, abs=0.001)
+    assert result.written == (Field.Z,)
     assert result.tilted is True
-    assert result.delta_z == pytest.approx(0.707, abs=0.001)
+    assert result.delta_z == pytest.approx(1.0, abs=0.001)
 
 
-def test_screen_mode_refuses_diagonals() -> None:
-    """В режиме по экрану диагонали отключены — шаг не начинается."""
+def test_alt_mode_keeps_the_diagonal_step() -> None:
+    """Диагональ в режиме высоты идёт как обычно — по экрану, мимо ``X``."""
     tilted = Pose(x=10.0, y=20.0, z=30.0, rx=30.0)
     panel = FakePanel(tilted)
     session = make_session(panel)
     session.capture()
-    with pytest.raises(ValidationError):
-        session.step(Direction.FORWARD_LEFT, 1.0, tilt=True)
-    assert panel.pose() == tilted
+    result = session.step(Direction.FORWARD_LEFT, 1.0, tilt=True)
+    assert result.written == (Field.Y, Field.Z)
+    assert panel.pose().x == pytest.approx(10.0, abs=0.001)
 
 
 def test_plain_step_keeps_height() -> None:
