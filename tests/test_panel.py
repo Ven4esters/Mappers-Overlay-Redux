@@ -6,7 +6,7 @@ import pytest
 from map_overlay.config import Delays
 from map_overlay.domain.fields import Field
 from map_overlay.domain.point import Point
-from map_overlay.errors import CursorMovedError, NotCalibratedError
+from map_overlay.errors import NotCalibratedError
 from map_overlay.infrastructure.panel import CalibratedPanel
 
 from fakes import FULL_CALIBRATION, FakeClipboard, FakeClock, FakeInput
@@ -72,13 +72,14 @@ def test_uncalibrated_field_cannot_be_used() -> None:
     assert input_port.clicks == []
 
 
-def test_cursor_drift_stops_the_exchange() -> None:
+def test_cursor_drift_returns_to_the_field_and_continues() -> None:
     panel, input_port, _clipboard, _clock = make_panel()
     panel.read_field(Field.X)
     input_port.force_cursor(Point(900, 900))
-    with pytest.raises(CursorMovedError):
-        panel.read_field(Field.Y)
-    assert input_port.clicked == [Field.X]
+    assert panel.read_field(Field.Y) == VALUES[Field.Y]
+    assert input_port.clicked == [Field.X, Field.Y]
+    assert input_port.clicks[-1] == FULL_CALIBRATION[Field.Y]
+    assert input_port.cursor_position() == FULL_CALIBRATION[Field.Y]
 
 
 def test_small_cursor_jitter_is_tolerated() -> None:
@@ -114,10 +115,11 @@ def test_confirm_without_point_is_refused() -> None:
     assert input_port.f_pressed == 0
 
 
-def test_confirm_respects_cursor_guard() -> None:
-    panel, input_port, _clipboard, _clock = make_panel(empty_point=Point(900, 900))
+def test_confirm_after_cursor_drift_still_works() -> None:
+    empty = Point(900, 900)
+    panel, input_port, _clipboard, _clock = make_panel(empty_point=empty)
     panel.read_field(Field.X)
     input_port.force_cursor(Point(1, 1))
-    with pytest.raises(CursorMovedError):
-        panel.confirm()
-    assert input_port.f_pressed == 0
+    panel.confirm()
+    assert input_port.f_pressed == 1
+    assert input_port.clicks[-1] == empty

@@ -6,14 +6,14 @@ import pytest
 from map_overlay.domain.directions import Direction
 
 EXPECTED_AXES = {
-    Direction.FORWARD: (-1, 0),
-    Direction.BACK: (1, 0),
-    Direction.LEFT: (0, -1),
-    Direction.RIGHT: (0, 1),
-    Direction.FORWARD_LEFT: (-1, -1),
-    Direction.FORWARD_RIGHT: (-1, 1),
-    Direction.BACK_LEFT: (1, -1),
-    Direction.BACK_RIGHT: (1, 1),
+    Direction.FORWARD: (1, 0),
+    Direction.BACK: (-1, 0),
+    Direction.LEFT: (0, 1),
+    Direction.RIGHT: (0, -1),
+    Direction.FORWARD_LEFT: (1, 1),
+    Direction.FORWARD_RIGHT: (1, -1),
+    Direction.BACK_LEFT: (-1, 1),
+    Direction.BACK_RIGHT: (-1, -1),
 }
 
 
@@ -42,8 +42,8 @@ def test_titles_and_glyphs_are_unique() -> None:
     assert len(glyphs) == 8
 
 
-def test_forward_is_x_minus_and_left_is_y_minus() -> None:
-    assert Direction.FORWARD.axes[0] == -1
-    assert Direction.LEFT.axes[1] == -1
-    assert Direction.BACK.axes[0] == 1
-    assert Direction.RIGHT.axes[1] == 1
+def test_forward_is_x_plus_and_left_is_y_plus() -> None:
+    assert Direction.FORWARD.axes[0] == 1
+    assert Direction.LEFT.axes[1] == 1
+    assert Direction.BACK.axes[0] == -1
+    assert Direction.RIGHT.axes[1] == -1

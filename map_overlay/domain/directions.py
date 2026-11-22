@@ -2,8 +2,8 @@
 
 Конвенция задана пользователем для нулевых углов (см. ``docs/adr/0002-direction-convention.md``):
 
-* вперёд — ``X`` в минус, назад — ``X`` в плюс;
-* влево — ``Y`` в минус, вправо — ``Y`` в плюс;
+* вперёд — ``X`` в плюс, назад — ``X`` в минус;
+* влево — ``Y`` в плюс, вправо — ``Y`` в минус;
 * диагонали — комбинация этих правил.
 
 Поэтому каждая сторона света — это единичный вектор в мире, а не «плюс/минус
@@ -50,14 +50,14 @@ class Direction(StrEnum):
 
 
 _AXES: Final[dict[Direction, tuple[int, int]]] = {
-    Direction.FORWARD: (-1, 0),
-    Direction.BACK: (1, 0),
-    Direction.LEFT: (0, -1),
-    Direction.RIGHT: (0, 1),
-    Direction.FORWARD_LEFT: (-1, -1),
-    Direction.FORWARD_RIGHT: (-1, 1),
-    Direction.BACK_LEFT: (1, -1),
-    Direction.BACK_RIGHT: (1, 1),
+    Direction.FORWARD: (1, 0),
+    Direction.BACK: (-1, 0),
+    Direction.LEFT: (0, 1),
+    Direction.RIGHT: (0, -1),
+    Direction.FORWARD_LEFT: (1, 1),
+    Direction.FORWARD_RIGHT: (1, -1),
+    Direction.BACK_LEFT: (-1, 1),
+    Direction.BACK_RIGHT: (-1, -1),
 }
 
 _TITLES: Final[dict[Direction, str]] = {

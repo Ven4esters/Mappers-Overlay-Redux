@@ -16,14 +16,14 @@ BASE = Pose(x=1850.0, y=1850.0, z=100.0, rx=0.0, ry=0.0, rz=0.0)
 DIAGONAL = 5.0 / math.sqrt(2.0)
 
 EXPECTED = {
-    Direction.FORWARD: (1845.0, 1850.0),
-    Direction.BACK: (1855.0, 1850.0),
-    Direction.LEFT: (1850.0, 1845.0),
-    Direction.RIGHT: (1850.0, 1855.0),
-    Direction.FORWARD_LEFT: (1850.0 - DIAGONAL, 1850.0 - DIAGONAL),
-    Direction.FORWARD_RIGHT: (1850.0 - DIAGONAL, 1850.0 + DIAGONAL),
-    Direction.BACK_LEFT: (1850.0 + DIAGONAL, 1850.0 - DIAGONAL),
-    Direction.BACK_RIGHT: (1850.0 + DIAGONAL, 1850.0 + DIAGONAL),
+    Direction.FORWARD: (1855.0, 1850.0),
+    Direction.BACK: (1845.0, 1850.0),
+    Direction.LEFT: (1850.0, 1855.0),
+    Direction.RIGHT: (1850.0, 1845.0),
+    Direction.FORWARD_LEFT: (1850.0 + DIAGONAL, 1850.0 + DIAGONAL),
+    Direction.FORWARD_RIGHT: (1850.0 + DIAGONAL, 1850.0 - DIAGONAL),
+    Direction.BACK_LEFT: (1850.0 - DIAGONAL, 1850.0 + DIAGONAL),
+    Direction.BACK_RIGHT: (1850.0 - DIAGONAL, 1850.0 - DIAGONAL),
 }
 
 
@@ -44,9 +44,9 @@ def test_height_and_angles_never_change(direction: Direction) -> None:
 
 def test_result_is_rounded_to_millimetres() -> None:
     pose = Pose(x=0.1, y=0.2)
-    assert shifted(pose, Direction.FORWARD, 0.1).x == 0.0
-    assert shifted(pose, Direction.BACK, 0.1).x == 0.2
-    assert shifted(pose, Direction.RIGHT, 0.1).y == 0.3
+    assert shifted(pose, Direction.FORWARD, 0.1).x == 0.2
+    assert shifted(pose, Direction.BACK, 0.1).x == 0.0
+    assert shifted(pose, Direction.RIGHT, 0.1).y == 0.1
 
 
 @pytest.mark.parametrize("step", [0.5, 1.0, 2.0, 5.0])
@@ -60,14 +60,14 @@ def test_diagonal_is_one_step_along_the_line(direction: Direction, step: float) 
 @pytest.mark.parametrize(
     ("rz", "direction", "expected_dx", "expected_dy"),
     [
-        (0.0, Direction.FORWARD, -1.0, 0.0),
-        (90.0, Direction.FORWARD, 0.0, -1.0),
-        (-90.0, Direction.FORWARD, 0.0, 1.0),
-        (180.0, Direction.FORWARD, 1.0, 0.0),
-        (0.0, Direction.LEFT, 0.0, -1.0),
-        (90.0, Direction.LEFT, 1.0, 0.0),
-        (-90.0, Direction.LEFT, -1.0, 0.0),
-        (45.0, Direction.BACK_RIGHT, 0.0, 1.0),
+        (0.0, Direction.FORWARD, 1.0, 0.0),
+        (90.0, Direction.FORWARD, 0.0, 1.0),
+        (-90.0, Direction.FORWARD, 0.0, -1.0),
+        (180.0, Direction.FORWARD, -1.0, 0.0),
+        (0.0, Direction.LEFT, 0.0, 1.0),
+        (90.0, Direction.LEFT, -1.0, 0.0),
+        (-90.0, Direction.LEFT, 1.0, 0.0),
+        (45.0, Direction.BACK_RIGHT, 0.0, -1.0),
     ],
 )
 def test_rotation_turns_the_direction(

@@ -43,10 +43,6 @@ class PanelRejectedError(ApplicationError):
     """Панель не приняла записанное значение."""
 
 
-class CursorMovedError(ApplicationError):
-    """Курсор сдвинулся во время обмена с панелью."""
-
-
 class InputError(ApplicationError):
     """Win32 не выполнил клик или нажатие клавиши."""
 

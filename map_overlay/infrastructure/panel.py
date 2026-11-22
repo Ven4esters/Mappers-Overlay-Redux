@@ -10,7 +10,7 @@ from map_overlay.application.ports import ClipboardPort, Clock, InputPort
 from map_overlay.config import Delays
 from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.point import Point
-from map_overlay.errors import CursorMovedError, NotCalibratedError
+from map_overlay.errors import NotCalibratedError
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,9 @@ MAX_CURSOR_DRIFT_PX: Final = 4
 class CalibratedPanel:
     """Реализация :class:`map_overlay.application.ports.PanelAutomation`.
 
-    Работает по точкам калибровки: клик в точку поля, затем клавиши. Перед каждым кликом
-    сверяет позицию курсора с той, где мы его оставили: если пользователь двинул мышь,
-    обмен прерывается, чтобы клик не попал в другое место панели.
+    Работает по точкам калибровки: клик в точку поля, затем клавиши. Если пользователь
+    двинул мышь, курсор возвращается в точку поля и обмен продолжается: клик всё равно
+    наводится на откалиброванную точку, поэтому промахнуться невозможно.
     """
 
     def __init__(
@@ -90,19 +90,20 @@ class CalibratedPanel:
         self._click_point(point)
 
     def _click_point(self, point: Point) -> None:
-        self._check_cursor_still()
+        self._return_cursor(point)
         self._input.click(point)
         self._expected_cursor = point
 
-    def _check_cursor_still(self) -> None:
+    def _return_cursor(self, point: Point) -> None:
+        """Вернуть курсор в точку поля, если пользователь успел двинуть мышь."""
         if self._expected_cursor is None:
             return
         actual = self._input.cursor_position()
         drift_x = abs(actual.x - self._expected_cursor.x)
         drift_y = abs(actual.y - self._expected_cursor.y)
-        if drift_x > MAX_CURSOR_DRIFT_PX or drift_y > MAX_CURSOR_DRIFT_PX:
-            logger.warning("Курсор уехал с %s на %s — обмен прерван", self._expected_cursor, actual)
-            raise CursorMovedError(
-                "Курсор сдвинулся во время обмена с панелью — действие прервано, "
-                "чтобы не кликнуть не туда. Повторите, не двигая мышь."
-            )
+        if drift_x <= MAX_CURSOR_DRIFT_PX and drift_y <= MAX_CURSOR_DRIFT_PX:
+            return
+        logger.info(
+            "Курсор уехал с %s на %s — возвращаю в %s", self._expected_cursor, actual, point
+        )
+        self._input.move_cursor(point)

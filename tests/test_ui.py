@@ -64,13 +64,13 @@ def test_arrow_before_capture_asks_to_read(qt_app: QApplication) -> None:
     assert panel.writes == []
 
 
-def test_forward_arrow_moves_x_minus(qt_app: QApplication) -> None:
+def test_forward_arrow_moves_x_plus(qt_app: QApplication) -> None:
     window, panel, _store, _cursor = make_window(qt_app)
     window.movement.press_capture()
     window.movement.arrow(Direction.FORWARD).click()
     assert panel.written_fields == [Field.X]
-    assert panel.pose().x == pytest.approx(START.x - 0.5)
-    assert "ΔX -0.500" in window.status_text()
+    assert panel.pose().x == pytest.approx(START.x + 0.5)
+    assert "ΔX +0.500" in window.status_text()
     assert "записано: X" in window.status_text()
 
 
@@ -80,8 +80,8 @@ def test_diagonal_arrow_writes_two_fields(qt_app: QApplication) -> None:
     window.movement.arrow(Direction.BACK_RIGHT).click()
     component = 0.5 / 2**0.5
     assert panel.written_fields == [Field.X, Field.Y]
-    assert panel.pose().x == pytest.approx(START.x + component, abs=0.001)
-    assert panel.pose().y == pytest.approx(START.y + component, abs=0.001)
+    assert panel.pose().x == pytest.approx(START.x - component, abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y - component, abs=0.001)
 
 
 def test_tilt_warning_is_visible(qt_app: QApplication) -> None:
@@ -201,7 +201,7 @@ def test_numpad_forward_moves_after_capture(qt_app: QApplication) -> None:
     hotkeys.press(NUMPAD8)
     hotkeys.release(NUMPAD8)
     assert panel.written_fields == [Field.X]
-    assert panel.pose().x == pytest.approx(START.x - 0.5)
+    assert panel.pose().x == pytest.approx(START.x + 0.5)
 
 
 def test_held_key_moves_only_once(qt_app: QApplication) -> None:
@@ -376,3 +376,45 @@ def test_game_key_binding_warns_about_game_control(qt_app: QApplication) -> None
     hotkeys.press(0x57)  # W
     assert store.saved[-1].hotkeys[Action.CAPTURE] == 0x57
     assert "обычно занята" in window.status_text()
+
+
+@pytest.mark.parametrize(
+    ("vk", "expected_dx", "expected_dy"),
+    [
+        (0x68, 0.5, 0.0),  # Num 8 — вперёд
+        (0x62, -0.5, 0.0),  # Num 2 — назад
+        (0x64, 0.0, 0.5),  # Num 4 — влево
+        (0x66, 0.0, -0.5),  # Num 6 — вправо
+    ],
+)
+def test_numpad_directions_match_the_game(
+    qt_app: QApplication, vk: int, expected_dx: float, expected_dy: float
+) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(vk)
+    hotkeys.release(vk)
+    assert panel.pose().x == pytest.approx(START.x + expected_dx)
+    assert panel.pose().y == pytest.approx(START.y + expected_dy)
+
+
+@pytest.mark.parametrize(
+    ("vk", "expected_dx", "expected_dy"),
+    [
+        (0x67, 0.354, 0.354),  # Num 7 — вперёд-влево
+        (0x69, 0.354, -0.354),  # Num 9 — вперёд-вправо
+        (0x61, -0.354, 0.354),  # Num 1 — назад-влево
+        (0x63, -0.354, -0.354),  # Num 3 — назад-вправо
+    ],
+)
+def test_numpad_diagonals_match_the_game(
+    qt_app: QApplication, vk: int, expected_dx: float, expected_dy: float
+) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    hotkeys.press(vk)
+    hotkeys.release(vk)
+    assert panel.pose().x == pytest.approx(START.x + expected_dx, abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y + expected_dy, abs=0.001)

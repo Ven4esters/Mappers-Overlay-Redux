@@ -55,7 +55,7 @@ def test_step_needs_capture() -> None:
         make_session(panel).step(Direction.FORWARD, 0.5)
 
 
-def test_forward_step_moves_x_minus_and_writes_x_only() -> None:
+def test_forward_step_moves_x_plus_and_writes_x_only() -> None:
     panel = FakePanel(START)
     session = make_session(panel)
     session.capture()
@@ -63,9 +63,9 @@ def test_forward_step_moves_x_minus_and_writes_x_only() -> None:
     result = session.step(Direction.FORWARD, 0.5)
     assert result.written == (Field.X,)
     assert panel.written_fields == [Field.X]
-    assert result.pose.x == pytest.approx(START.x - 0.5)
+    assert result.pose.x == pytest.approx(START.x + 0.5)
     assert result.pose.y == pytest.approx(START.y)
-    assert result.delta_x == pytest.approx(-0.5)
+    assert result.delta_x == pytest.approx(0.5)
     assert result.delta_y == pytest.approx(0.0)
     assert session.pose == result.pose
 
@@ -78,8 +78,8 @@ def test_diagonal_step_writes_both_axes() -> None:
     result = session.step(Direction.BACK_RIGHT, 1.0)
     step_component = 1.0 / 2**0.5
     assert result.written == (Field.X, Field.Y)
-    assert result.pose.x == pytest.approx(START.x + step_component, abs=0.001)
-    assert result.pose.y == pytest.approx(START.y + step_component, abs=0.001)
+    assert result.pose.x == pytest.approx(START.x - step_component, abs=0.001)
+    assert result.pose.y == pytest.approx(START.y - step_component, abs=0.001)
 
 
 def test_step_keeps_height_and_angles() -> None:
