@@ -78,6 +78,7 @@ def test_required_documents_exist() -> None:
         "requirements.txt",
         "requirements-dev.txt",
         "run_mapper.bat",
+        "install.bat",
     ):
         assert (PROJECT_ROOT / name).exists(), f"нет файла {name}"
     for adr in (PROJECT_ROOT / "docs" / "adr").glob("*.md"):
@@ -96,6 +97,15 @@ def test_launcher_bat_is_ascii_and_delegates_to_bootstrap() -> None:
     text = content.decode("ascii")
     assert "tools\\bootstrap.py" in text
     assert "pause" in text, "окно консоли не должно закрываться молча"
+
+
+def test_install_bat_prepares_venv_and_pauses() -> None:
+    content = (PROJECT_ROOT / "install.bat").read_bytes()
+    assert all(byte < 128 for byte in content), "install.bat должен быть ASCII"
+    text = content.decode("ascii")
+    assert "--install-only" in text
+    assert ".venv" in text
+    assert "pause" in text
 
 
 def test_python_files_have_no_tabs_and_short_lines() -> None:

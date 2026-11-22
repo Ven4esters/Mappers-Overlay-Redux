@@ -64,6 +64,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Подготовка окружения LSP Mapper Overlay")
     parser.add_argument("--debug", action="store_true", help="подробный журнал установки")
     parser.add_argument("--check-only", action="store_true", help="только проверить окружение")
+    parser.add_argument(
+        "--install-only",
+        action="store_true",
+        help="поставить окружение и зависимости, но не запускать приложение",
+    )
     parser.add_argument("--reinstall", action="store_true", help="пересоздать .venv")
     parser.add_argument(
         "--start-timeout", type=float, default=START_TIMEOUT, help="ожидание старта, с"
@@ -178,6 +183,28 @@ def install_dependencies() -> bool:
     return True
 
 
+def runtime_report() -> tuple[list[str], bool]:
+    """Строки отчёта и признак того, что PySide6 импортируется."""
+    interpreter = venv_python()
+    lines = [f"Python: {sys.version.split()[0]}", f"Окружение: {interpreter}"]
+    probe = subprocess.run(  # noqa: S603 - фиксированная команда
+        [
+            str(interpreter),
+            "-c",
+            "import PySide6; print('PySide6 ' + PySide6.__version__)",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if probe.returncode == 0:
+        lines.append(probe.stdout.strip())
+        return lines, True
+    lines.append("PySide6: не установлен (проверьте logs/setup.log)")
+    return lines, False
+
+
 def launch(timeout: float) -> bool:
     """Запускает приложение и ждёт маркер готовности окна."""
     marker = LOG_DIR / "session_ready.txt"
@@ -203,13 +230,8 @@ def launch(timeout: float) -> bool:
     return process.poll() is None
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Точка входа лаунчера."""
-    configure_console()
-    args = parse_args(argv)
-    configure_logging(args.debug)
-    LOGGER.info("Каталог проекта: %s", ROOT)
-
+def prepare_environment(args: argparse.Namespace) -> int:
+    """Создаёт venv и ставит зависимости; возвращает 0 при успехе."""
     found = find_python(args.python)
     if found is None:
         print(f"Нужен Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} или новее.")
@@ -223,15 +245,36 @@ def main(argv: list[str] | None = None) -> int:
     if not create_venv(python, args.reinstall):
         print(f"Не удалось создать виртуальное окружение. Подробности: {LOG_FILE}")
         return EXIT_VENV
-
     if not install_dependencies():
         print(f"Не удалось установить зависимости. Подробности: {LOG_FILE}")
         return EXIT_DEPS
+    return EXIT_OK
 
-    if args.check_only:
-        print(f"Окружение готово: {venv_python()}")
-        return EXIT_OK
 
+def report_environment() -> int:
+    """Печатает версии Python и PySide6; без PySide6 возвращает код 4."""
+    report, pyside_ready = runtime_report()
+    for line in report:
+        print(line)
+    if not pyside_ready:
+        print(f"Интерфейс не запустится без PySide6. Подробности: {LOG_FILE}")
+        return EXIT_DEPS
+    print("Окружение готово. Запуск: run_mapper.bat")
+    return EXIT_OK
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Точка входа лаунчера."""
+    configure_console()
+    args = parse_args(argv)
+    configure_logging(args.debug)
+    LOGGER.info("Каталог проекта: %s", ROOT)
+
+    code = prepare_environment(args)
+    if code != EXIT_OK:
+        return code
+    if args.check_only or args.install_only:
+        return report_environment()
     if not launch(args.start_timeout):
         print(f"Приложение не запустилось. Журнал: {LOG_DIR / 'overlay.log'}")
         return EXIT_LAUNCH
