@@ -44,7 +44,7 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     вперёд — ``X`` в плюс, влево — ``Y`` в плюс.
 
     Диагональ — шаг по локальным осям с поворотами ``RX`` и ``RY`` (см. ниже); длина шага
-    равна ``шаг/√2``, а не ``step · √2``.
+    равна шагу целиком, а не ``step/√2``.
 
     С ``tilt=True`` (в интерфейсе — режим высоты, клавиша ``Alt``) меняется только
     смысл клавиш «вперёд-назад»: ``Num 8`` поднимает предмет по локальной оси ``Z``
@@ -104,7 +104,7 @@ def _height_step(direction: Direction, pose: Pose) -> tuple[float, float, float]
 def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
     """Шаг диагональной клавиши: поворот ``Rx(RX) · Ry(RY)`` над локальной «вверх»-осью.
 
-    Формула пользователя (``L = шаг/√2``):
+    Формула пользователя (``L = шаг``):
 
     ```
     X_new = X + ax · L · sin RY
@@ -117,16 +117,16 @@ def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
     ``X + L sin RY``, ``Y − L sin RX cos RY``, ``Z + L cos RX cos RY``.
 
     Проверка на примере: ``RX = 55°``, ``RY = 17°``, шаг 3.0 →
-    ``Δ = (+0.620, −1.662, +1.164)``, то есть ``X −1848.722``, ``Y 414.866``,
-    ``Z 129.990``.
+    ``Δ = (+0.877, −2.350, +1.646)``, то есть ``X −1848.465``, ``Y 414.178``,
+    ``Z 130.472``.
 
     Свойства:
 
     * это два поворота единичного вектора ``(0, 0, ax)``: сначала ``Ry(RY)``, потом
       ``Rx(RX)``. Порядок виден по формуле — ``cos RY`` есть в ``Y`` и ``Z``, а ``cos RX``
       только в ``Z``;
-    * длина шага строго ``шаг/√2`` при любых углах: поворот длину не меняет;
-    * при ``RY = 0`` остаётся прежняя формула: ``ΔX = 0``, поворот в плоскости ``Y/Z``,
+    * длина шага ровно равна шагу при любых углах: поворот единичный вектор не меняет;
+    * при ``RY = 0`` остаётся прежнее направление: ``ΔX = 0``, поворот в плоскости ``Y/Z``,
       наклон на экране ``90° − RX``;
     * ``RY`` уводит шаг в глубину (``X``) и сжимает остальные компоненты множителем
       ``cos RY``;
@@ -134,13 +134,12 @@ def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
       вертикали.
     """
     ax, ay = direction.axes
-    arm = 1.0 / math.hypot(ax, ay)
     tx = math.radians(pose.rx)
     ty = math.radians(pose.ry)
     cos_ty = math.cos(ty)
-    world_x = round(ax * arm * math.sin(ty), 12)
-    world_y = round(ay * arm * math.sin(tx) * cos_ty, 12)
-    world_z = round(ax * arm * math.cos(tx) * cos_ty, 12)
+    world_x = round(ax * math.sin(ty), 12)
+    world_y = round(ay * math.sin(tx) * cos_ty, 12)
+    world_z = round(ax * math.cos(tx) * cos_ty, 12)
     return world_x, world_y, world_z
 
 

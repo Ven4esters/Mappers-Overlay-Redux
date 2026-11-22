@@ -73,14 +73,14 @@ def test_forward_step_moves_x_plus_and_writes_x_only() -> None:
 
 
 def test_diagonal_step_rotates_with_the_object() -> None:
-    """``Num 3`` при наклоне 37°: поворот ``Y/Z``, ``X`` не меняется."""
+    """``Num 3`` при наклоне 37°: поворот ``Y/Z``, ``X`` не меняется, шаг — полный."""
     tilted = Pose(x=10.0, y=20.0, z=30.0, rx=37.0)
     panel = FakePanel(tilted)
     session = make_session(panel)
     session.capture()
     result = session.step(Direction.BACK_RIGHT, 1.0)
     angle = math.radians(37.0)
-    arm = 1.0 / math.sqrt(2.0)
+    arm = 1.0
     assert result.written == (Field.Y, Field.Z)
     assert result.pose.x == pytest.approx(10.0, abs=0.001)
     assert result.pose.y == pytest.approx(20.0 - arm * math.sin(angle), abs=0.001)
@@ -95,9 +95,9 @@ def test_diagonal_step_follows_rx_and_ry() -> None:
     session.capture()
     result = session.step(Direction.FORWARD_RIGHT, 3.0)
     assert result.written == (Field.X, Field.Y, Field.Z)
-    assert result.pose.x == pytest.approx(-1848.722, abs=0.002)
-    assert result.pose.y == pytest.approx(414.866, abs=0.002)
-    assert result.pose.z == pytest.approx(129.99, abs=0.002)
+    assert result.pose.x == pytest.approx(-1848.465, abs=0.002)
+    assert result.pose.y == pytest.approx(414.178, abs=0.002)
+    assert result.pose.z == pytest.approx(130.472, abs=0.002)
     assert panel.written_fields == [Field.X, Field.Y, Field.Z]
 
 
@@ -181,7 +181,7 @@ def test_alt_mode_keeps_the_diagonal_step() -> None:
     session = make_session(panel)
     session.capture()
     result = session.step(Direction.FORWARD_LEFT, 1.0, tilt=True)
-    arm = 1.0 / math.sqrt(2.0)
+    arm = 1.0
     assert result.written == (Field.Y, Field.Z)
     assert panel.pose().x == pytest.approx(10.0, abs=0.001)
     assert panel.pose().y == pytest.approx(20.0 + arm * math.sin(math.radians(30.0)), abs=0.001)
