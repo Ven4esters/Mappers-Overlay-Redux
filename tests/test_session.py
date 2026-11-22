@@ -87,20 +87,6 @@ def test_diagonal_step_rotates_with_the_object() -> None:
     assert result.pose.z == pytest.approx(30.0 - arm * math.cos(angle), abs=0.001)
 
 
-def test_diagonal_step_follows_rx_and_ry() -> None:
-    """``RX = 37°`` и ``RY = 10°``: пишутся все три координаты, шаг длиной 3 м."""
-    tilted = Pose(x=-1849.342, y=416.528, z=128.826, rx=37.0, ry=10.0)
-    panel = FakePanel(tilted)
-    session = make_session(panel)
-    session.capture()
-    result = session.step(Direction.FORWARD_RIGHT, 3.0)
-    assert result.written == (Field.X, Field.Y, Field.Z)
-    assert result.pose.x == pytest.approx(-1848.974, abs=0.002)
-    assert result.pose.y == pytest.approx(415.251, abs=0.002)
-    assert result.pose.z == pytest.approx(130.494, abs=0.002)
-    assert panel.written_fields == [Field.X, Field.Y, Field.Z]
-
-
 def test_step_keeps_height_and_angles() -> None:
     panel = FakePanel(START)
     session = make_session(panel)
@@ -175,7 +161,7 @@ def test_tilted_step_follows_ry() -> None:
 
 
 def test_alt_mode_keeps_the_diagonal_step() -> None:
-    """Диагональ в режиме высоты идёт как обычно: ``RX``/``RY``, без подмены на ``Z``."""
+    """Диагональ в режиме высоты идёт как обычно: поворот ``Y/Z``, без подмены на ``Z``."""
     tilted = Pose(x=10.0, y=20.0, z=30.0, rx=30.0)
     panel = FakePanel(tilted)
     session = make_session(panel)

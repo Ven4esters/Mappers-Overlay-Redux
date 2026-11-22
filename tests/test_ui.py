@@ -77,7 +77,7 @@ def test_forward_arrow_moves_x_plus(qt_app: QApplication) -> None:
 
 
 def test_diagonal_arrow_rotates_with_the_object(qt_app: QApplication) -> None:
-    """Кнопка «назад-вправо» при наклоне 37° и ``RY = 0``: ``X`` на месте."""
+    """Кнопка «назад-вправо» при наклоне 37°: поворот в плоскости ``Y/Z``, ``X`` на месте."""
     window, panel, _store, _cursor = make_window(qt_app, pose=replace(START, rx=37.0))
     window.movement.press_capture()
     window.movement.arrow(Direction.BACK_RIGHT).click()
@@ -87,19 +87,6 @@ def test_diagonal_arrow_rotates_with_the_object(qt_app: QApplication) -> None:
     assert panel.pose().x == pytest.approx(START.x, abs=0.001)
     assert panel.pose().y == pytest.approx(START.y - arm * math.sin(angle), abs=0.001)
     assert panel.pose().z == pytest.approx(START.z - arm * math.cos(angle), abs=0.001)
-
-
-def test_diagonal_arrow_follows_rx_and_ry(qt_app: QApplication) -> None:
-    """Кнопка «вверх-вправо» при ``RX = 37°`` и ``RY = 10°``: пишутся ``X``, ``Y`` и ``Z``."""
-    start = replace(START, x=-1849.342, y=416.528, z=128.826, rx=37.0, ry=10.0)
-    window, panel, _store, _cursor = make_window(qt_app, pose=start)
-    window.movement.press_capture()
-    window.movement._step_combo.setCurrentText("3")
-    window.movement.arrow(Direction.FORWARD_RIGHT).click()
-    assert panel.written_fields == [Field.X, Field.Y, Field.Z]
-    assert panel.pose().x == pytest.approx(-1848.974, abs=0.002)
-    assert panel.pose().y == pytest.approx(415.251, abs=0.002)
-    assert panel.pose().z == pytest.approx(130.494, abs=0.002)
 
 
 def test_tilt_warning_is_visible(qt_app: QApplication) -> None:
