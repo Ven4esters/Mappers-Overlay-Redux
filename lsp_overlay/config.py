@@ -13,7 +13,7 @@ from typing import Any, Final
 
 from lsp_overlay.domain.directions import DiagonalMode
 from lsp_overlay.domain.fields import FIELD_ORDER, FieldKey
-from lsp_overlay.domain.movement import MoveFrame
+from lsp_overlay.domain.movement import MAX_MOVE_ROTATION, MIN_MOVE_ROTATION, MoveFrame
 from lsp_overlay.domain.safety import DEFAULT_MAX_JUMP
 
 SCHEMA_VERSION = 2
@@ -105,6 +105,7 @@ class Settings:
     diagonal_mode: DiagonalMode = DiagonalMode.SAME_DISTANCE
     use_tilt: bool = True
     move_frame: MoveFrame = MoveFrame.WORLD
+    move_rotation: float = 0.0
     length_decimals: int = 4
     verify_after_paste: bool = True
     max_jump: float = DEFAULT_MAX_JUMP
@@ -139,6 +140,10 @@ class Settings:
                 "страховка живого режима — от "
                 f"{MIN_LIVE_HOLD_TIMEOUT:g} до {MAX_LIVE_HOLD_TIMEOUT:g} с"
             )
+        if not MIN_MOVE_ROTATION <= self.move_rotation <= MAX_MOVE_ROTATION:
+            raise ConfigError(
+                f"поворот осей движения — от {MIN_MOVE_ROTATION:g} до {MAX_MOVE_ROTATION:g}°"
+            )
         if not 0.2 <= self.overlay_opacity <= 1.0:
             raise ConfigError("прозрачность оверлея — от 0.2 до 1.0")
         self.timings.validated()
@@ -157,6 +162,7 @@ class Settings:
             "diagonal_mode": self.diagonal_mode.value,
             "use_tilt": self.use_tilt,
             "move_frame": self.move_frame.value,
+            "move_rotation": self.move_rotation,
             "length_decimals": self.length_decimals,
             "verify_after_paste": self.verify_after_paste,
             "max_jump": self.max_jump,
@@ -203,6 +209,7 @@ class Settings:
             diagonal_mode=DiagonalMode(data.get("diagonal_mode", DiagonalMode.SAME_DISTANCE.value)),
             use_tilt=bool(data.get("use_tilt", True)),
             move_frame=MoveFrame(str(data.get("move_frame", MoveFrame.WORLD.value))),
+            move_rotation=float(data.get("move_rotation", 0.0)),
             length_decimals=int(data.get("length_decimals", 4)),
             verify_after_paste=bool(data.get("verify_after_paste", True)),
             max_jump=float(data.get("max_jump", DEFAULT_MAX_JUMP)),

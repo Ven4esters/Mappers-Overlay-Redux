@@ -196,6 +196,7 @@ class MappingSession:
             diagonal_mode=self._settings.diagonal_mode,
             use_tilt=self._settings.use_tilt,
             frame=self._settings.move_frame,
+            rotation=self._settings.move_rotation,
         ).rounded(self._settings.length_decimals)
         ensure_within_limit(self._pose, candidate, self._settings.max_jump)
         self._pose = candidate

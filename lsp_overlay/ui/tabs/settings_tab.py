@@ -24,7 +24,7 @@ from lsp_overlay.config import (
     replace_settings,
 )
 from lsp_overlay.domain.directions import DiagonalMode
-from lsp_overlay.domain.movement import MoveFrame
+from lsp_overlay.domain.movement import MAX_MOVE_ROTATION, MIN_MOVE_ROTATION, MoveFrame
 from lsp_overlay.ui.widgets import make_button, make_label, make_number_editor
 
 OPACITY_SCALE = 100
@@ -76,6 +76,16 @@ class SettingsTab(QWidget):
             "предмета. Предмет: ↑ двигает вдоль его собственной длины, с учётом RZ."
         )
         form.addRow("Оси движения", self.combo_frame)
+        self.spin_rotation = make_number_editor(
+            0, minimum=MIN_MOVE_ROTATION, maximum=MAX_MOVE_ROTATION
+        )
+        self.spin_rotation.setSuffix(" °")
+        self.spin_rotation.setToolTip(
+            "Поправка на поворот камеры: если камера смотрит не на север, поставьте здесь "
+            "угол, под которым «вверх» на экране, — и стрелки совпадут с картинкой. "
+            "45° — камера развёрнута на северо-восток, 90° — на восток."
+        )
+        form.addRow("Поворот осей, °", self.spin_rotation)
         self.chk_tilt = QCheckBox("Учитывать наклоны RX/RY при движении")
         self.chk_tilt.setToolTip(
             "Выключите, если нужно двигать проп строго по полу, невзирая на его наклон."
@@ -147,6 +157,7 @@ class SettingsTab(QWidget):
         index = self.combo_diagonal.findData(settings.diagonal_mode.value)
         self.combo_diagonal.setCurrentIndex(max(index, 0))
         self.chk_tilt.setChecked(settings.use_tilt)
+        self.spin_rotation.setValue(settings.move_rotation)
         self.combo_frame.setCurrentIndex(
             max(self.combo_frame.findData(settings.move_frame.value), 0)
         )
@@ -176,6 +187,7 @@ class SettingsTab(QWidget):
             diagonal_mode=DiagonalMode(self.combo_diagonal.currentData()),
             use_tilt=self.chk_tilt.isChecked(),
             move_frame=MoveFrame(str(self.combo_frame.currentData())),
+            move_rotation=self.spin_rotation.value(),
             verify_after_paste=self.chk_verify.isChecked(),
             max_jump=self.spin_max_jump.value(),
             confirm_key=self.combo_confirm.currentData(),

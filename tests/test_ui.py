@@ -274,6 +274,39 @@ def test_movement_frame_hint_follows_settings(tmp_path: Path, qt_app: object) ->
     assert "70.0°" in window.movement_tab.frame_text()
 
 
+def test_camera_correction_aligns_arrows(tmp_path: Path, qt_app: object) -> None:
+    """«Поворот осей» 45°: ↑ уводит на северо-запад, и это видно в подсказке."""
+    window, panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
+    window.action_capture()
+    tab = window.settings_tab
+    tab.spin_rotation.setValue(45.0)
+    window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
+    assert window._settings.move_rotation == pytest.approx(45.0)
+    assert "повёрнуты на 45°" in window.movement_tab.frame_text()
+    window.movement_tab.move_requested.emit(Direction.NORTH.value, 1.0)
+    assert "ΔX -0.707" in window.lbl_status.text()
+    window.action_apply(commit=False)
+    assert panel.pose.x == pytest.approx(-0.7071, abs=1e-3)
+    assert panel.pose.y == pytest.approx(0.7071, abs=1e-3)
+
+
+def test_camera_buttons_turn_axes_by_45(tmp_path: Path, qt_app: object) -> None:
+    """Кнопки «Камера» крутят оси на 45° и сразу сохраняют настройку."""
+    window, panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=0.0))
+    window.action_capture()
+    assert window.movement_tab.rotation_text() == "0°"
+    window.action_turn_move_axes(-45.0)
+    assert window._settings.move_rotation == pytest.approx(-45.0)
+    assert window.movement_tab.rotation_text() == "-45°"
+    assert "повёрнуты на -45°" in window.movement_tab.frame_text()
+    window.movement_tab.move_requested.emit(Direction.NORTH.value, 1.0)
+    window.action_apply(commit=False)
+    assert panel.pose.x == pytest.approx(0.7071, abs=1e-3)
+    assert panel.pose.y == pytest.approx(0.7071, abs=1e-3)
+    saved = Settings.from_dict(__import__("json").loads((tmp_path / "settings.json").read_text()))
+    assert saved.move_rotation == pytest.approx(-45.0)
+
+
 def test_live_commit_checkbox_toggles_confirmation(tmp_path: Path, qt_app: object) -> None:
     window, panel = make_window(tmp_path, qt_app)
     tab = window.settings_tab

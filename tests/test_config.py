@@ -35,6 +35,17 @@ def test_move_frame_round_trip() -> None:
     assert Settings().move_frame is MoveFrame.WORLD
 
 
+def test_move_rotation_round_trip() -> None:
+    settings = Settings(move_rotation=45.0)
+    assert Settings.from_dict(settings.to_dict()).move_rotation == pytest.approx(45.0)
+    assert Settings().move_rotation == 0.0
+
+
+def test_move_rotation_out_of_range_is_rejected() -> None:
+    with pytest.raises(ConfigError, match="поворот осей"):
+        Settings(move_rotation=400.0).validated()
+
+
 def test_serialized_document_has_version() -> None:
     assert Settings().to_dict()["version"] == SCHEMA_VERSION
 

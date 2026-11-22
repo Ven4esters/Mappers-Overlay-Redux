@@ -30,6 +30,7 @@ STEP_MIN = 0.0001
 STEP_MAX = 500.0
 HALF = 0.5
 DOUBLE = 2.0
+CAMERA_STEP = 45.0
 
 ARROWS: tuple[tuple[Direction, str, int, int], ...] = (
     (Direction.NORTH_WEST, "↖", 0, 0),
@@ -51,6 +52,7 @@ class MovementTab(QWidget):
     field_edited = Signal(str, float)
     live_toggled = Signal(bool)
     delete_clone_requested = Signal()
+    move_rotation_changed = Signal(float)
 
     def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -104,20 +106,56 @@ class MovementTab(QWidget):
             )
         )
         column.addWidget(make_label(NUMPAD_HINT, muted=True, wrap=True))
+        column.addWidget(self._build_camera_row())
         self.lbl_frame = make_label("", muted=True, wrap=True)
         column.addWidget(self.lbl_frame)
         return group
 
-    def set_move_frame(self, frame: MoveFrame, yaw: float) -> None:
+    def _build_camera_row(self) -> QWidget:
+        """Быстрая подстройка под камеру: одна кнопка на каждый шаг в 45°."""
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(make_label("Камера", muted=True))
+        self.lbl_rotation = make_label("0°", muted=True)
+        self.lbl_rotation.setToolTip(
+            "Насколько оси движения повёрнуты от севера — поправка на то, куда смотрит камера"
+        )
+        for delta, hint in (
+            (-CAMERA_STEP, "Повернуть оси на 45° по часовой"),
+            (CAMERA_STEP, "Повернуть оси на 45° против часовой"),
+        ):
+            button = make_button(
+                f"{delta:+g}°",
+                f"{hint}: если стрелка уводит предмет вбок, подберите так, чтобы «↑» совпал "
+                "с «вверх» на экране",
+            )
+            button.clicked.connect(
+                lambda _checked=False, value=delta: self.move_rotation_changed.emit(value)
+            )
+            row.addWidget(button)
+        row.addWidget(make_label("↑ смотрит «вверх» на экране", muted=True), 1)
+        row.addWidget(self.lbl_rotation)
+        return holder
+
+    def set_move_frame(self, frame: MoveFrame, yaw: float, rotation: float = 0.0) -> None:
         """Пишет, в каких осях сейчас ходят стрелки: это первое, что путает."""
-        if frame is MoveFrame.WORLD:
+        if frame is MoveFrame.WORLD and rotation:
+            text = f"Оси: мир, повёрнуты на {rotation:g}° — так, чтобы ↑ смотрел «вверх» на экране."
+        elif frame is MoveFrame.WORLD:
             text = (
                 "Оси: мир — ↑ двигает на север (+Y), → на восток (+X), при любом угле предмета. "
-                "Переключается в «Настройках»."
+                "Если стрелки смотрят вбок, поверните оси кнопками «Камера»."
             )
         else:
             text = f"Оси: предмет — ↑ двигает вдоль его длины (угол {yaw:.1f}°), а не на север"
         self.lbl_frame.setText(text)
+        self.lbl_rotation.setText(f"{rotation:g}°")
+
+    def rotation_text(self) -> str:
+        """Поправка на камеру в градусах (для тестов)."""
+        return self.lbl_rotation.text()
 
     def frame_text(self) -> str:
         """Строка про оси движения (для тестов)."""

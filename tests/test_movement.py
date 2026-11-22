@@ -88,6 +88,23 @@ def test_world_frame_ignores_tilt_and_keeps_height() -> None:
     assert (result.x, result.y, result.z) == pytest.approx((1.0, 0.0, 5.0))
 
 
+def test_world_frame_can_be_turned_to_the_camera() -> None:
+    """Поправка на камеру: при повороте осей на 45° «↑» идёт на северо-запад."""
+    pose = Pose(rz=70.0)
+    result = move(pose, Direction.NORTH, 2.0, frame=MoveFrame.WORLD, rotation=45.0)
+    assert result.x == pytest.approx(-math.sqrt(2.0), abs=1e-9)
+    assert result.y == pytest.approx(math.sqrt(2.0), abs=1e-9)
+    assert move(pose, Direction.NORTH, 1.0, frame=MoveFrame.WORLD).y == pytest.approx(1.0)
+
+
+def test_prop_frame_ignores_camera_correction() -> None:
+    """В режиме «предмет» поправка на камеру не применяется: там угол предмета."""
+    pose = Pose(rz=0.0)
+    result = move(pose, Direction.NORTH, 1.0, frame=MoveFrame.PROP, rotation=45.0)
+    assert result.y == pytest.approx(1.0)
+    assert result.x == pytest.approx(0.0)
+
+
 def test_prop_frame_recomputes_direction_after_turning() -> None:
     """Режим «предмет»: после поворота «вперёд» идёт уже по новой оси."""
     pose = Pose(rz=0.0)

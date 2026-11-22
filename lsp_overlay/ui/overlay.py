@@ -61,6 +61,7 @@ DOUBLE = 2.0
 REPEAT_INTERVAL_MS = 90
 REPEAT_TIMEOUT_S = 0.6
 MAX_LIVE_STEPS = 300
+MAX_FULL_TURN = 360.0
 BUSY_HINT = "Идёт обмен с панелью — не двигайте мышь"
 MOVE_ARROWS: dict[Direction, str] = {
     Direction.NORTH: "↑",
@@ -185,6 +186,7 @@ class OverlayWindow(QWidget):
         self.movement_tab.field_edited.connect(self.action_field_edited)
         self.movement_tab.live_toggled.connect(self.action_live_toggled)
         self.movement_tab.delete_clone_requested.connect(self.action_delete_clone)
+        self.movement_tab.move_rotation_changed.connect(self.action_turn_move_axes)
         self.rotate_tab.rotate_requested.connect(self.action_rotate)
         self.rotate_tab.angle_set_requested.connect(self.action_set_angle)
         self.measure_tab.remember_requested.connect(self.action_remember_point)
@@ -609,6 +611,30 @@ class OverlayWindow(QWidget):
             return
         self.action_step_changed(step)
 
+    def action_turn_move_axes(self, delta: float) -> None:
+        """Поворачивает оси движения на ``delta`` градусов: поправка на камеру."""
+        current = self._settings.move_rotation
+        target = current + delta
+        while target <= -180.0:
+            target += MAX_FULL_TURN
+        while target > 180.0:
+            target -= MAX_FULL_TURN
+        self._settings = replace(self._settings, move_rotation=target)
+        try:
+            self._settings.validated()
+        except DomainError as error:
+            self._fail(error)
+            return
+        self._session.update_settings(self._settings)
+        self._save_settings()
+        self.settings_tab.spin_rotation.setValue(target)
+        self._refresh()
+        self._set_status(
+            f"Оси движения повёрнуты на {target:g}° — проверьте шагом 1 м: "
+            "«↑» должен вести вверх по экрану",
+            "info",
+        )
+
     def action_step_changed(self, step: float) -> None:
         """Запоминает выбранный шаг."""
         try:
@@ -630,7 +656,9 @@ class OverlayWindow(QWidget):
         self._live.set_commit(settings.live_commit)
         self._live.set_hold_timeout(settings.live_hold_timeout)
         self.movement_tab.set_step(settings.step)
-        self.movement_tab.set_move_frame(settings.move_frame, self._session.pose.rz)
+        self.movement_tab.set_move_frame(
+            settings.move_frame, self._session.pose.rz, settings.move_rotation
+        )
         self.btn_apply_commit.setText(f"Сохранить {settings.confirm_key.upper()}")
         self._set_status("Настройки сохранены", "success")
 
@@ -714,7 +742,9 @@ class OverlayWindow(QWidget):
 
     def _refresh(self) -> None:
         self.movement_tab.update_pose(self._session.pose, self._session.pending_fields())
-        self.movement_tab.set_move_frame(self._settings.move_frame, self._session.pose.rz)
+        self.movement_tab.set_move_frame(
+            self._settings.move_frame, self._session.pose.rz, self._settings.move_rotation
+        )
         self.join_tab.update_pose(self._session.pose)
         self._refresh_tape()
         pending = len(self._session.pending_fields())
