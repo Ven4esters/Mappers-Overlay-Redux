@@ -510,6 +510,95 @@ def test_live_mode_clones_and_applies_in_game(tmp_path: Path, qt_app: object) ->
     assert window.lbl_status.text().startswith("Живой режим выключен")
 
 
+def test_live_mode_arrow_button_moves_one_step(tmp_path: Path, qt_app: object) -> None:
+    """Клик мышью по стрелке — один шаг, а не бесконечное движение."""
+    window, panel = make_window(tmp_path, qt_app)
+    window.action_live_toggled(True)
+    try:
+        window.movement_tab.move_requested.emit(Direction.NORTH.value, 0.5)
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and not panel.writes:
+            time.sleep(0.01)
+        assert panel.writes
+        assert window._live.direction is None
+        steps = window._live.applied
+        time.sleep(0.3)
+        assert window._live.applied == steps
+    finally:
+        window.action_live_toggled(False)
+
+
+def test_live_mode_stops_when_numpad_release_is_lost(tmp_path: Path, qt_app: object) -> None:
+    window, panel, hook = make_window_with_hook(tmp_path, qt_app)
+    window.action_live_toggled(True)
+    window._live.set_hold_timeout(0.05)
+    try:
+        hook.press(0x68)  # Numpad 8, отпускание «потерялось»
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and not panel.writes:
+            time.sleep(0.01)
+        time.sleep(0.3)
+        steps = window._live.applied
+        time.sleep(0.2)
+        assert window._live.applied == steps
+        assert window._live.direction is None
+    finally:
+        window.action_live_toggled(False)
+
+
+def test_live_mode_stops_when_release_is_lost_and_key_is_up(tmp_path: Path, qt_app: object) -> None:
+    """Событие отпускания потерялось, но клавиша уже не нажата — сверка состояния гасит шаг."""
+    settings = Settings(calibration=build_calibration())
+    panel = FakeGamePanel(START)
+    keys = FakeKeyState()
+    hook = FakeKeyHook()
+    window = OverlayWindow(
+        MappingSession(panel, settings),
+        ConfigStore(tmp_path / "s.json"),
+        settings,
+        key_state=keys,  # type: ignore[arg-type]
+        key_hook=hook,  # type: ignore[arg-type]
+    )
+    window.action_capture()
+    window.action_live_toggled(True)
+    try:
+        keys.pressed.add(0x68)
+        hook.press(0x68)
+        assert window._live.direction is Direction.NORTH
+        keys.pressed.clear()  # отпускание до оверлея не дошло
+        window._poll_live()
+        assert window._live.direction is None
+    finally:
+        window.action_live_toggled(False)
+
+
+def test_live_mode_keeps_moving_while_key_is_really_down(tmp_path: Path, qt_app: object) -> None:
+    settings = Settings(calibration=build_calibration())
+    panel = FakeGamePanel(START)
+    keys = FakeKeyState()
+    hook = FakeKeyHook()
+    window = OverlayWindow(
+        MappingSession(panel, settings),
+        ConfigStore(tmp_path / "s.json"),
+        settings,
+        key_state=keys,  # type: ignore[arg-type]
+        key_hook=hook,  # type: ignore[arg-type]
+    )
+    window.action_capture()
+    window.action_live_toggled(True)
+    window._live.set_hold_timeout(0.05)
+    try:
+        keys.pressed.add(0x68)
+        hook.press(0x68)
+        for _ in range(6):
+            time.sleep(0.04)
+            window._poll_live()  # сверка продлевает удержание
+        assert window._live.direction is Direction.NORTH
+        assert window._live.applied >= 1
+    finally:
+        window.action_live_toggled(False)
+
+
 def test_live_mode_without_calibration_does_not_start(tmp_path: Path, qt_app: object) -> None:
     window, panel = make_window(tmp_path, qt_app)
     panel.available = False

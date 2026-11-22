@@ -23,6 +23,10 @@ DEFAULT_CLONE_KEY = "c"
 DEFAULT_CLONE_DELETE_KEY = "delete"
 KEY_MAX_LENGTH = 20
 
+DEFAULT_LIVE_HOLD_TIMEOUT = 1.0
+MIN_LIVE_HOLD_TIMEOUT = 0.2
+MAX_LIVE_HOLD_TIMEOUT = 10.0
+
 
 class ConfigError(ValueError):
     """Файл настроек не соответствует схеме."""
@@ -106,6 +110,7 @@ class Settings:
     clone_key: str = DEFAULT_CLONE_KEY
     clone_delete_key: str = DEFAULT_CLONE_DELETE_KEY
     live_commit: bool = False
+    live_hold_timeout: float = DEFAULT_LIVE_HOLD_TIMEOUT
     calibration: Calibration = field(default_factory=Calibration.empty)
     timings: PanelTimings = field(default_factory=PanelTimings)
     overlay_opacity: float = 0.94
@@ -127,6 +132,11 @@ class Settings:
         for title, key in clone_keys:
             if not key.strip() or len(key) > KEY_MAX_LENGTH:
                 raise ConfigError(f"клавиша {title} копии должна быть непустой строкой")
+        if not (MIN_LIVE_HOLD_TIMEOUT <= self.live_hold_timeout <= MAX_LIVE_HOLD_TIMEOUT):
+            raise ConfigError(
+                "страховка живого режима — от "
+                f"{MIN_LIVE_HOLD_TIMEOUT:g} до {MAX_LIVE_HOLD_TIMEOUT:g} с"
+            )
         if not 0.2 <= self.overlay_opacity <= 1.0:
             raise ConfigError("прозрачность оверлея — от 0.2 до 1.0")
         self.timings.validated()
@@ -151,6 +161,7 @@ class Settings:
             "clone_key": self.clone_key,
             "clone_delete_key": self.clone_delete_key,
             "live_commit": self.live_commit,
+            "live_hold_timeout": self.live_hold_timeout,
             "overlay_opacity": self.overlay_opacity,
             "always_on_top": self.always_on_top,
             "timings": {
@@ -195,6 +206,7 @@ class Settings:
             clone_key=str(data.get("clone_key", DEFAULT_CLONE_KEY)).lower(),
             clone_delete_key=str(data.get("clone_delete_key", DEFAULT_CLONE_DELETE_KEY)).lower(),
             live_commit=bool(data.get("live_commit", False)),
+            live_hold_timeout=float(data.get("live_hold_timeout", DEFAULT_LIVE_HOLD_TIMEOUT)),
             overlay_opacity=float(data.get("overlay_opacity", 0.94)),
             always_on_top=bool(data.get("always_on_top", True)),
             timings=_timings_from(timings_data),

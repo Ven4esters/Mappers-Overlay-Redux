@@ -88,8 +88,13 @@ class OverlayWindow(QWidget):
         self._key_state = key_state
         self._key_hook: KeyHookPort = key_hook or NullKeyHook()
         self._hooked_direction: Direction | None = None
+        self._hooked_vk: int | None = None
         self._last_key_time = 0.0
-        self._live = LiveMover(session, commit=settings.live_commit)
+        self._live = LiveMover(
+            session,
+            commit=settings.live_commit,
+            hold_timeout=settings.live_hold_timeout,
+        )
         self._repeat_direction: Direction | None = None
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(MINIMUM_WIDTH, MINIMUM_HEIGHT)
@@ -282,7 +287,9 @@ class OverlayWindow(QWidget):
         target = Direction(direction)
         self.movement_tab.flash_direction(target)
         if self._live.is_running:
-            self._live.steer(target, step)
+            # кнопка мыши — это один шаг, а не зажатая клавиша: иначе объект поедет
+            # бесконечно, ведь отпускания у кнопки нет
+            self._live.step_once(target, step)
             return
         try:
             self._session.move(target, step)
@@ -310,6 +317,7 @@ class OverlayWindow(QWidget):
         finally:
             self._idle()
         self._live.set_commit(self._settings.live_commit)
+        self._live.set_hold_timeout(self._settings.live_hold_timeout)
         self._live.start()
         self._live_timer.start()
         if self._key_hook.is_available() and self._key_hook.start(self._on_hooked_key):
@@ -333,6 +341,7 @@ class OverlayWindow(QWidget):
         self._live_timer.stop()
         self._keys_timer.stop()
         self._hooked_direction = None
+        self._hooked_vk = None
         self.movement_tab.unflash_all()
         self.movement_tab.set_live(False)
         self._refresh()
@@ -360,11 +369,13 @@ class OverlayWindow(QWidget):
             return
         if pressed:
             self._hooked_direction = direction
+            self._hooked_vk = vk_code
             self.movement_tab.flash_direction(direction)
             self._live.steer(direction, self.movement_tab.current_step())
             return
         if self._hooked_direction is direction:
             self._hooked_direction = None
+            self._hooked_vk = None
             self._live.release()
         self.movement_tab.unflash_direction(direction)
 
@@ -385,6 +396,26 @@ class OverlayWindow(QWidget):
         self.movement_tab.flash_direction(direction)
         self._live.steer(direction, self.movement_tab.current_step())
 
+    def _confirm_key_still_held(self) -> None:
+        """Сверяет удержание с реальным состоянием клавиши: отпускание могло потеряться."""
+        vk_code = self._hooked_vk
+        direction = self._hooked_direction
+        if vk_code is None or direction is None:
+            return
+        state = self._key_state
+        if state is None or not state.is_ready():
+            return
+        if state.is_down(vk_code):
+            # клавиша действительно зажата — продлеваем удержание, даже если автоповтор
+            # сработал не сразу или событие потерялось
+            self._live.steer(direction, self.movement_tab.current_step())
+            return
+        LOGGER.info("Клавиша отпущена, но событие потерялось — движение остановлено")
+        self._hooked_direction = None
+        self._hooked_vk = None
+        self._live.release()
+        self.movement_tab.unflash_all()
+
     def _guard_live(self) -> bool:
         """Останавливает живой режим, если шагов стало слишком много подряд."""
         if self._live.applied < MAX_LIVE_STEPS:
@@ -401,15 +432,15 @@ class OverlayWindow(QWidget):
         return True
 
     def _poll_live(self) -> None:
-        """Показывает, что делает поток живого режима."""
+        """Показывает, что делает поток живого режима, и следит за удержанием клавиши."""
+        self._confirm_key_still_held()
         if self._guard_live():
             return
         error = self._live.last_error
         self._refresh()
         if error is not None:
-            self._live_timer.stop()
-            self._live.stop()
-            self.movement_tab.set_live(False)
+            # снимаем и хук: иначе Numpad остался бы забранным у игры
+            self._stop_live()
             self._set_status(f"Живой режим остановлен: {error}", "error")
             return
         if self._live.direction is None:
@@ -566,6 +597,7 @@ class OverlayWindow(QWidget):
         self._apply_window_options()
         self._save_settings()
         self._live.set_commit(settings.live_commit)
+        self._live.set_hold_timeout(settings.live_hold_timeout)
         self.movement_tab.set_step(settings.step)
         self.btn_apply_commit.setText(f"Сохранить {settings.confirm_key.upper()}")
         self._set_status("Настройки сохранены", "success")

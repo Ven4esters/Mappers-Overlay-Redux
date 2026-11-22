@@ -149,3 +149,15 @@ def test_old_settings_file_without_live_commit_keeps_f_off() -> None:
     data = Settings().to_dict()
     data.pop("live_commit")
     assert Settings.from_dict(data).live_commit is False
+
+
+def test_live_hold_timeout_default_and_roundtrip() -> None:
+    assert Settings().live_hold_timeout == pytest.approx(1.0)
+    restored = Settings.from_dict(Settings(live_hold_timeout=2.5).to_dict())
+    assert restored.live_hold_timeout == pytest.approx(2.5)
+
+
+def test_live_hold_timeout_is_validated() -> None:
+    for value in (0.05, 0.0, -1.0, 30.0):
+        with pytest.raises(ConfigError):
+            Settings(live_hold_timeout=value).validated()

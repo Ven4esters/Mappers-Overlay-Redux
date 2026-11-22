@@ -82,6 +82,48 @@ def test_live_commit_switches_on_the_fly() -> None:
         live.stop()
 
 
+def test_live_stops_when_key_release_is_lost() -> None:
+    """Отпускание потерялось — движение не должно продолжаться бесконечно."""
+    panel = FakeGamePanel(START)
+    session = MappingSession(panel, Settings())
+    session.capture()
+    live = LiveMover(session, tick=TICK, hold_timeout=0.06)
+    live.start()
+    try:
+        live.steer(Direction.NORTH, 0.1)
+        wait_for(lambda: live.applied >= 1)
+        time.sleep(0.25)
+        stopped_at = live.applied
+        time.sleep(0.2)
+        assert live.applied == stopped_at
+        assert live.direction is None
+    finally:
+        live.stop()
+
+
+def test_live_hold_timeout_is_tuned_from_settings() -> None:
+    panel = FakeGamePanel(START)
+    session = MappingSession(panel, Settings())
+    live = LiveMover(session, hold_timeout=0.5)
+    assert live.hold_timeout == pytest.approx(0.5)
+    live.set_hold_timeout(2.0)
+    assert live.hold_timeout == pytest.approx(2.0)
+
+
+def test_live_step_once_moves_exactly_one_step() -> None:
+    """Кнопка оверлея — один шаг, без бесконечного движения."""
+    live, panel, _session = make_live()
+    live.start()
+    try:
+        live.step_once(Direction.NORTH, 0.5)
+        wait_for(lambda: live.applied >= 1)
+        time.sleep(0.2)
+        assert live.applied == 1
+        assert panel.pose.y == pytest.approx(START.y + 0.5)
+    finally:
+        live.stop()
+
+
 def test_live_does_not_move_without_direction() -> None:
     live, panel, _session = make_live()
     live.start()
