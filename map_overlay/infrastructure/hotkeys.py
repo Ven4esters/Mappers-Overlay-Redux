@@ -3,6 +3,11 @@
 Клавиши забираются у игры: нажатие на Numpad не крутит камеру и не открывает меню.
 Хук живёт в отдельном потоке с собственным циклом сообщений — так Windows не рвёт
 его по таймауту, а интерфейс не подвисает.
+
+Безопасность важнее удобства: хук обязан пропускать всё, что не назначено, и никогда
+не «съедать» клавиатуру из-за собственной ошибки. Поэтому решение «забирать ли
+нажатие» вынесено в чистую функцию :func:`blocks_key`, а любое исключение внутри
+хука превращается в пропуск клавиши.
 """
 
 from __future__ import annotations
@@ -56,6 +61,32 @@ class _Message(ctypes.Structure):
 _HOOK_PROC = ctypes.CFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t)
 
 
+def blocks_key(
+    *,
+    vk: int,
+    is_down: bool,
+    bound: Collection[int],
+    learning: bool,
+    overlay_active: bool,
+    swallowed: Collection[int],
+) -> bool:
+    """Забирать ли нажатие у системы.
+
+    Правила:
+
+    * в обычном режиме перехватываются только назначенные клавиши;
+    * при записи новой привязки — любые клавиши, но только пока окно оверлея активно:
+      в игре клавиатура должна работать всегда;
+    * отпускание клавиши забирается лишь тогда, когда было забрано её нажатие —
+      иначе игра получила бы «зажатую» клавишу.
+    """
+    if is_down:
+        if learning:
+            return overlay_active
+        return vk in bound
+    return vk in swallowed
+
+
 class WindowsHotkeySource(QThread):
     """Поток с хуком клавиатуры.
 
@@ -69,10 +100,17 @@ class WindowsHotkeySource(QThread):
         super().__init__(parent)
         self._bound: frozenset[int] = frozenset()
         self._learning = False
+        self._enabled = True
         self._callback: Callable[[int, bool], None] | None = None
         self._thread_id = 0
         self._hook: int | None = None
         self._proc: object | None = None
+        self._call_next: Callable[..., int] | None = None
+        self._foreground: Callable[[], int] | None = None
+        self._owner_of: Callable[..., int] | None = None
+        self._own_pid: Callable[[], int] | None = None
+        self._swallowed: set[int] = set()
+        self._error_logged = False
         self.failed = False
 
     def start_listening(self, on_key: Callable[[int, bool], None]) -> None:
@@ -98,6 +136,21 @@ class WindowsHotkeySource(QThread):
         self._bound = frozenset(bound_keys)
         self._learning = learning
 
+    @property
+    def enabled(self) -> bool:
+        """Включён ли перехват (для проверок и журнала)."""
+        return self._enabled
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Включить или приостановить перехват.
+
+        Выключенный хук пропускает все клавиши как есть: это аварийный выход, если
+        игра перестала получать клавиатуру.
+        """
+        self._enabled = enabled
+        if not enabled:
+            self._swallowed.clear()
+
     def num_lock_enabled(self) -> bool | None:
         """Включён ли NumLock."""
         if sys.platform != "win32":
@@ -114,8 +167,10 @@ class WindowsHotkeySource(QThread):
         user32 = windll.user32
         kernel32 = windll.kernel32
         self._thread_id = int(kernel32.GetCurrentThreadId())
+        self._bind_prototypes(user32)
         self._proc = _HOOK_PROC(self._handle)
-        self._hook = user32.SetWindowsHookExW(WH_KEYBOARD_LL, self._proc, None, 0)
+        install = user32.SetWindowsHookExW
+        self._hook = install(WH_KEYBOARD_LL, self._proc, None, 0)
         if not self._hook:
             self.failed = True
             logger.error("Не удалось установить хук клавиатуры")
@@ -129,19 +184,73 @@ class WindowsHotkeySource(QThread):
         self._hook = None
         logger.info("Хук клавиатуры снят")
 
+    def _bind_prototypes(self, user32: object) -> None:
+        """Задать типы аргументов: без них 64-битные значения теряются."""
+        install = user32.SetWindowsHookExW  # type: ignore[attr-defined]
+        install.argtypes = [ctypes.c_int, _HOOK_PROC, ctypes.c_void_p, ctypes.c_ulong]
+        install.restype = ctypes.c_void_p
+        call_next = user32.CallNextHookEx  # type: ignore[attr-defined]
+        call_next.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t]
+        call_next.restype = ctypes.c_ssize_t
+        foreground = user32.GetForegroundWindow  # type: ignore[attr-defined]
+        foreground.argtypes = []
+        foreground.restype = ctypes.c_void_p
+        owner = user32.GetWindowThreadProcessId  # type: ignore[attr-defined]
+        owner.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        owner.restype = ctypes.c_ulong
+        self._call_next = call_next
+        self._foreground = foreground
+        self._owner_of = owner
+        self._own_pid = ctypes.windll.kernel32.GetCurrentProcessId
+
     def _deliver(self, vk: int, is_down: bool) -> None:
         if self._callback is not None:
             self._callback(vk, is_down)
 
     def _handle(self, code: int, wparam: int, lparam: int) -> int:
-        user32 = ctypes.windll.user32
+        try:
+            return self._decide(code, wparam, lparam)
+        except Exception:
+            if not self._error_logged:
+                self._error_logged = True
+                logger.exception("Ошибка в хуке клавиатуры: клавиши пропускаем как есть")
+            return self._pass_through(code, wparam, lparam)
+
+    def _decide(self, code: int, wparam: int, lparam: int) -> int:
         if code < 0:
-            return int(user32.CallNextHookEx(None, code, wparam, lparam))
+            return self._pass_through(code, wparam, lparam)
         data = ctypes.cast(lparam, ctypes.POINTER(_KeyboardHookData)).contents
         vk = int(data.vk)
         is_down = wparam in (WM_KEYDOWN, WM_SYSKEYDOWN)
         is_up = wparam in (WM_KEYUP, WM_SYSKEYUP)
-        if (is_down or is_up) and (self._learning or vk in self._bound):
-            self.key_event.emit(vk, is_down)
-            return 1
-        return int(user32.CallNextHookEx(None, code, wparam, lparam))
+        if not (is_down or is_up):
+            return self._pass_through(code, wparam, lparam)
+        block = self._enabled and blocks_key(
+            vk=vk,
+            is_down=is_down,
+            bound=self._bound,
+            learning=self._learning,
+            overlay_active=self._foreground_is_ours(),
+            swallowed=self._swallowed,
+        )
+        if is_down and block:
+            self._swallowed.add(vk)
+        elif is_up:
+            self._swallowed.discard(vk)
+        if not block:
+            return self._pass_through(code, wparam, lparam)
+        self.key_event.emit(vk, is_down)
+        return 1
+
+    def _foreground_is_ours(self) -> bool:
+        """Активно ли окно оверлея (а не игра или другая программа)."""
+        if self._foreground is None or self._owner_of is None or self._own_pid is None:
+            return False
+        pid = ctypes.c_ulong()
+        self._owner_of(self._foreground(), ctypes.byref(pid))
+        return int(pid.value) == int(self._own_pid())
+
+    def _pass_through(self, code: int, wparam: int, lparam: int) -> int:
+        if self._call_next is None:
+            return 0
+        return int(self._call_next(None, code, wparam, lparam))

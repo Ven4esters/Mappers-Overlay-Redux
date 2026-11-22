@@ -10,6 +10,7 @@ from map_overlay.domain.keynames import (
     VK_NUMPAD2,
     VK_NUMPAD8,
 )
+from map_overlay.infrastructure.hotkeys import WindowsHotkeySource, blocks_key
 
 BINDINGS = {Action.CAPTURE: VK_NUMPAD0, Action.MOVE_FORWARD: VK_NUMPAD8}
 
@@ -62,3 +63,45 @@ def test_unbound_action_is_skipped() -> None:
 def test_defaults_use_numpad_and_are_unique() -> None:
     keys = [key for key in DEFAULT_HOTKEYS.values() if key is not None]
     assert len(keys) == len(set(keys)) == len(Action)
+
+
+def _blocked(*, vk: int = 0x68, is_down: bool = True, **kwargs: object) -> bool:
+    options: dict[str, object] = {
+        "bound": frozenset({0x68}),
+        "learning": False,
+        "overlay_active": False,
+        "swallowed": frozenset(),
+    }
+    options.update(kwargs)
+    return blocks_key(vk=vk, is_down=is_down, **options)  # type: ignore[arg-type]
+
+
+def test_unbound_key_is_passed_to_the_game() -> None:
+    assert _blocked(vk=0x57) is False
+
+
+def test_bound_key_is_swallowed() -> None:
+    assert _blocked() is True
+
+
+def test_release_is_swallowed_only_after_swallowed_press() -> None:
+    assert _blocked(is_down=False, swallowed=frozenset()) is False
+    assert _blocked(is_down=False, swallowed=frozenset({0x68})) is True
+
+
+def test_learning_never_blocks_keys_outside_the_overlay() -> None:
+    assert _blocked(vk=0x57, learning=True, overlay_active=False) is False
+
+
+def test_learning_blocks_any_key_inside_the_overlay() -> None:
+    assert _blocked(vk=0x57, learning=True, overlay_active=True) is True
+
+
+def test_paused_source_keeps_settings_but_reports_state() -> None:
+    source = WindowsHotkeySource()
+    source.configure(bound_keys={0x60}, learning=False)
+    assert source.enabled is True
+    source.set_enabled(False)
+    assert source.enabled is False
+    source.set_enabled(True)
+    assert source.enabled is True

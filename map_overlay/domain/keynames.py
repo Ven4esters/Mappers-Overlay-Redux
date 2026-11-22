@@ -30,6 +30,26 @@ VK_DIVIDE: Final = 0x6F
 VK_F1: Final = 0x70
 VK_NUMLOCK: Final = 0x90
 
+#: Клавиши, которые обычно заняты в игре: их перехват лишит игру управления.
+COMMON_GAME_KEYS: Final = frozenset(
+    {
+        0x57,  # W
+        0x41,  # A
+        0x53,  # S
+        0x44,  # D
+        0x45,  # E
+        0x46,  # F
+        0x51,  # Q
+        0x52,  # R
+        0x43,  # C
+        VK_SPACE,
+        0x10,  # Shift
+        0x11,  # Ctrl
+        VK_TAB,
+        VK_ESCAPE,
+    }
+)
+
 MIN_VK: Final = 0x01
 MAX_VK: Final = 0xFE
 UNBOUND: Final = None

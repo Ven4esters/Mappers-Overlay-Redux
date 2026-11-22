@@ -43,6 +43,7 @@ class SettingsTab(QWidget):
     status_message = Signal(str)
     hotkey_change_requested = Signal(object)
     hotkey_clear_requested = Signal(object)
+    hotkeys_enabled_changed = Signal(bool)
 
     def __init__(
         self,
@@ -137,6 +138,20 @@ class SettingsTab(QWidget):
 
     def _build_hotkeys(self, settings: Settings) -> QWidget:
         card = Card("Горячие клавиши")
+        self._hotkeys_enabled = QCheckBox("Перехватывать клавиши у игры")
+        self._hotkeys_enabled.setChecked(True)
+        self._hotkeys_enabled.setToolTip(
+            "Снимите галочку, если игра перестала получать клавиатуру: "
+            "перехват выключится сразу, без перезапуска."
+        )
+        self._hotkeys_enabled.toggled.connect(self.hotkeys_enabled_changed)
+        card.add(self._hotkeys_enabled)
+        card.add(
+            label(
+                "Игра не получает клавиатуру? Снимите галочку — перехват выключится сразу.",
+                widget_role="muted",
+            )
+        )
         self._num_lock_warning = label("", widget_role="warn")
         self._num_lock_warning.hide()
         card.add(self._num_lock_warning)
@@ -223,6 +238,16 @@ class SettingsTab(QWidget):
     def hotkey_rows(self) -> int:
         """Сколько действий можно переназначить (для тестов)."""
         return len(self._key_labels)
+
+    def hotkeys_enabled(self) -> bool:
+        """Включён ли перехват клавиш (для тестов)."""
+        return self._hotkeys_enabled.isChecked()
+
+    def set_hotkeys_enabled(self, enabled: bool) -> None:
+        """Показать состояние перехвата, не испуская сигнал."""
+        self._hotkeys_enabled.blockSignals(True)
+        self._hotkeys_enabled.setChecked(enabled)
+        self._hotkeys_enabled.blockSignals(False)
 
 
 def _compact(widget: QAbstractSpinBox) -> None:

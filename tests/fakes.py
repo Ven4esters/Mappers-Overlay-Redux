@@ -196,6 +196,7 @@ class FakeHotkeySource:
         self._callback: Callable[[int, bool], None] | None = None
         self.bound_keys: Collection[int] = ()
         self.learning = False
+        self.enabled = True
         self.started = False
         self._available = available
         self._num_lock = num_lock
@@ -211,6 +212,9 @@ class FakeHotkeySource:
     def configure(self, *, bound_keys: Collection[int], learning: bool) -> None:
         self.bound_keys = frozenset(bound_keys)
         self.learning = learning
+
+    def set_enabled(self, enabled: bool) -> None:
+        self.enabled = enabled
 
     def num_lock_enabled(self) -> bool | None:
         return self._num_lock

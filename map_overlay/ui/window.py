@@ -6,7 +6,7 @@ import logging
 from collections.abc import Mapping
 from typing import cast
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QFrame,
@@ -28,7 +28,7 @@ from map_overlay.domain.actions import Action
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import Field
 from map_overlay.domain.formatting import format_delta, format_value
-from map_overlay.domain.keynames import VK_ESCAPE, key_name
+from map_overlay.domain.keynames import COMMON_GAME_KEYS, VK_ESCAPE, key_name
 from map_overlay.domain.movement import COORD_DECIMALS
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
@@ -54,6 +54,7 @@ STATUS_ROLES: dict[str, str] = {
     STATUS_ERROR: "error",
 }
 HOOK_CHECK_MS = 800
+LEARN_TIMEOUT_MS = 10_000
 
 
 class MainWindow(QMainWindow):
@@ -67,6 +68,9 @@ class MainWindow(QMainWindow):
         self._learning: Action | None = None
         self._runner = TaskRunner(synchronous=synchronous_tasks, parent=self)
         self._router = HotkeyRouter(context.settings.hotkeys)
+        self._learn_timer = QTimer(self)
+        self._learn_timer.setSingleShot(True)
+        self._learn_timer.timeout.connect(self._learning_expired)
         self._build()
         self._refresh_header()
         self._hotkeys = context.hotkeys
@@ -83,6 +87,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Map Overlay Redux {__version__}")
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        # Окно не отбирает фокус у игры при запуске: клавиатура остаётся у игры.
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
         central = QWidget(self)
         central.setObjectName("central")
@@ -121,6 +127,7 @@ class MainWindow(QMainWindow):
         self.settings_tab.status_message.connect(self._set_error_status)
         self.settings_tab.hotkey_change_requested.connect(self._start_learning)
         self.settings_tab.hotkey_clear_requested.connect(self._clear_hotkey)
+        self.settings_tab.hotkeys_enabled_changed.connect(self._set_hotkeys_enabled)
 
     def _scroll(self, inner: QWidget) -> QScrollArea:
         """Обернуть вкладку в прокрутку: окно не растёт выше экрана."""
@@ -258,6 +265,8 @@ class MainWindow(QMainWindow):
     # --- горячие клавиши --------------------------------------------------
 
     def _on_hotkey(self, vk: int, is_down: bool) -> None:
+        if not self.settings_tab.hotkeys_enabled():
+            return
         if self._learning is not None:
             if is_down:
                 self._finish_learning(vk)
@@ -284,14 +293,51 @@ class MainWindow(QMainWindow):
         self._move(direction, step)
 
     def _start_learning(self, action: object) -> None:
+        if not self.settings_tab.hotkeys_enabled():
+            self._set_status("Перехват клавиш выключен — назначить клавишу нельзя.", STATUS_WARN)
+            return
         selected = cast(Action, action)
         self._learning = selected
         self._hotkeys.configure(bound_keys=self._router.bound_keys, learning=True)
+        self._learn_timer.start(LEARN_TIMEOUT_MS)
         self._set_status(f"Нажмите клавишу для «{selected.label}» (Esc — отмена)")
+
+    def _cancel_learning(self, reason: str) -> None:
+        """Отменить запись привязки: клавиатура возвращается игре."""
+        if self._learning is None:
+            return
+        self._learning = None
+        self._learn_timer.stop()
+        self._hotkeys.configure(bound_keys=self._router.bound_keys, learning=False)
+        self._set_status(f"Назначение клавиши отменено: {reason}", STATUS_WARN)
+
+    def _learning_expired(self) -> None:
+        self._cancel_learning("время вышло")
+
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802 - имя из Qt
+        """Потеря фокуса отменяет запись привязки: иначе окно «съест» клавиатуру."""
+        super().changeEvent(event)
+        activation = event.type() == QEvent.Type.ActivationChange
+        if activation and not self.isActiveWindow():
+            self._cancel_learning("окно потеряло фокус")
+
+    def _set_hotkeys_enabled(self, enabled: bool) -> None:
+        """Включить или приостановить перехват клавиш без перезапуска."""
+        self._hotkeys.set_enabled(enabled)
+        if enabled:
+            self._set_status("Перехват клавиш включён: Numpad снова забран у игры.")
+            self._check_num_lock()
+        else:
+            self._cancel_learning("перехват выключен")
+            self._set_status(
+                "Перехват выключен: игра получает все клавиши, кнопки работают мышью.",
+                STATUS_WARN,
+            )
 
     def _finish_learning(self, vk: int) -> None:
         action = self._learning
         self._learning = None
+        self._learn_timer.stop()
         self._hotkeys.configure(bound_keys=self._router.bound_keys, learning=False)
         if action is None:
             return
@@ -306,6 +352,12 @@ class MainWindow(QMainWindow):
             return
         self._apply_hotkeys(settings.hotkeys)
         self._set_status(f"Клавиша {key_name(vk)} назначена на «{action.label}»", STATUS_OK)
+        if vk in COMMON_GAME_KEYS:
+            self._set_status(
+                f"Клавиша {key_name(vk)} обычно занята в игре: теперь она достанется "
+                f"оверлею, а не игре.",
+                STATUS_WARN,
+            )
 
     def _clear_hotkey(self, action: object) -> None:
         selected = cast(Action, action)

@@ -15,7 +15,8 @@ from map_overlay.domain.pose import Pose
 from map_overlay.errors import ValidationError
 from map_overlay.ui.tabs.movement_tab import MovementTab
 from map_overlay.ui.window import MainWindow
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtWidgets import QApplication, QCheckBox
 
 from fakes import FakeCursor, FakeHotkeySource, FakePanel, FakeStore
 
@@ -284,3 +285,94 @@ def test_hotkey_can_be_cleared(qt_app: QApplication) -> None:
     window.settings_tab.hotkey_clear_requested.emit(Action.CONFIRM)
     assert store.saved[-1].hotkeys[Action.CONFIRM] is None
     assert "снята" in window.status_text()
+
+
+def _hotkeys_checkbox(window) -> QCheckBox:
+    for box in window.settings_tab.findChildren(QCheckBox):
+        if "Перехватывать" in box.text():
+            return box
+    raise AssertionError("галочка перехвата не найдена")
+
+
+def test_window_does_not_take_focus_on_show(qt_app: QApplication) -> None:
+    window, _panel, _store, _cursor = make_window(qt_app)
+    assert window.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+
+
+def test_hotkeys_can_be_paused_and_resumed(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    box = _hotkeys_checkbox(window)
+    box.setChecked(False)
+    assert hotkeys.enabled is False
+    assert "Перехват выключен" in window.status_text()
+    hotkeys.press(NUMPAD8)
+    hotkeys.release(NUMPAD8)
+    assert panel.written_fields == []
+    box.setChecked(True)
+    assert hotkeys.enabled is True
+    assert "Перехват клавиш включён" in window.status_text()
+
+
+def test_paused_hotkeys_keep_buttons_working(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    _hotkeys_checkbox(window).setChecked(False)
+    window.movement.press_confirm()
+    assert panel.confirm_calls == 1
+
+
+def test_learning_is_refused_while_paused(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    _hotkeys_checkbox(window).setChecked(False)
+    window.settings_tab.hotkey_change_requested.emit(Action.CAPTURE)
+    assert hotkeys.learning is False
+    assert "нельзя" in window.status_text()
+
+
+def test_learning_cancels_when_window_loses_focus(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.settings_tab.hotkey_change_requested.emit(Action.CONFIRM)
+    assert hotkeys.learning is True
+    window.changeEvent(QEvent(QEvent.Type.ActivationChange))
+    assert hotkeys.learning is False
+    assert store.saved == []
+    assert "потеряло фокус" in window.status_text()
+
+
+def test_learning_expires_by_timer(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.settings_tab.hotkey_change_requested.emit(Action.CONFIRM)
+    window._learning_expired()
+    assert hotkeys.learning is False
+    assert store.saved == []
+    assert "время вышло" in window.status_text()
+
+
+def test_pausing_cancels_running_learning(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.settings_tab.hotkey_change_requested.emit(Action.CONFIRM)
+    _hotkeys_checkbox(window).setChecked(False)
+    assert hotkeys.learning is False
+    assert "Перехват выключен" in window.status_text()
+
+
+def test_hotkey_can_be_cleared_while_paused(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    _hotkeys_checkbox(window).setChecked(False)
+    window.settings_tab.hotkey_clear_requested.emit(Action.CONFIRM)
+    assert store.saved[-1].hotkeys[Action.CONFIRM] is None
+
+
+def test_game_key_binding_warns_about_game_control(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.settings_tab.hotkey_change_requested.emit(Action.CAPTURE)
+    hotkeys.press(0x57)  # W
+    assert store.saved[-1].hotkeys[Action.CAPTURE] == 0x57
+    assert "обычно занята" in window.status_text()
