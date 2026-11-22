@@ -6,7 +6,7 @@ import pytest
 from lsp_overlay.domain.directions import DiagonalMode, Direction, is_diagonal, local_vector
 from lsp_overlay.domain.errors import ValidationError
 from lsp_overlay.domain.geometry import length
-from lsp_overlay.domain.movement import move, rotate
+from lsp_overlay.domain.movement import MoveFrame, move, rotate
 from lsp_overlay.domain.pose import Axis, Pose
 
 STRAIGHT_CASES = [
@@ -70,6 +70,30 @@ def test_move_ignores_tilt_when_disabled() -> None:
     pose = Pose(rx=90.0)
     result = move(pose, Direction.NORTH, 1.0, use_tilt=False)
     assert result.position == pytest.approx((0.0, 1.0, 0.0), abs=1e-9)
+
+
+@pytest.mark.parametrize("yaw", [0.0, 45.0, 70.0, 90.0, 180.0, -120.0])
+def test_world_frame_ignores_angle_of_the_prop(yaw: float) -> None:
+    """Мировые оси: какой бы ни был угол, ↑ — это всегда +Y."""
+    pose = Pose(x=10.0, y=20.0, rz=yaw)
+    result = move(pose, Direction.NORTH, 1.5, frame=MoveFrame.WORLD)
+    assert result.x == pytest.approx(10.0)
+    assert result.y == pytest.approx(21.5)
+
+
+def test_world_frame_ignores_tilt_and_keeps_height() -> None:
+    """Наклон RX/RY тоже не мешает: шаг остаётся в плоскости пола."""
+    pose = Pose(x=0.0, y=0.0, z=5.0, rx=12.0, ry=-8.0, rz=70.0)
+    result = move(pose, Direction.EAST, 1.0, frame=MoveFrame.WORLD)
+    assert (result.x, result.y, result.z) == pytest.approx((1.0, 0.0, 5.0))
+
+
+def test_prop_frame_recomputes_direction_after_turning() -> None:
+    """Режим «предмет»: после поворота «вперёд» идёт уже по новой оси."""
+    pose = Pose(rz=0.0)
+    assert move(pose, Direction.NORTH, 1.0, frame=MoveFrame.PROP).y == pytest.approx(1.0)
+    turned = rotate(pose, Axis.YAW, 90.0)
+    assert move(turned, Direction.NORTH, 1.0, frame=MoveFrame.PROP).x == pytest.approx(-1.0)
 
 
 def test_move_preserves_rotation() -> None:
