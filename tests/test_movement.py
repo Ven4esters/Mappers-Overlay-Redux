@@ -28,12 +28,18 @@ TILTED = Pose(x=100.0, y=200.0, z=50.0, rx=45.0)
 USER_POSE = Pose(x=-1849.342, y=416.528, z=128.826, rx=37.0)
 
 
-def reference_step(direction: Direction, rx: float, step: float) -> tuple[float, float, float]:
-    """Эталон: поворот в плоскости ``Y/Z``, ``ΔY = ay·шаг·sin RX``, ``ΔZ = ax·шаг·cos RX``."""
+def reference_step(
+    direction: Direction, rx: float, ry: float, step: float
+) -> tuple[float, float, float]:
+    """Эталон по случаям: без наклона — горизонталь, только `RX` — плоскость `Y/Z`."""
     ax, ay = direction.axes
-    arm = step
-    angle = math.radians(rx)
-    return 0.0, ay * arm * math.sin(angle), ax * arm * math.cos(angle)
+    arm = step / math.hypot(ax, ay)
+    if rx == 0.0:
+        return ax * arm, ay * arm, 0.0
+    if ry == 0.0:
+        angle = math.radians(rx)
+        return 0.0, ay * arm * math.sin(angle), ax * arm * math.cos(angle)
+    return reference_step_2d(direction, rx, ry, step)
 
 
 #: Задание 1.6.2: ``Num 9``, шаг 3 м, ``RX = 55°``, ``RY = 17°``.
@@ -89,43 +95,79 @@ def test_user_example_with_rx_and_ry_in_metres() -> None:
 
 
 def test_user_example_at_37_degrees() -> None:
-    """Шаг 2 м, ``RX = 37°``, ``RY = 0``: ``X`` тот же, ``Y 415.324``, ``Z 130.423``.
+    """Шаг 2 м, ``RX = 37°``, ``RY = 0``: ``X`` тот же, ``Y 415.677``, ``Z 129.955``.
 
-    Числа пересчитаны в 1.6.2: полный шаг вместо ``шаг/√2`` (см. ADR-0022).
+    Это случай «наклонён только ``RX``» — формула 1.5.4 действует как раньше.
     """
     result = shifted(USER_POSE, Direction.FORWARD_RIGHT, 2.0)
     assert result.x == USER_POSE.x
-    assert result.y == pytest.approx(415.324, abs=0.002)
-    assert result.z == pytest.approx(130.423, abs=0.002)
+    assert result.y == pytest.approx(415.677, abs=0.002)
+    assert result.z == pytest.approx(129.955, abs=0.002)
 
 
-@pytest.mark.parametrize("rx", [-60.0, -37.0, -12.5, 0.0, 12.5, 30.0, 37.0, 45.0, 60.0, 80.0])
+@pytest.mark.parametrize("rx", [-60.0, -37.0, -12.5, 12.5, 30.0, 37.0, 45.0, 60.0, 80.0])
 @pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
 def test_diagonal_is_the_rotated_plane_step(direction: Direction, rx: float) -> None:
-    """``ΔY = ay·шаг·sin RX``, ``ΔZ = ax·шаг·cos RX``, ``X`` не меняется."""
+    """Случай «только ``RX``»: ``ΔY = ay·(шаг/√2)·sin RX``, ``ΔZ = ax·(шаг/√2)·cos RX``."""
     pose = Pose(x=0.0, y=0.0, z=0.0, rx=rx)
     result = shifted(pose, direction, 1.0)
-    expected = reference_step(direction, rx, 1.0)
+    expected = reference_step(direction, rx, 0.0, 1.0)
     assert result.x == pose.x
     assert result.y == pytest.approx(expected[1], abs=0.002)
     assert result.z == pytest.approx(expected[2], abs=0.002)
+
+
+@pytest.mark.parametrize("rz", [0.0, 45.0, 90.0, -90.0, 180.0])
+@pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
+def test_diagonal_without_tilt_is_horizontal(direction: Direction, rz: float) -> None:
+    """Случай «наклона нет»: диагональ идёт в горизонтали, ``Z`` не меняется, длина — шаг."""
+    pose = Pose(x=10.0, y=-20.0, z=5.0, rz=rz)
+    result = shifted(pose, direction, 2.0)
+    assert result.z == pose.z
+    ax, ay = direction.axes
+    arm = 2.0 / math.hypot(ax, ay)
+    angle = math.radians(rz)
+    expected_dx = ax * arm * math.cos(angle) - ay * arm * math.sin(angle)
+    expected_dy = ax * arm * math.sin(angle) + ay * arm * math.cos(angle)
+    assert result.x - pose.x == pytest.approx(expected_dx, abs=0.002)
+    assert result.y - pose.y == pytest.approx(expected_dy, abs=0.002)
+    distance = math.dist((result.x, result.y), (pose.x, pose.y))
+    assert distance == pytest.approx(2.0, abs=0.002)
+
+
+def test_diagonal_without_tilt_goes_forward_right() -> None:
+    """``Num 9`` без наклона — вперёд и вправо: ``ΔX > 0``, ``ΔY < 0``, ``ΔZ = 0``."""
+    pose = Pose(x=0.0, y=0.0, z=0.0)
+    result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
+    assert result.x == pytest.approx(1.0 / math.sqrt(2.0), abs=0.002)
+    assert result.y == pytest.approx(-1.0 / math.sqrt(2.0), abs=0.002)
+    assert result.z == 0.0
+
+
+def test_diagonal_without_tilt_rotates_with_rz() -> None:
+    """Без наклона ``RZ = 90°`` поворачивает диагональ вместе с прямыми клавишами."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, rz=90.0)
+    result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
+    assert result.x == pytest.approx(1.0 / math.sqrt(2.0), abs=0.002)
+    assert result.y == pytest.approx(1.0 / math.sqrt(2.0), abs=0.002)
+    assert result.z == 0.0
 
 
 @pytest.mark.parametrize("ry", [-90.0, -45.0, -17.0, 0.0, 17.0, 37.0, 90.0])
 @pytest.mark.parametrize("rx", [-45.0, -12.5, 0.0, 12.5, 37.0, 55.0, 80.0])
 @pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
 def test_diagonal_follows_rx_and_ry(direction: Direction, rx: float, ry: float) -> None:
-    """Обе оси клавиши, оба угла: совпадение с формулой задания до миллиметра."""
+    """Все три случая по углам: совпадение с эталонной формулой до миллиметра."""
     pose = Pose(x=0.0, y=0.0, z=0.0, rx=rx, ry=ry)
     result = shifted(pose, direction, 1.0)
-    expected = reference_step_2d(direction, rx, ry, 1.0)
+    expected = reference_step(direction, rx, ry, 1.0)
     assert result.x == pytest.approx(expected[0], abs=0.002)
     assert result.y == pytest.approx(expected[1], abs=0.002)
     assert result.z == pytest.approx(expected[2], abs=0.002)
 
 
-@pytest.mark.parametrize("ry", [-90.0, -37.0, 0.0, 17.0, 45.0, 90.0])
-@pytest.mark.parametrize("rx", [-55.0, 0.0, 37.0, 55.0, 90.0])
+@pytest.mark.parametrize("ry", [-90.0, -37.0, 17.0, 45.0, 90.0])
+@pytest.mark.parametrize("rx", [-55.0, 12.5, 37.0, 55.0, 90.0])
 @pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
 def test_diagonal_length_is_the_full_step_with_both_angles(
     direction: Direction, rx: float, ry: float
@@ -143,7 +185,7 @@ def test_diagonal_at_zero_ry_keeps_the_old_formula(direction: Direction) -> None
     pose = Pose(x=5.0, y=-3.0, z=7.0, rx=37.0, ry=0.0)
     result = shifted(pose, direction, 3.0)
     ax, ay = direction.axes
-    arm = 3.0
+    arm = 3.0 / math.hypot(ax, ay)
     assert result.x == pose.x
     assert result.y - pose.y == pytest.approx(ay * arm * math.sin(math.radians(37.0)), abs=0.002)
     assert result.z - pose.z == pytest.approx(ax * arm * math.cos(math.radians(37.0)), abs=0.002)
@@ -169,12 +211,14 @@ def test_up_diagonal_goes_into_plus_x_and_down_diagonal_into_minus_x() -> None:
     assert shifted(pose, Direction.BACK_LEFT, 1.0).x < 0
 
 
-@pytest.mark.parametrize("ry", [0.0, 17.0, 37.0, 60.0, 89.0])
+@pytest.mark.parametrize("ry", [2.5, 17.0, 37.0, 60.0, 89.0])
 def test_diagonal_components_shrink_with_ry(ry: float) -> None:
-    """``Y`` и ``Z`` сжимаются множителем ``cos RY``, ``X`` — растёт как ``sin RY``."""
-    pose = Pose(x=0.0, y=0.0, z=0.0, rx=0.0, ry=ry)
+    """При ``RX ≠ 0``: ``Y``/``Z`` сжимаются множителем ``cos RY``, ``X`` растёт как ``sin RY``."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, rx=55.0, ry=ry)
     result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
-    assert result.z == pytest.approx(math.cos(math.radians(ry)), abs=0.002)
+    assert result.z == pytest.approx(
+        math.cos(math.radians(55.0)) * math.cos(math.radians(ry)), abs=0.002
+    )
     assert result.x == pytest.approx(math.sin(math.radians(ry)), abs=0.002)
 
 
@@ -190,10 +234,10 @@ def test_diagonal_tilt_on_screen_is_ninety_minus_rx(rx: float) -> None:
     )
 
 
-@pytest.mark.parametrize("rx", [-37.0, 0.0, 37.0, 45.0, 90.0])
+@pytest.mark.parametrize("rx", [-37.0, 12.5, 37.0, 45.0, 90.0])
 @pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
 def test_diagonal_moves_nothing_along_x(direction: Direction, rx: float) -> None:
-    """При ``RY = 0`` глубина ``X`` диагоналями не меняется."""
+    """При ``RX ≠ 0`` и ``RY = 0`` глубина ``X`` диагоналями не меняется."""
     pose = Pose(x=12.5, y=-3.0, z=7.0, rx=rx)
     assert shifted(pose, direction, 3.0).x == pose.x
 
@@ -230,14 +274,14 @@ def test_diagonal_keys_are_mirror_symmetric(rx: float) -> None:
     assert down_right.y - pose.y == pytest.approx(up_right.y - pose.y, abs=0.002)
 
 
-@pytest.mark.parametrize("rx", [-60.0, -37.0, 0.0, 20.0, 37.0, 45.0, 80.0])
+@pytest.mark.parametrize("rx", [-60.0, -37.0, 20.0, 37.0, 45.0, 80.0])
 @pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
-def test_diagonal_length_is_the_full_step(direction: Direction, rx: float) -> None:
-    """При ``RY = 0`` в плоскости ``Y/Z`` шаг равен шагу: поворот длину не меняет."""
+def test_diagonal_length_in_the_yz_plane(direction: Direction, rx: float) -> None:
+    """Случай «только ``RX``»: длина шага в плоскости ``Y/Z`` равна ``шаг/√2``."""
     pose = Pose(x=0.0, y=0.0, z=0.0, rx=rx)
     result = shifted(pose, direction, 2.0)
     distance = math.dist((result.y, result.z), (pose.y, pose.z))
-    assert distance == pytest.approx(2.0, abs=0.002)
+    assert distance == pytest.approx(2.0 / math.sqrt(2.0), abs=0.002)
 
 
 @pytest.mark.parametrize("rz", [0.0, 45.0, 90.0, 180.0])
@@ -245,8 +289,18 @@ def test_diagonal_does_not_depend_on_rotation(rz: float) -> None:
     """Диагонали поворачиваются на ``RX``, но ``RZ`` их не крутит (как и раньше)."""
     pose = Pose(x=0.0, y=0.0, z=0.0, rx=37.0, rz=rz)
     result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
-    assert result.y == pytest.approx(-0.602, abs=0.002)
-    assert result.z == pytest.approx(0.799, abs=0.002)
+    assert result.y == pytest.approx(-0.426, abs=0.002)
+    assert result.z == pytest.approx(0.565, abs=0.002)
+
+
+@pytest.mark.parametrize("rz", [0.0, 45.0, 90.0, 180.0])
+def test_diagonal_with_two_angles_does_not_depend_on_rotation(rz: float) -> None:
+    """Случай «``RX`` и ``RY``» тоже не зависит от ``RZ``."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, rx=55.0, ry=17.0, rz=rz)
+    result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
+    assert result.x == pytest.approx(0.292, abs=0.002)
+    assert result.y == pytest.approx(-0.783, abs=0.002)
+    assert result.z == pytest.approx(0.549, abs=0.002)
 
 
 @pytest.mark.parametrize(
@@ -309,7 +363,7 @@ def test_changed_fields_ignores_submillimetre_noise() -> None:
 
 
 ALT = Pose(x=100.0, y=200.0, z=50.0, rx=37.0, ry=0.0, rz=0.0)
-FULL = 1.0
+HALF = math.sqrt(0.5)
 COS37, SIN37 = math.cos(math.radians(37.0)), math.sin(math.radians(37.0))
 
 
@@ -342,8 +396,8 @@ def test_alt_keeps_the_diagonals_working() -> None:
     with_alt = shifted(ALT, Direction.FORWARD_RIGHT, 1.0, tilt=True)
     assert with_alt == without
     assert with_alt.x == ALT.x
-    assert with_alt.y == pytest.approx(200.0 - FULL * SIN37, abs=0.001)
-    assert with_alt.z == pytest.approx(50.0 + FULL * COS37, abs=0.001)
+    assert with_alt.y == pytest.approx(200.0 - HALF * SIN37, abs=0.001)
+    assert with_alt.z == pytest.approx(50.0 + HALF * COS37, abs=0.001)
 
 
 def test_alt_step_follows_ry() -> None:

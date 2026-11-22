@@ -43,16 +43,16 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     ведёт туда, куда повёрнут предмет, а при нулевых углах правило простое:
     вперёд — ``X`` в плюс, влево — ``Y`` в плюс.
 
-    Диагональ — шаг по локальным осям с поворотами ``RX`` и ``RY`` (см. ниже); длина шага
-    равна шагу целиком, а не ``step/√2``.
+    Диагональ — по случаю: в горизонтали без наклона, в плоскости ``Y/Z`` при одном
+    ``RX`` и ``Rx(RX)·Ry(RY)`` при обоих углах (см. ``_diagonal``).
 
     С ``tilt=True`` (в интерфейсе — режим высоты, клавиша ``Alt``) меняется только
     смысл клавиш «вперёд-назад»: ``Num 8`` поднимает предмет по локальной оси ``Z``
     (с учётом ``RY``: ``ΔX = ±sin RY``, ``ΔZ = ±cos RY``), ``Num 2`` опускает.
     Остальные клавиши работают как обычно:
-    ``Num 4/6`` — по горизонтали с поворотом от ``RZ``; диагонали — поворот
-    ``Rx(RX) · Ry(RY)`` над локальной «вверх»-осью, поэтому они идут «линия к линии»
-    при любом угле наклона, а не только при ``45°``.
+    ``Num 4/6`` — по горизонтали с поворотом от ``RZ``; диагонали зависят от наклона:
+    без наклона — обычная диагональ в горизонтали, только с ``RX`` — поворот в
+    плоскости ``Y/Z``, с ``RX`` и ``RY`` — поворот ``Rx(RX) · Ry(RY)`` (см. ниже).
 
     """
     validate_step(step)
@@ -102,45 +102,89 @@ def _height_step(direction: Direction, pose: Pose) -> tuple[float, float, float]
 
 
 def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
-    """Шаг диагональной клавиши: поворот ``Rx(RX) · Ry(RY)`` над локальной «вверх»-осью.
+    """Шаг диагональной клавиши — по случаю, в зависимости от углов предмета.
 
-    Формула пользователя (``L = шаг``):
+    Формул три, и каждая работает только в своём случае (не заменяя остальные):
 
-    ```
-    X_new = X + ax · L · sin RY
-    Y_new = Y + ay · L · sin RX · cos RY
-    Z_new = Z + ax · L · cos RX · cos RY
-    ```
+    Наклон предмета — это ``RX`` (именно по нему интерфейс предупреждает о наклоне).
+
+    1. **Наклона нет** (``RX = 0``) — обычная диагональ в горизонтали: вектор
+       ``(ax, ay)/√2`` поворачивается на ``RZ``, ``Z`` не меняется, длина — шаг.
+       Так было задумано с 1.0: ``Num 9`` уводит вперёд-вправо, а не поднимает.
+       ``RY`` здесь не участвует.
+    2. **Наклонён только ``RX``** (``RX ≠ 0``, ``RY = 0``) — поворот в плоскости
+       ``Y/Z``, ``X`` не меняется (формула 1.5.4, ``k = шаг/√2``):
+
+       ```
+       ΔX = 0
+       ΔY = ay · k · sin RX
+       ΔZ = ax · k · cos RX
+       ```
+
+    3. **Наклонены оба угла** (``RX ≠ 0`` и ``RY ≠ 0``) — формула 1.6.2 с ``L = шаг``:
+
+       ```
+       ΔX = ax · L · sin RY
+       ΔY = ay · L · sin RX · cos RY
+       ΔZ = ax · L · cos RX · cos RY
+       ```
 
     ``ax = ±1`` — клавиша «вперёд/назад» (она же «вверх/вниз»), ``ay = ±1`` —
-    «влево/вправо». Для ``Num 9`` (``ax = +1``, ``ay = −1``) это дословно
-    ``X + L sin RY``, ``Y − L sin RX cos RY``, ``Z + L cos RX cos RY``.
-
-    Проверка на примере: ``RX = 55°``, ``RY = 17°``, шаг 3.0 →
-    ``Δ = (+0.877, −2.350, +1.646)``, то есть ``X −1848.465``, ``Y 414.178``,
-    ``Z 130.472``.
-
-    Свойства:
-
-    * это два поворота единичного вектора ``(0, 0, ax)``: сначала ``Ry(RY)``, потом
-      ``Rx(RX)``. Порядок виден по формуле — ``cos RY`` есть в ``Y`` и ``Z``, а ``cos RX``
-      только в ``Z``;
-    * длина шага ровно равна шагу при любых углах: поворот единичный вектор не меняет;
-    * при ``RY = 0`` остаётся прежнее направление: ``ΔX = 0``, поворот в плоскости ``Y/Z``,
-      наклон на экране ``90° − RX``;
-    * ``RY`` уводит шаг в глубину (``X``) и сжимает остальные компоненты множителем
-      ``cos RY``;
-    * ``RZ`` в формулу не входит: диагонали не крутятся вместе с поворотом вокруг
-      вертикали.
+    «влево/вправо». Режим высоты (``Alt``) считается отдельно, см. ``_height_step``.
     """
     ax, ay = direction.axes
-    tx = math.radians(pose.rx)
-    ty = math.radians(pose.ry)
+    if pose.rx == 0.0:
+        return _flat_diagonal(ax, ay, pose.rz)
+    if pose.ry == 0.0:
+        return _rx_diagonal(ax, ay, pose.rx)
+    return _rx_ry_diagonal(ax, ay, pose.rx, pose.ry)
+
+
+def _flat_diagonal(ax: int, ay: int, rz_degrees: float) -> tuple[float, float, float]:
+    """Случай 1 (``RX = 0``): диагональ в горизонтали, повёрнутая на ``RZ``.
+
+    ``Δ = Rz(RZ) · (ax, ay)/√2``, ``ΔZ = 0``. Длина шага ровно ``шаг``.
+    """
+    arm = 1.0 / math.hypot(ax, ay)
+    world_dx, world_dy = _rotate(ax * arm, ay * arm, rz_degrees)
+    return round(world_dx, 12), round(world_dy, 12), 0.0
+
+
+def _rx_diagonal(ax: int, ay: int, rx: float) -> tuple[float, float, float]:
+    """Случай 2 (``RX ≠ 0``, ``RY = 0``): поворот в плоскости ``Y/Z`` — формула 1.5.4.
+
+    ```Delta
+    ΔY = ay · (шаг/√2) · sin RX,   ΔZ = ax · (шаг/√2) · cos RX,   ΔX = 0
+    ```
+
+    Эталон заказчика: ``RX = 37°``, шаг 2.0 → ``ΔY = −0.851``, ``ΔZ = +1.129``.
+    """
+    arm = 1.0 / math.hypot(ax, ay)
+    angle = math.radians(rx)
+    return 0.0, round(ay * arm * math.sin(angle), 12), round(ax * arm * math.cos(angle), 12)
+
+
+def _rx_ry_diagonal(ax: int, ay: int, rx: float, ry: float) -> tuple[float, float, float]:
+    """Случай 3 (``RX ≠ 0`` и ``RY ≠ 0``): поворот ``Rx(RX) · Ry(RY)`` — формула 1.6.2.
+
+    ```Delta
+    ΔX = ax · L · sin RY
+    ΔY = ay · L · sin RX · cos RY
+    ΔZ = ax · L · cos RX · cos RY          L = шаг
+    ```
+
+    Эталон заказчика: ``RX = 55°``, ``RY = 17°``, шаг 3.0 →
+    ``(+0.877, −2.350, +1.646)``; второй — ``RX = 41.5°``, ``RY = 22.3°`` →
+    ``(+1.138, −1.839, +2.079)``.
+    """
+    tx = math.radians(rx)
+    ty = math.radians(ry)
     cos_ty = math.cos(ty)
-    world_x = round(ax * math.sin(ty), 12)
-    world_y = round(ay * math.sin(tx) * cos_ty, 12)
-    world_z = round(ax * math.cos(tx) * cos_ty, 12)
-    return world_x, world_y, world_z
+    return (
+        round(ax * math.sin(ty), 12),
+        round(ay * math.sin(tx) * cos_ty, 12),
+        round(ax * math.cos(tx) * cos_ty, 12),
+    )
 
 
 def _normalize(direction: Direction) -> tuple[float, float]:
