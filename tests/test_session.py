@@ -132,10 +132,11 @@ def test_tilted_step_writes_height_and_marks_result() -> None:
     session = make_session(panel)
     session.capture()
     result = session.step(Direction.LEFT, 1.0, tilt=True)
-    assert panel.pose().z == pytest.approx(30.5, abs=0.001)
+    assert panel.pose().z == pytest.approx(30.707, abs=0.001)
+    assert panel.pose().y == pytest.approx(20.707, abs=0.001)
     assert Field.Z in result.written
     assert result.tilted is True
-    assert result.delta_z == pytest.approx(0.5, abs=0.001)
+    assert result.delta_z == pytest.approx(0.707, abs=0.001)
 
 
 def test_plain_step_keeps_height() -> None:

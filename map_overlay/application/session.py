@@ -30,7 +30,7 @@ class StepResult:
     pose: Pose
     written: tuple[Field, ...]
     tilted: bool = False
-    """Шаг считался по наклону ``RX`` (в интерфейсе — Alt)."""
+    """Шаг считался по плоскости экрана (в интерфейсе — Alt)."""
 
     @property
     def delta_x(self) -> float:
@@ -44,7 +44,7 @@ class StepResult:
 
     @property
     def delta_z(self) -> float:
-        """Изменение Z (ненулевое только при шаге по наклону)."""
+        """Изменение Z (ненулевое только при шаге по экрану)."""
         return self.pose.z - self.previous.z
 
 
@@ -118,7 +118,7 @@ class MappingSession:
     def step(self, direction: Direction, step: float, *, tilt: bool = False) -> StepResult:
         """Сдвинуть предмет на шаг в направлении и записать изменения.
 
-        ``tilt`` включает учёт наклона ``RX``: шаг идёт по наклонной плоскости.
+        ``tilt`` включает шаг по плоскости экрана: меняются ``Y`` и ``Z``.
 
         Raises:
             PoseNotCapturedError: если поза ещё не считана.
@@ -134,7 +134,7 @@ class MappingSession:
         written = self._writer.write_changes(self._pose, target)
         result = StepResult(previous=self._pose, pose=target, written=written, tilted=tilt)
         self._pose = target
-        suffix = f" по наклону RX {self._pose.rx:.3f}°" if tilt else ""
+        suffix = " по экрану" if tilt else ""
         logger.info(
             "Шаг %s на %.3f м%s: записаны %s",
             direction.label,

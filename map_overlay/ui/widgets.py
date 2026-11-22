@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import Field
 from map_overlay.domain.formatting import format_value
-from map_overlay.domain.movement import COORD_DECIMALS
+from map_overlay.domain.movement import COORD_DECIMALS, SCREEN_GLYPHS, SCREEN_TITLES
 from map_overlay.domain.pose import Pose
 
 CARD_MARGIN: Final = 14
@@ -142,15 +142,17 @@ class DirectionPad(QWidget):
                 else:
                     grid.addWidget(self._arrow(direction), row, column)
 
-    def _arrow(self, direction: Direction) -> QPushButton:
+    def _axis_tooltip(self, direction: Direction) -> str:
         dx, dy = direction.axes
         parts = []
         if dx:
             parts.append(f"X {'−' if dx < 0 else '+'}")
         if dy:
             parts.append(f"Y {'−' if dy < 0 else '+'}")
-        tooltip = f"{direction.label}: {', '.join(parts)} на шаг"
-        item = button(direction.glyph, widget_role="arrow", tooltip=tooltip)
+        return f"{direction.label}: {', '.join(parts)} на шаг"
+
+    def _arrow(self, direction: Direction) -> QPushButton:
+        item = button(direction.glyph, widget_role="arrow", tooltip=self._axis_tooltip(direction))
         item.clicked.connect(lambda _checked=False, d=direction: self.direction_clicked.emit(d))
         self._buttons.append(item)
         self._by_direction[direction] = item
@@ -159,6 +161,20 @@ class DirectionPad(QWidget):
     def button(self, direction: Direction) -> QPushButton:
         """Кнопка направления (нужна тестам и подсказкам)."""
         return self._by_direction[direction]
+
+    def set_screen_mode(self, enabled: bool) -> None:
+        """Перерисовать стрелки под режим по экрану.
+
+        В режиме по экрану клавиши ведут не по осям, а по диагоналям экрана,
+        поэтому и значки на кнопках другие: ``Num 8`` — ``↗``, ``Num 4`` — ``↖``.
+        """
+        for direction, item in self._by_direction.items():
+            if enabled:
+                item.setText(SCREEN_GLYPHS[direction])
+                item.setToolTip(f"{direction.label}: {SCREEN_TITLES[direction]} на шаг")
+            else:
+                item.setText(direction.glyph)
+                item.setToolTip(self._axis_tooltip(direction))
 
     def set_step_text(self, text: str) -> None:
         """Подпись в центре крестовины."""

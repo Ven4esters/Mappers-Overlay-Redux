@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 from map_overlay.domain.directions import Direction
@@ -115,92 +116,88 @@ def test_changed_fields_ignores_submillimetre_noise() -> None:
     assert changed_fields(BASE, slightly) == ()
 
 
-TILT = Pose(x=100.0, y=200.0, z=50.0, rx=30.0, ry=0.0, rz=0.0)
+SCREEN = Pose(x=100.0, y=200.0, z=50.0, rx=45.0, ry=0.0, rz=0.0)
+HALF = math.sqrt(0.5)
 
 
-def test_tilt_keeps_forward_flat() -> None:
-    """RX наклоняет вокруг оси «вперёд-назад»: сам «вперёд» остаётся горизонтальным."""
-    result = shifted(TILT, Direction.FORWARD, 1.0, tilt=True)
-    assert result.x == pytest.approx(101.0, abs=0.001)
-    assert result.z == pytest.approx(50.0, abs=0.001)
+def test_screen_forward_goes_up_right() -> None:
+    """``Num 8``: ``Y`` в минус, ``Z`` в плюс — на экране вверх-вправо."""
+    result = shifted(SCREEN, Direction.FORWARD, 1.0, tilt=True)
+    assert result.x == SCREEN.x
+    assert result.y == pytest.approx(200.0 - HALF, abs=0.001)
+    assert result.z == pytest.approx(50.0 + HALF, abs=0.001)
 
 
-def test_tilt_lifts_the_sloping_side() -> None:
-    result = shifted(TILT, Direction.LEFT, 1.0, tilt=True)
-    assert result.y == pytest.approx(200.0 + math.cos(math.radians(30.0)), abs=0.001)
-    assert result.z == pytest.approx(50.5, abs=0.001)
+def test_screen_back_goes_down_left() -> None:
+    """``Num 2`` — противоположность ``Num 8``."""
+    result = shifted(SCREEN, Direction.BACK, 1.0, tilt=True)
+    assert result.y == pytest.approx(200.0 + HALF, abs=0.001)
+    assert result.z == pytest.approx(50.0 - HALF, abs=0.001)
 
 
-def test_tilt_right_descends() -> None:
-    result = shifted(TILT, Direction.RIGHT, 1.0, tilt=True)
-    assert result.y == pytest.approx(200.0 - math.cos(math.radians(30.0)), abs=0.001)
-    assert result.z == pytest.approx(49.5, abs=0.001)
+def test_screen_left_goes_up_left() -> None:
+    """``Num 4`` остаётся как был: ``Y`` в плюс, ``Z`` в плюс."""
+    result = shifted(SCREEN, Direction.LEFT, 1.0, tilt=True)
+    assert result.y == pytest.approx(200.0 + HALF, abs=0.001)
+    assert result.z == pytest.approx(50.0 + HALF, abs=0.001)
 
 
-def test_tilt_with_negative_rx_flips_the_slope() -> None:
-    flat_side = Pose(x=0.0, y=0.0, z=0.0, rx=-30.0)
-    assert shifted(flat_side, Direction.LEFT, 1.0, tilt=True).z == pytest.approx(-0.5, abs=0.001)
+def test_screen_right_goes_down_right() -> None:
+    result = shifted(SCREEN, Direction.RIGHT, 1.0, tilt=True)
+    assert result.y == pytest.approx(200.0 - HALF, abs=0.001)
+    assert result.z == pytest.approx(50.0 - HALF, abs=0.001)
 
 
-def test_tilt_back_stays_flat() -> None:
-    result = shifted(TILT, Direction.BACK, 1.0, tilt=True)
-    assert result.x == pytest.approx(99.0, abs=0.001)
-    assert result.z == pytest.approx(50.0, abs=0.001)
+@pytest.mark.parametrize(
+    ("direction", "expected"),
+    [
+        (Direction.FORWARD_LEFT, (0.0, 1.0)),
+        (Direction.FORWARD_RIGHT, (-1.0, 0.0)),
+        (Direction.BACK_LEFT, (1.0, 0.0)),
+        (Direction.BACK_RIGHT, (0.0, -1.0)),
+    ],
+)
+def test_screen_diagonals_are_plain_axes(
+    direction: Direction, expected: tuple[float, float]
+) -> None:
+    """Диагонали клавиш попадают на чистые оси экрана."""
+    result = shifted(SCREEN, direction, 1.0, tilt=True)
+    assert result.y == pytest.approx(200.0 + expected[0], abs=0.001)
+    assert result.z == pytest.approx(50.0 + expected[1], abs=0.001)
 
 
-def test_tilt_diagonal_stays_exactly_one_step() -> None:
-    result = shifted(TILT, Direction.FORWARD_LEFT, 1.0, tilt=True)
-    distance = math.dist((TILT.x, TILT.y, TILT.z), (result.x, result.y, result.z))
+@pytest.mark.parametrize("direction", list(Direction))
+def test_screen_step_keeps_its_length(direction: Direction) -> None:
+    result = shifted(SCREEN, direction, 1.0, tilt=True)
+    distance = math.dist((SCREEN.y, SCREEN.z), (result.y, result.z))
     assert distance == pytest.approx(1.0, abs=0.002)
 
 
-def test_tilt_moves_inside_the_object_plane() -> None:
-    """Вектор шага перпендикулярен нормали плоскости предмета."""
-    result = shifted(TILT, Direction.FORWARD_LEFT, 1.0, tilt=True)
-    step = (result.x - TILT.x, result.y - TILT.y, result.z - TILT.z)
-    normal = (0.0, -math.sin(math.radians(30.0)), math.cos(math.radians(30.0)))
-    # Координаты округляются до миллиметров, поэтому допуск чуть больше нуля.
-    assert sum(a * b for a, b in zip(step, normal, strict=True)) == pytest.approx(0.0, abs=2e-3)
+@pytest.mark.parametrize("direction", list(Direction))
+def test_screen_step_never_touches_x(direction: Direction) -> None:
+    """В глубину шаг не уходит: ``X`` остаётся на месте."""
+    assert shifted(SCREEN, direction, 1.0, tilt=True).x == SCREEN.x
 
 
-def test_tilt_zero_rx_is_plain_step() -> None:
-    flat = Pose(x=1.0, y=2.0, z=3.0)
-    assert shifted(flat, Direction.FORWARD, 0.5, tilt=True) == shifted(flat, Direction.FORWARD, 0.5)
-
-
-def test_tilt_follows_rz() -> None:
-    quarter = Pose(x=0.0, y=0.0, z=0.0, rx=60.0, rz=90.0)
-    result = shifted(quarter, Direction.LEFT, 1.0, tilt=True)
-    assert result.x == pytest.approx(-math.cos(math.radians(60.0)), abs=0.001)
-    assert result.y == pytest.approx(0.0, abs=0.001)
-    assert result.z == pytest.approx(math.sin(math.radians(60.0)), abs=0.001)
-
-
-def test_tilt_at_ninety_degrees_goes_straight_up() -> None:
-    steep = Pose(x=0.0, y=0.0, z=0.0, rx=90.0)
-    result = shifted(steep, Direction.LEFT, 2.0, tilt=True)
-    assert result.y == pytest.approx(0.0, abs=0.001)
-    assert result.z == pytest.approx(2.0, abs=0.001)
-
-
-def test_roll_lifts_forward() -> None:
-    """RY — наклон вокруг оси «вперёд»: поднимается сам «вперёд»."""
-    rolled = Pose(x=0.0, y=0.0, z=0.0, ry=90.0)
-    result = shifted(rolled, Direction.FORWARD, 1.0, tilt=True)
-    assert result.x == pytest.approx(0.0, abs=0.001)
-    assert result.z == pytest.approx(-1.0, abs=0.001)
-    side = shifted(rolled, Direction.LEFT, 1.0, tilt=True)
-    assert side.z == pytest.approx(0.0, abs=0.001)
+def test_screen_mode_ignores_the_angles() -> None:
+    """Экранные оси задаёт камера, а не поворот предмета."""
+    expected = shifted(SCREEN, Direction.FORWARD, 1.0, tilt=True)
+    for angles in ((0.0, 0.0, 0.0), (30.0, 20.0, 10.0), (-60.0, 45.0, 90.0)):
+        pose = replace(SCREEN, rx=angles[0], ry=angles[1], rz=angles[2])
+        result = shifted(pose, Direction.FORWARD, 1.0, tilt=True)
+        assert (result.y - pose.y, result.z - pose.z) == pytest.approx(
+            (expected.y - SCREEN.y, expected.z - SCREEN.z), abs=0.001
+        )
 
 
 def test_tilt_is_rounded_to_millimetres() -> None:
-    result = shifted(TILT, Direction.LEFT, 0.333, tilt=True)
-    assert result.y == 200.288
-    assert result.z == 50.166
+    result = shifted(SCREEN, Direction.LEFT, 0.333, tilt=True)
+    assert result.y == 200.235
+    assert result.z == 50.235
 
 
 def test_changed_fields_sees_height_on_tilt() -> None:
-    assert changed_fields(TILT, shifted(TILT, Direction.LEFT, 0.5, tilt=True)) == (
+    assert changed_fields(SCREEN, shifted(SCREEN, Direction.LEFT, 0.5, tilt=True)) == (
         Field.Y,
         Field.Z,
     )

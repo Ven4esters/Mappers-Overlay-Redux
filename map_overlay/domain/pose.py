@@ -38,5 +38,5 @@ class Pose:
 
     @property
     def has_tilt(self) -> bool:
-        """Есть ли наклон ``RX``/``RY``: ``RX`` учитывается по Alt, ``RY`` — пока нет."""
+        """Есть ли наклон ``RX``/``RY``: нужен для подсказки про режим по экрану."""
         return any(abs(self.value(field)) > 1e-9 for field in (Field.RX, Field.RY))

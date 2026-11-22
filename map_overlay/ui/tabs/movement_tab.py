@@ -20,7 +20,7 @@ from map_overlay.domain.movement import (
     COORD_DECIMALS,
     MAX_STEP,
     MIN_STEP,
-    slope_directions,
+    screen_hint,
     validate_step,
 )
 from map_overlay.domain.pose import Pose
@@ -90,14 +90,15 @@ class MovementTab(QWidget):
         move_card.add_layout(step_row)
 
         mode_row = QHBoxLayout()
-        self._tilt_box = QCheckBox("Режим наклона", self)
+        self._tilt_box = QCheckBox("Режим по экрану", self)
         self._tilt_box.setToolTip(
-            "Шаги идут по плоскости предмета. То же самое делает одно нажатие Alt."
+            "Шаги идут по плоскости экрана: Num 8 — вверх-вправо, Num 4 — вверх-влево, "
+            "Num 2 — вниз-влево, Num 6 — вниз-вправо. То же делает одно нажатие Alt."
         )
         self._tilt_box.toggled.connect(self.tilt_toggled.emit)
         mode_row.addWidget(self._tilt_box)
         mode_row.addStretch(1)
-        self._mode_label = label("по плоскости", widget_role="muted")
+        self._mode_label = label("по горизонтали", widget_role="muted")
         self._mode_label.setWordWrap(False)
         mode_row.addWidget(self._mode_label)
         move_card.add_layout(mode_row)
@@ -111,10 +112,11 @@ class MovementTab(QWidget):
         )
         move_card.add(
             label(
-                "Одно нажатие Alt включает режим наклона: шаги идут по плоскости предмета, "
-                "и поднимается та сторона, вокруг которой наклон (при RX — «влево-вправо», "
-                "при RY — «вперёд-назад»). Ещё одно нажатие — выключить. Держать Alt не "
-                "нужно: пока он зажат, игра не применяет правки панели.",
+                "Одно нажатие Alt включает режим по экрану: шаг идёт в плоскости экрана — "
+                "Num 8 вверх-вправо, Num 4 вверх-влево, Num 2 вниз-влево, Num 6 вниз-вправо, "
+                "а диагонали клавиш дают чистые вверх, вниз, влево и вправо. X при этом не "
+                "меняется. Ещё одно нажатие — выключить. Держать Alt не нужно: пока он "
+                "зажат, игра не применяет правки панели.",
                 widget_role="muted",
             )
         )
@@ -178,8 +180,9 @@ class MovementTab(QWidget):
         return self._mode_label.text()
 
     def set_tilt(self, enabled: bool) -> None:
-        """Показать, идут ли шаги по наклону RX."""
+        """Показать, идут ли шаги по плоскости экрана."""
         self._tilt = enabled
+        self._pad.set_screen_mode(enabled)
         self._refresh_mode()
 
     def _refresh_mode(self) -> None:
@@ -194,11 +197,8 @@ class MovementTab(QWidget):
 
     def _mode_text(self) -> str:
         if not self._tilt:
-            return "по плоскости"
-        if self._pose is None:
-            return "по наклону"
-        compass = _compass_text(self._pose)
-        return f"по наклону{compass}"
+            return "по горизонтали"
+        return f"по экрану · {screen_hint()}"
 
     def press_confirm(self) -> None:
         """Нажать «Сохранить F» (для тестов)."""
@@ -222,19 +222,6 @@ class MovementTab(QWidget):
         """Показать или скрыть предупреждение под карточкой сдвига."""
         self._warning.setText(text)
         self._warning.setVisible(bool(text))
-
-
-def _compass_text(pose: Pose) -> str:
-    """Куда идти вверх и вниз по плоскости предмета."""
-    up, down = slope_directions(pose)
-    if up is None and down is None:
-        return ""
-    parts = []
-    if up is not None:
-        parts.append(f"вверх {up.glyph}")
-    if down is not None:
-        parts.append(f"вниз {down.glyph}")
-    return " · " + " · ".join(parts)
 
 
 def _format_step(step: float) -> str:

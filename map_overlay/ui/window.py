@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
         )
 
     def _move(self, direction: object, step: float, *, tilt: bool = False) -> bool:
-        """Сделать шаг; ``tilt`` — по наклону ``RX`` (клавиша Alt).
+        """Сделать шаг; ``tilt`` — по плоскости экрана (клавиша Alt).
 
         Returns:
             ``True``, если задача поставлена: ``False`` — шаг невозможен.
@@ -304,9 +304,7 @@ class MainWindow(QMainWindow):
             )
             return False
         selected = cast(Direction, direction)
-        suffix = ""
-        if tilt:
-            suffix = f" (по наклону RX {format_value(self._pose.rx, COORD_DECIMALS)}°)"
+        suffix = " (по экрану)" if tilt else ""
         self._begin_busy(f"Шаг {selected.label} на {step:g} м{suffix}…")
         self._runner.submit(
             lambda: session.step(selected, step, tilt=tilt),
@@ -336,7 +334,7 @@ class MainWindow(QMainWindow):
         slope = ""
         if step_result.tilted:
             deltas = f"{deltas} · ΔZ {format_delta(step_result.delta_z)}"
-            slope = f" · по наклону RX {format_value(step_result.pose.rx, COORD_DECIMALS)}°"
+            slope = " · по экрану"
         self._set_status(
             f"Шаг: {deltas} → {pose_text(step_result.pose)} · записано: {written}{slope}",
             STATUS_OK,
@@ -353,7 +351,7 @@ class MainWindow(QMainWindow):
         self._set_status(message, STATUS_ERROR)
 
     def _tilt_warning(self, pose: Pose) -> str:
-        """Подсказка про наклон: показывается, только когда режим выключен."""
+        """Подсказка про режим по экрану: только когда он выключен."""
         if self._tilt_mode or not pose.has_tilt:
             return ""
         angles = " · ".join(
@@ -362,8 +360,8 @@ class MainWindow(QMainWindow):
             if abs(pose.value(field)) > 1e-9
         )
         return (
-            f"{angles}: нажмите Alt — шаги пойдут по плоскости предмета, "
-            "сейчас они идут строго по горизонтали."
+            f"{angles}: нажмите Alt — шаги пойдут по экрану (Num 8 — вверх-вправо, "
+            "Num 4 — вверх-влево), сейчас они идут строго по горизонтали."
         )
 
     # --- горячие клавиши --------------------------------------------------
@@ -389,12 +387,12 @@ class MainWindow(QMainWindow):
             self._release_key(vk)
 
     def _refresh_tilt_warning(self) -> None:
-        """Подсказка про наклон зависит от режима: включён он или нет."""
+        """Подсказка про режим по экрану зависит от того, включён он или нет."""
         pose = self._pose
         self.movement.set_warning("" if pose is None else self._tilt_warning(pose))
 
     def _toggle_tilt(self) -> None:
-        """Переключить режим наклона: Alt нажимают один раз, а не держат.
+        """Переключить режим по экрану: Alt нажимают один раз, а не держат.
 
         Держать Alt нельзя: пока он зажат, игра не применяет правки панели к
         объекту — значения доходят до интерфейса и теряются.
@@ -408,14 +406,15 @@ class MainWindow(QMainWindow):
         self.movement.set_tilt(enabled)
         self._refresh_tilt_warning()
         if enabled:
-            logger.info("Режим наклона включён")
+            logger.info("Режим по экрану включён")
             self._set_status(
-                "Режим наклона включён: шаги идут по плоскости предмета. Alt — выключить.",
+                "Режим по экрану включён: Num 8 — вверх-вправо, Num 4 — вверх-влево, "
+                "Num 2 — вниз-влево, Num 6 — вниз-вправо. Alt — выключить.",
                 STATUS_OK,
             )
         else:
-            logger.info("Режим наклона выключен")
-            self._set_status("Режим наклона выключен: шаги идут строго по горизонтали.")
+            logger.info("Режим по экрану выключен")
+            self._set_status("Режим по экрану выключен: шаги идут строго по горизонтали.")
 
     def _dispatch(self, action: Action, vk: int) -> None:
         if action is Action.CAPTURE:
@@ -464,7 +463,7 @@ class MainWindow(QMainWindow):
         if force and self._hotkeys.key_down(VK_MENU):
             logger.warning(
                 "Alt зажат во время шага: игра может не применить изменение. "
-                "Режим наклона включается одним нажатием Alt"
+                "Режим по экрану включается одним нажатием Alt"
             )
         if self._runner.is_busy():
             return
