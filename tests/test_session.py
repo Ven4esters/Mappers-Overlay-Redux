@@ -11,7 +11,7 @@ from lsp_overlay.domain.errors import JumpTooLargeError
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.join import JoinRequest, JoinScheme, JoinSide
 from lsp_overlay.domain.measure import MeasureSlot
-from lsp_overlay.domain.movement import MoveFrame
+from lsp_overlay.domain.movement import MoveSpace
 from lsp_overlay.domain.pose import Axis, Pose
 
 from fakes import FakeGamePanel
@@ -20,7 +20,7 @@ PANEL_POSE = Pose(x=250.5, y=-810.25, z=31.0)
 
 
 def make_session(
-    pose: Pose = PANEL_POSE, *, frame: MoveFrame = MoveFrame.WORLD
+    pose: Pose = PANEL_POSE, *, frame: MoveSpace = MoveSpace.WORLD
 ) -> tuple[MappingSession, FakeGamePanel]:
     panel = FakeGamePanel(pose)
     session = MappingSession(panel, Settings(move_frame=frame))
@@ -56,7 +56,7 @@ def test_move_marks_only_changed_fields() -> None:
 
 
 def test_rotated_move_changes_two_axes_at_once() -> None:
-    session, _panel = make_session(Pose(rz=45.0), frame=MoveFrame.PROP)
+    session, _panel = make_session(Pose(rz=45.0), frame=MoveSpace.OBJECT)
     session.move(Direction.NORTH, 1.0)
     assert session.pending_fields() == (FieldKey.X, FieldKey.Y)
 
@@ -172,7 +172,7 @@ def test_writer_commit_propagates_panel_errors() -> None:
 
 
 def test_movement_respects_prop_yaw_in_prop_frame() -> None:
-    session, _panel = make_session(Pose(x=0.0, y=0.0, rz=90.0), frame=MoveFrame.PROP)
+    session, _panel = make_session(Pose(x=0.0, y=0.0, rz=90.0), frame=MoveSpace.OBJECT)
     moved = session.move(Direction.NORTH, 1.0)
     assert moved.x == pytest.approx(-1.0)
     assert moved.y == pytest.approx(0.0)
@@ -180,7 +180,7 @@ def test_movement_respects_prop_yaw_in_prop_frame() -> None:
 
 def test_world_frame_keeps_compass_axes() -> None:
     """Режим «мир»: стрелка «вверх» — это север, как бы ни был повёрнут предмет."""
-    session, _panel = make_session(Pose(x=0.0, y=0.0, rz=70.0), frame=MoveFrame.WORLD)
+    session, _panel = make_session(Pose(x=0.0, y=0.0, rz=70.0), frame=MoveSpace.WORLD)
     moved = session.move(Direction.NORTH, 1.0)
     assert moved.x == pytest.approx(0.0, abs=1e-9)
     assert moved.y == pytest.approx(1.0)
@@ -250,7 +250,7 @@ def test_place_join_stops_too_long_jump() -> None:
 
 def test_session_reports_wrong_axis_before_recording() -> None:
     """Проп переставили вдоль его длины, а записывают в «ширину» — предупреждаем."""
-    session, _panel = make_session(Pose(x=0.0, y=0.0, z=0.0, rz=70.0), frame=MoveFrame.PROP)
+    session, _panel = make_session(Pose(x=0.0, y=0.0, z=0.0, rz=70.0), frame=MoveSpace.OBJECT)
     session.remember_point(MeasureSlot.FIRST)
     for _ in range(27):
         session.move(Direction.NORTH, 0.1)

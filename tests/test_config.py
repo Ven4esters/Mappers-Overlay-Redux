@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from lsp_overlay.config import (
-    PROP_FRAME_SCHEMA_VERSION,
+    MOVE_SPACE_SCHEMA_VERSION,
     SCHEMA_VERSION,
     Calibration,
     ConfigError,
@@ -10,7 +10,7 @@ from lsp_overlay.config import (
     Settings,
 )
 from lsp_overlay.domain.fields import FIELD_ORDER
-from lsp_overlay.domain.movement import MoveFrame
+from lsp_overlay.domain.movement import MoveSpace
 
 
 def test_defaults_are_valid() -> None:
@@ -30,23 +30,53 @@ def test_round_trip_keeps_values() -> None:
     assert restored == original
 
 
-def test_move_frame_round_trip() -> None:
-    settings = Settings(move_frame=MoveFrame.WORLD)
-    assert Settings.from_dict(settings.to_dict()).move_frame is MoveFrame.WORLD
-    assert Settings().move_frame is MoveFrame.PROP
+def test_move_space_round_trip() -> None:
+    settings = Settings(move_frame=MoveSpace.WORLD)
+    assert Settings.from_dict(settings.to_dict()).move_frame is MoveSpace.WORLD
+    assert Settings().move_frame is MoveSpace.OBJECT
 
 
-def test_old_world_frame_migrates_to_prop() -> None:
-    """Файл от 2.10.x (оси мира) переводится на оси предмета: боковой шаг учитывает RZ."""
+@pytest.mark.parametrize("legacy", ["world", "prop"])
+def test_old_move_space_names_become_object(legacy: str) -> None:
+    """Файлы 2.9–2.11 читаются как «по углу предмета», как в первой версии."""
     old = Settings().to_dict()
-    old["version"] = PROP_FRAME_SCHEMA_VERSION - 1
-    old["move_frame"] = MoveFrame.WORLD.value
-    assert Settings.from_dict(old).move_frame is MoveFrame.PROP
+    old["version"] = MOVE_SPACE_SCHEMA_VERSION - 1
+    old["move_space"] = legacy
+    old.pop("move_frame", None)
+    assert Settings.from_dict(old).move_frame is MoveSpace.OBJECT
+
+
+def test_old_schema_world_value_is_migrated() -> None:
+    """Ключ move_frame из 2.10.x тоже читается."""
+    old = Settings().to_dict()
+    old["version"] = 2
+    old.pop("move_space")
+    old["move_frame"] = "world"
+    assert Settings.from_dict(old).move_frame is MoveSpace.OBJECT
+
+
+def test_tilt_is_off_by_default_like_the_first_version() -> None:
+    assert Settings().use_tilt is False
+
+
+def test_anchor_and_inverts_round_trip() -> None:
+    settings = Settings(
+        anchor_rz=70.0, invert_forward=True, invert_right=True, invert_up=True, invert_rotate=True
+    )
+    restored = Settings.from_dict(settings.to_dict())
+    assert restored.anchor_rz == pytest.approx(70.0)
+    assert restored.invert == settings.invert
+    assert restored.invert_rotate is True
+
+
+def test_anchor_out_of_range_is_rejected() -> None:
+    with pytest.raises(ConfigError, match="якорь"):
+        Settings(anchor_rz=1000.0).validated()
 
 
 def test_unknown_move_frame_is_rejected() -> None:
     data = Settings().to_dict()
-    data["move_frame"] = "лунные оси"
+    data["move_space"] = "лунные оси"
     with pytest.raises(ConfigError, match="оси движения"):
         Settings.from_dict(data)
 

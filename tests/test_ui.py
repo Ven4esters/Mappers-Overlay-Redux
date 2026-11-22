@@ -14,7 +14,7 @@ from lsp_overlay.config import Settings  # noqa: E402
 from lsp_overlay.domain.catalog import Catalog, Dimension, ObjectSpec  # noqa: E402
 from lsp_overlay.domain.directions import Direction  # noqa: E402
 from lsp_overlay.domain.fields import FieldKey  # noqa: E402
-from lsp_overlay.domain.movement import MoveFrame  # noqa: E402
+from lsp_overlay.domain.movement import MoveSpace  # noqa: E402
 from lsp_overlay.domain.pose import Pose  # noqa: E402
 from lsp_overlay.infrastructure.catalog_store import CatalogStore  # noqa: E402
 from lsp_overlay.infrastructure.config_store import ConfigStore  # noqa: E402
@@ -256,7 +256,7 @@ def test_move_status_shows_where_the_prop_went(tmp_path: Path, qt_app: object) -
     window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
     window.movement_tab.move_requested.emit(Direction.NORTH.value, 1.0)
     text = window.lbl_status.text()
-    assert "по осям предмета, угол 70.0°" in text
+    assert "по углу предмета, RZ 70.0°" in text
     assert "ΔX -0.940" in text
     assert "ΔY +0.342" in text
 
@@ -284,12 +284,52 @@ def test_frame_hint_shows_the_numbers_for_a_sideways_step(tmp_path: Path, qt_app
     assert "по X и Y сразу" in text
 
 
+def test_anchor_button_takes_current_angle(tmp_path: Path, qt_app: object) -> None:
+    """«Взять из предмета» запоминает угол как якорь комнаты и сохраняет его."""
+    window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
+    window.action_take_anchor()
+    assert window._settings.anchor_rz == pytest.approx(70.0)
+    assert window.movement_tab.anchor_text() == "70°"
+    assert "Якорь комнаты: 70°" in window.lbl_status.text()
+    saved = Settings.from_dict(__import__("json").loads((tmp_path / "settings.json").read_text()))
+    assert saved.anchor_rz == pytest.approx(70.0)
+
+
+def test_anchor_frame_is_shown_in_the_hint(tmp_path: Path, qt_app: object) -> None:
+    """Режим «якорь» пишет в подсказку свой угол, а не угол предмета."""
+    window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=20.0))
+    tab = window.settings_tab
+    tab.spin_anchor.setValue(70.0)
+    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveSpace.ANCHOR.value))
+    window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
+    assert "Оси: якорь комнаты (70.0°)" in window.movement_tab.frame_text()
+    window.movement_tab.move_requested.emit(Direction.NORTH.value, 1.0)
+    assert "по якорю комнаты, 70.0°" in window.lbl_status.text()
+
+
+def test_direction_fix_checkboxes_mirror_the_step(tmp_path: Path, qt_app: object) -> None:
+    """Поправка «↑ вперёд» зеркалит шаг и видна в строке состояния."""
+    window, panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=0.0))
+    tab = window.settings_tab
+    tab._invert_boxes["forward"].setChecked(True)  # noqa: SLF001 - проверяем саму вкладку
+    window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
+    window.movement_tab.move_requested.emit(Direction.NORTH.value, 1.0)
+    assert "направления поправлены" in window.lbl_status.text()
+    window.action_apply(commit=False)
+    assert panel.pose.y == pytest.approx(-1.0)
+
+
+def test_tilt_checkbox_is_off_like_the_first_version(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    assert window.settings_tab.chk_tilt.isChecked() is False
+
+
 def test_camera_buttons_work_only_in_world_frame(tmp_path: Path, qt_app: object) -> None:
     """Кнопки поправки на камеру нужны только в осях мира, в осях предмета они выключены."""
     window, _panel = make_window(tmp_path, qt_app)
     assert window.movement_tab.camera_controls_enabled() is False
     tab = window.settings_tab
-    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveFrame.WORLD.value))
+    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveSpace.WORLD.value))
     window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
     assert window.movement_tab.camera_controls_enabled() is True
 
@@ -300,9 +340,9 @@ def test_movement_frame_hint_follows_settings(tmp_path: Path, qt_app: object) ->
     window.action_capture()
     assert "Оси: предмет" in window.movement_tab.frame_text()
     tab = window.settings_tab
-    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveFrame.WORLD.value))
+    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveSpace.WORLD.value))
     window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
-    assert window._settings.move_frame is MoveFrame.WORLD
+    assert window._settings.move_frame is MoveSpace.WORLD
     assert "Оси: мир" in window.movement_tab.frame_text()
     assert "Угол детали не учитывается" in window.movement_tab.frame_text()
 
@@ -312,7 +352,7 @@ def test_camera_correction_aligns_arrows(tmp_path: Path, qt_app: object) -> None
     window, panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
     window.action_capture()
     tab = window.settings_tab
-    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveFrame.WORLD.value))
+    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveSpace.WORLD.value))
     tab.spin_rotation.setValue(45.0)
     window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
     assert window._settings.move_rotation == pytest.approx(45.0)
@@ -329,7 +369,7 @@ def test_camera_buttons_turn_axes_by_45(tmp_path: Path, qt_app: object) -> None:
     window, panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=0.0))
     window.action_capture()
     tab = window.settings_tab
-    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveFrame.WORLD.value))
+    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveSpace.WORLD.value))
     window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
     assert window.movement_tab.rotation_text() == "0°"
     window.action_turn_move_axes(-45.0)

@@ -13,13 +13,22 @@ from typing import Any, Final
 
 from lsp_overlay.domain.directions import DiagonalMode
 from lsp_overlay.domain.fields import FIELD_ORDER, FieldKey
-from lsp_overlay.domain.movement import MAX_MOVE_ROTATION, MIN_MOVE_ROTATION, MoveFrame
+from lsp_overlay.domain.movement import (
+    MAX_MOVE_ROTATION,
+    MIN_MOVE_ROTATION,
+    InvertSigns,
+    MoveSpace,
+)
 from lsp_overlay.domain.safety import DEFAULT_MAX_JUMP
 
-SCHEMA_VERSION = 3
-#: С версии 3 стрелки по умолчанию ходят по осям предмета: боковой шаг учитывает RZ.
-PROP_FRAME_SCHEMA_VERSION = 3
-DEFAULT_MOVE_FRAME = MoveFrame.PROP
+SCHEMA_VERSION = 4
+#: С версии 4 стрелки ходят по углу предмета (как в v1), а не по сторонам света.
+MOVE_SPACE_SCHEMA_VERSION = 4
+DEFAULT_MOVE_SPACE = MoveSpace.OBJECT
+MIN_ANCHOR = -360.0
+MAX_ANCHOR = 360.0
+#: Имя режима из 2.9.0–2.11.0: такого значения в новой схеме нет, переводим всегда.
+LEGACY_MOVE_SPACES: Final[dict[str, MoveSpace]] = {"prop": MoveSpace.OBJECT}
 DEFAULT_STEP_PRESETS: tuple[float, ...] = (0.05, 0.1, 0.25, 0.5, 1.0)
 DEFAULT_STEP = 0.1
 CONFIRM_KEYS: tuple[str, ...] = ("f", "enter")
@@ -106,9 +115,14 @@ class Settings:
     step: float = DEFAULT_STEP
     step_presets: tuple[float, ...] = DEFAULT_STEP_PRESETS
     diagonal_mode: DiagonalMode = DiagonalMode.SAME_DISTANCE
-    use_tilt: bool = True
-    move_frame: MoveFrame = DEFAULT_MOVE_FRAME
+    use_tilt: bool = False
+    move_frame: MoveSpace = DEFAULT_MOVE_SPACE
     move_rotation: float = 0.0
+    anchor_rz: float = 0.0
+    invert_forward: bool = False
+    invert_right: bool = False
+    invert_up: bool = False
+    invert_rotate: bool = False
     length_decimals: int = 4
     verify_after_paste: bool = True
     max_jump: float = DEFAULT_MAX_JUMP
@@ -143,6 +157,8 @@ class Settings:
                 "страховка живого режима — от "
                 f"{MIN_LIVE_HOLD_TIMEOUT:g} до {MAX_LIVE_HOLD_TIMEOUT:g} с"
             )
+        if not MIN_ANCHOR <= self.anchor_rz <= MAX_ANCHOR:
+            raise ConfigError(f"якорь комнаты — от {MIN_ANCHOR:g} до {MAX_ANCHOR:g}°")
         if not MIN_MOVE_ROTATION <= self.move_rotation <= MAX_MOVE_ROTATION:
             raise ConfigError(
                 f"поворот осей движения — от {MIN_MOVE_ROTATION:g} до {MAX_MOVE_ROTATION:g}°"
@@ -151,6 +167,11 @@ class Settings:
             raise ConfigError("прозрачность оверлея — от 0.2 до 1.0")
         self.timings.validated()
         return self
+
+    @property
+    def invert(self) -> InvertSigns:
+        """Поправки направлений в виде, который понимает домен."""
+        return InvertSigns(right=self.invert_right, forward=self.invert_forward, up=self.invert_up)
 
     def with_step(self, step: float) -> Settings:
         """Копия с новым шагом."""
@@ -164,8 +185,13 @@ class Settings:
             "step_presets": list(self.step_presets),
             "diagonal_mode": self.diagonal_mode.value,
             "use_tilt": self.use_tilt,
-            "move_frame": self.move_frame.value,
+            "move_space": self.move_frame.value,
             "move_rotation": self.move_rotation,
+            "anchor_rz": self.anchor_rz,
+            "invert_forward": self.invert_forward,
+            "invert_right": self.invert_right,
+            "invert_up": self.invert_up,
+            "invert_rotate": self.invert_rotate,
             "length_decimals": self.length_decimals,
             "verify_after_paste": self.verify_after_paste,
             "max_jump": self.max_jump,
@@ -211,8 +237,13 @@ class Settings:
             ),
             diagonal_mode=DiagonalMode(data.get("diagonal_mode", DiagonalMode.SAME_DISTANCE.value)),
             use_tilt=bool(data.get("use_tilt", True)),
-            move_frame=_move_frame_from(data),
+            move_frame=_move_space_from(data),
             move_rotation=float(data.get("move_rotation", 0.0)),
+            anchor_rz=float(data.get("anchor_rz", 0.0)),
+            invert_forward=bool(data.get("invert_forward", False)),
+            invert_right=bool(data.get("invert_right", False)),
+            invert_up=bool(data.get("invert_up", False)),
+            invert_rotate=bool(data.get("invert_rotate", False)),
             length_decimals=int(data.get("length_decimals", 4)),
             verify_after_paste=bool(data.get("verify_after_paste", True)),
             max_jump=float(data.get("max_jump", DEFAULT_MAX_JUMP)),
@@ -278,18 +309,23 @@ def _schema_version(data: Mapping[str, Any]) -> int:
         return 1
 
 
-def _move_frame_from(data: Mapping[str, Any]) -> MoveFrame:
-    """Читает оси движения, переводя старый умолчальный «мир» на оси предмета."""
-    raw = data.get("move_frame")
+def _move_space_from(data: Mapping[str, Any]) -> MoveSpace:
+    """Читает оси движения, переводя прежние имена и умолчания на угол предмета."""
+    raw = data.get("move_space", data.get("move_frame"))
     if raw is None:
-        return DEFAULT_MOVE_FRAME
+        return DEFAULT_MOVE_SPACE
+    name = str(raw)
+    legacy = LEGACY_MOVE_SPACES.get(name)
+    if legacy is not None:
+        return legacy
     try:
-        frame = MoveFrame(str(raw))
+        space = MoveSpace(name)
     except ValueError as error:
         raise ConfigError(f"неизвестные оси движения: {raw}") from error
-    if frame is MoveFrame.WORLD and _schema_version(data) < PROP_FRAME_SCHEMA_VERSION:
-        return DEFAULT_MOVE_FRAME
-    return frame
+    if space is MoveSpace.WORLD and _schema_version(data) < MOVE_SPACE_SCHEMA_VERSION:
+        # до версии 4 стороны света были умолчанием, а не осознанным выбором
+        return DEFAULT_MOVE_SPACE
+    return space
 
 
 def _calibration_from(data: Mapping[str, Any]) -> Calibration:

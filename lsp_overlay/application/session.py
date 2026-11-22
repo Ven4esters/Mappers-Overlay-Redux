@@ -197,6 +197,8 @@ class MappingSession:
             use_tilt=self._settings.use_tilt,
             frame=self._settings.move_frame,
             rotation=self._settings.move_rotation,
+            anchor=self._settings.anchor_rz,
+            invert=self._settings.invert,
         ).rounded(self._settings.length_decimals)
         ensure_within_limit(self._pose, candidate, self._settings.max_jump)
         self._pose = candidate
@@ -204,7 +206,8 @@ class MappingSession:
 
     def rotate(self, axis: Axis, degrees: float) -> Pose:
         """Поворачивает проп вокруг оси; угол нормализуется к ``[-180, 180)``."""
-        self._pose = rotate(self._pose, axis, degrees).rounded(self._settings.length_decimals)
+        signed = -degrees if self._settings.invert_rotate else degrees
+        self._pose = rotate(self._pose, axis, signed).rounded(self._settings.length_decimals)
         return self._pose
 
     def set_field(self, key: FieldKey, value: float) -> Pose:

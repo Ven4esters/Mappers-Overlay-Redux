@@ -8,7 +8,7 @@ from lsp_overlay.application.session import MappingSession
 from lsp_overlay.config import PanelTimings, Settings
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.fields import FieldKey
-from lsp_overlay.domain.movement import MoveFrame
+from lsp_overlay.domain.movement import MoveSpace
 from lsp_overlay.domain.pose import Axis, Pose
 from lsp_overlay.infrastructure.panel import ClipboardPanel
 
@@ -19,7 +19,7 @@ AXIS_FIELD = FieldKey.RZ
 
 
 def make_stack(
-    *, drop_select_all: bool = False, frame: MoveFrame = MoveFrame.WORLD
+    *, drop_select_all: bool = False, frame: MoveSpace = MoveSpace.WORLD
 ) -> tuple[MappingSession, FakeLspGame]:
     calibration = build_calibration()
     clipboard = FakeClipboard()
@@ -50,7 +50,7 @@ def test_full_cycle_moves_prop_and_saves_with_f() -> None:
 
 
 def test_rotated_prop_moves_along_its_own_axis() -> None:
-    session, game = make_stack(frame=MoveFrame.PROP)
+    session, game = make_stack(frame=MoveSpace.OBJECT)
     session.capture()
     session.rotate(Axis.YAW, 90.0)
     session.apply()

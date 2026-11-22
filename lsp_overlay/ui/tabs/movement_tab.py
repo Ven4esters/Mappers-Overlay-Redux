@@ -19,7 +19,7 @@ from lsp_overlay.config import Settings
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.formatting import format_angle, format_length
-from lsp_overlay.domain.movement import MoveFrame, move
+from lsp_overlay.domain.movement import MoveSpace, move
 from lsp_overlay.domain.pose import Pose
 from lsp_overlay.ui.keymap import NUMPAD_HINT
 from lsp_overlay.ui.widgets import make_button, make_label, make_number_editor
@@ -57,6 +57,7 @@ class MovementTab(QWidget):
     live_toggled = Signal(bool)
     delete_clone_requested = Signal()
     move_rotation_changed = Signal(float)
+    anchor_requested = Signal()
 
     def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -110,10 +111,32 @@ class MovementTab(QWidget):
             )
         )
         column.addWidget(make_label(NUMPAD_HINT, muted=True, wrap=True))
+        column.addWidget(self._build_anchor_row())
         column.addWidget(self._build_camera_row())
         self.lbl_frame = make_label("", muted=True, wrap=True)
         column.addWidget(self.lbl_frame)
         return group
+
+    def _build_anchor_row(self) -> QWidget:
+        """Якорь комнаты: базовый угол, по которому идут шаги в режиме «Якорь»."""
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(make_label("Якорь", muted=True))
+        self.lbl_anchor = make_label("0°", muted=True)
+        self.lbl_anchor.setToolTip(
+            "Базовый угол комнаты: шаг поворачивается на него, поворот предмета его не меняет"
+        )
+        button = make_button(
+            "Взять из предмета",
+            "Запомнить текущий угол RZ предмета как базовый угол комнаты",
+        )
+        button.clicked.connect(lambda _checked=False: self.anchor_requested.emit())
+        row.addWidget(button)
+        row.addWidget(make_label("базовый 0° комнаты", muted=True), 1)
+        row.addWidget(self.lbl_anchor)
+        return holder
 
     def _build_camera_row(self) -> QWidget:
         """Быстрая подстройка под камеру: одна кнопка на каждый шаг в 45°."""
@@ -142,25 +165,58 @@ class MovementTab(QWidget):
         return holder
 
     def _unit_delta(
-        self, frame: MoveFrame, yaw: float, rotation: float, direction: Direction
+        self,
+        frame: MoveSpace,
+        yaw: float,
+        rotation: float,
+        direction: Direction,
+        *,
+        anchor: float,
+        use_tilt: bool,
     ) -> tuple[float, float]:
         """Куда уводит предмет один метр в направлении ``direction`` — в мировых X и Y."""
         pose = Pose(x=0.0, y=0.0, z=0.0, rz=yaw)
-        result = move(pose, direction, 1.0, frame=frame, use_tilt=False, rotation=rotation)
+        result = move(
+            pose,
+            direction,
+            1.0,
+            frame=frame,
+            use_tilt=use_tilt,
+            rotation=rotation,
+            anchor=anchor,
+        )
         return (result.x, result.y)
 
-    def set_move_frame(self, frame: MoveFrame, yaw: float, rotation: float = 0.0) -> None:
+    def set_move_frame(
+        self,
+        frame: MoveSpace,
+        yaw: float,
+        rotation: float = 0.0,
+        *,
+        anchor: float = 0.0,
+        use_tilt: bool = False,
+    ) -> None:
         """Пишет, в каких осях ходят стрелки и насколько шаг задевает X и Y."""
-        north = self._unit_delta(frame, yaw, rotation, Direction.NORTH)
-        west = self._unit_delta(frame, yaw, rotation, Direction.WEST)
+        north = self._unit_delta(
+            frame, yaw, rotation, Direction.NORTH, anchor=anchor, use_tilt=use_tilt
+        )
+        west = self._unit_delta(
+            frame, yaw, rotation, Direction.WEST, anchor=anchor, use_tilt=use_tilt
+        )
         arrows = (
             f"за 1 м: ↑ ΔX {north[0]:+.2f} · ΔY {north[1]:+.2f}, "
             f"← ΔX {west[0]:+.2f} · ΔY {west[1]:+.2f}."
         )
-        if frame is MoveFrame.PROP:
+        if frame is MoveSpace.OBJECT:
+            tilt = " · с наклонами RX/RY" if use_tilt else ""
             text = (
-                f"Оси: предмет (угол {yaw:.1f}°) — {arrows} "
+                f"Оси: предмет (угол {yaw:.1f}°{tilt}) — {arrows} "
                 "Боковой шаг идёт по X и Y сразу: предмет едет ровно поперёк своей стороны."
+            )
+        elif frame is MoveSpace.ANCHOR:
+            text = (
+                f"Оси: якорь комнаты ({anchor:.1f}°) — {arrows} "
+                "Поворот предмета направление не меняет."
             )
         elif rotation:
             text = (
@@ -173,12 +229,17 @@ class MovementTab(QWidget):
             )
         self.lbl_frame.setText(text)
         self.lbl_rotation.setText(f"{rotation:g}°")
+        self.lbl_anchor.setText(f"{anchor:g}°")
         for button in self._camera_buttons:
-            button.setEnabled(frame is MoveFrame.WORLD)
+            button.setEnabled(frame is MoveSpace.WORLD)
 
     def camera_controls_enabled(self) -> bool:
         """Доступны ли кнопки поправки на камеру: они нужны только в осях мира."""
         return all(button.isEnabled() for button in self._camera_buttons)
+
+    def anchor_text(self) -> str:
+        """Якорь комнаты (для тестов)."""
+        return self.lbl_anchor.text()
 
     def rotation_text(self) -> str:
         """Поправка на камеру в градусах (для тестов)."""

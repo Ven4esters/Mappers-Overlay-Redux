@@ -30,7 +30,7 @@ from lsp_overlay.domain.errors import DomainError
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.formatting import format_length
 from lsp_overlay.domain.measure import MeasureSlot
-from lsp_overlay.domain.movement import MoveFrame
+from lsp_overlay.domain.movement import MoveSpace
 from lsp_overlay.domain.pose import Axis, Pose
 from lsp_overlay.infrastructure.catalog_store import CatalogStore
 from lsp_overlay.infrastructure.config_store import ConfigStore
@@ -188,6 +188,7 @@ class OverlayWindow(QWidget):
         self.movement_tab.live_toggled.connect(self.action_live_toggled)
         self.movement_tab.delete_clone_requested.connect(self.action_delete_clone)
         self.movement_tab.move_rotation_changed.connect(self.action_turn_move_axes)
+        self.movement_tab.anchor_requested.connect(self.action_take_anchor)
         self.rotate_tab.rotate_requested.connect(self.action_rotate)
         self.rotate_tab.angle_set_requested.connect(self.action_set_angle)
         self.measure_tab.remember_requested.connect(self.action_remember_point)
@@ -319,13 +320,17 @@ class OverlayWindow(QWidget):
     def _move_report(self, target: Direction, step: float, before: Pose, after: Pose) -> str:
         """Показывает, что именно произошло: куда и на сколько сдвинулся предмет."""
         arrow = MOVE_ARROWS[target]
-        frame = self._settings.move_frame
-        axes = (
-            "по осям мира"
-            if frame is MoveFrame.WORLD
-            else f"по осям предмета, угол {before.rz:.1f}°"
-        )
-        if frame is MoveFrame.WORLD and abs(before.rz) > ROTATION_HINT_THRESHOLD:
+        axes = {
+            MoveSpace.OBJECT: f"по углу предмета, RZ {before.rz:.1f}°",
+            MoveSpace.ANCHOR: f"по якорю комнаты, {self._settings.anchor_rz:.1f}°",
+            MoveSpace.WORLD: "по сторонам света",
+        }[self._settings.move_frame]
+        if self._settings.invert.any:
+            axes += " · направления поправлены"
+        elif (
+            self._settings.move_frame is MoveSpace.WORLD
+            and abs(before.rz) > ROTATION_HINT_THRESHOLD
+        ):
             axes += f" · угол детали {before.rz:.0f}° не учтён"
         return (
             f"{arrow} шаг {step:g} м ({axes}): "
@@ -642,6 +647,25 @@ class OverlayWindow(QWidget):
             "info",
         )
 
+    def action_take_anchor(self) -> None:
+        """Запоминает текущий угол предмета как базовый угол комнаты."""
+        anchor = self._session.pose.rz
+        self._settings = replace(self._settings, anchor_rz=anchor)
+        try:
+            self._settings.validated()
+        except DomainError as error:
+            self._fail(error)
+            return
+        self._session.update_settings(self._settings)
+        self._save_settings()
+        self.settings_tab.spin_anchor.setValue(anchor)
+        self._refresh()
+        self._set_status(
+            f"Якорь комнаты: {anchor:g}° — в режиме «Якорь» шаг держит это направление, "
+            "даже если предмет повернуть",
+            "info",
+        )
+
     def action_step_changed(self, step: float) -> None:
         """Запоминает выбранный шаг."""
         try:
@@ -664,7 +688,11 @@ class OverlayWindow(QWidget):
         self._live.set_hold_timeout(settings.live_hold_timeout)
         self.movement_tab.set_step(settings.step)
         self.movement_tab.set_move_frame(
-            settings.move_frame, self._session.pose.rz, settings.move_rotation
+            settings.move_frame,
+            self._session.pose.rz,
+            settings.move_rotation,
+            anchor=settings.anchor_rz,
+            use_tilt=settings.use_tilt,
         )
         self.btn_apply_commit.setText(f"Сохранить {settings.confirm_key.upper()}")
         self._set_status("Настройки сохранены", "success")
@@ -750,7 +778,11 @@ class OverlayWindow(QWidget):
     def _refresh(self) -> None:
         self.movement_tab.update_pose(self._session.pose, self._session.pending_fields())
         self.movement_tab.set_move_frame(
-            self._settings.move_frame, self._session.pose.rz, self._settings.move_rotation
+            self._settings.move_frame,
+            self._session.pose.rz,
+            self._settings.move_rotation,
+            anchor=self._settings.anchor_rz,
+            use_tilt=self._settings.use_tilt,
         )
         self.join_tab.update_pose(self._session.pose)
         self._refresh_tape()

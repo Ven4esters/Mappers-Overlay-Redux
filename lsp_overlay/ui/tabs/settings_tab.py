@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -20,11 +21,13 @@ from lsp_overlay.config import (
     CONFIRM_KEYS,
     DEFAULT_CLONE_DELETE_KEY,
     DEFAULT_CLONE_KEY,
+    MAX_ANCHOR,
+    MIN_ANCHOR,
     Settings,
     replace_settings,
 )
 from lsp_overlay.domain.directions import DiagonalMode
-from lsp_overlay.domain.movement import MAX_MOVE_ROTATION, MIN_MOVE_ROTATION, MoveFrame
+from lsp_overlay.domain.movement import MAX_MOVE_ROTATION, MIN_MOVE_ROTATION, MoveSpace
 from lsp_overlay.ui.widgets import make_button, make_label, make_number_editor
 
 OPACITY_SCALE = 100
@@ -45,6 +48,7 @@ class SettingsTab(QWidget):
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(6)
         layout.addWidget(self._build_movement_group())
+        layout.addWidget(self._build_direction_fix_group())
         layout.addWidget(self._build_protection_group())
         layout.addWidget(self._build_appearance_group())
         row = QHBoxLayout()
@@ -69,12 +73,13 @@ class SettingsTab(QWidget):
         self.combo_diagonal.addItem("По шагу на каждую ось", DiagonalMode.SAME_STEP.value)
         form.addRow("Диагонали", self.combo_diagonal)
         self.combo_frame = QComboBox()
-        for frame in MoveFrame:
+        for frame in MoveSpace:
             self.combo_frame.addItem(frame.label, frame.value)
         self.combo_frame.setToolTip(
-            "Предмет (по умолчанию): стрелки идут по осям детали — при её углу боковой шаг "
-            "меняет X и Y одновременно, и предмет едет ровно поперёк своей стороны. "
-            "Мир: ↑ двигает на север (+Y), → на восток (+X), угол предмета не важен."
+            "Предмет (по умолчанию, как в первой версии): шаг поворачивается на угол RZ — "
+            "боковой шаг меняет X и Y одновременно, предмет едет ровно поперёк своей "
+            "стороны. Якорь комнаты: направление задаёт базовый угол, поворот предмета его "
+            "не меняет. Мир: ↑ север (+Y), → восток (+X)."
         )
         form.addRow("Оси движения", self.combo_frame)
         self.spin_rotation = make_number_editor(
@@ -87,11 +92,38 @@ class SettingsTab(QWidget):
             "совпадут с картинкой. 45° — камера развёрнута на северо-восток, 90° — на восток."
         )
         form.addRow("Поворот осей, °", self.spin_rotation)
+        self.spin_anchor = make_number_editor(1, minimum=MIN_ANCHOR, maximum=MAX_ANCHOR)
+        self.spin_anchor.setSuffix(" °")
+        self.spin_anchor.setToolTip(
+            "Базовый угол комнаты для осей «Якорь»: на него поворачивается шаг, и поворот "
+            "самого предмета после этого направление не меняет."
+        )
+        form.addRow("Якорь комнаты, °", self.spin_anchor)
         self.chk_tilt = QCheckBox("Учитывать наклоны RX/RY при движении")
         self.chk_tilt.setToolTip(
-            "Выключите, если нужно двигать проп строго по полу, невзирая на его наклон."
+            "Выключено, как в первой версии: шаг идёт строго по полу и поворачивается только "
+            "на RZ, высота не меняется. Включайте, только если деталь наклонена и двигать "
+            "нужно по её собственной плоскости."
         )
         form.addRow(self.chk_tilt)
+        return group
+
+    def _build_direction_fix_group(self) -> QGroupBox:
+        group = QGroupBox("Поправки направлений")
+        grid = QGridLayout(group)
+        self._invert_boxes: dict[str, QCheckBox] = {}
+        for index, (key, title, tip) in enumerate(
+            (
+                ("forward", "↑ вперёд / ↓ назад", "Если «вперёд» уводит назад — включите"),
+                ("right", "→ вправо / ← влево", "Если «вправо» уводит влево — включите"),
+                ("up", "Z вверх / вниз", "Если шаг по высоте идёт в другую сторону"),
+                ("rotate", "Поворот вправо / влево", "Если кнопки поворота крутят наоборот"),
+            )
+        ):
+            box = QCheckBox(title)
+            box.setToolTip(tip)
+            self._invert_boxes[key] = box
+            grid.addWidget(box, index // 2, index % 2)
         return group
 
     def _build_protection_group(self) -> QGroupBox:
@@ -159,6 +191,11 @@ class SettingsTab(QWidget):
         self.combo_diagonal.setCurrentIndex(max(index, 0))
         self.chk_tilt.setChecked(settings.use_tilt)
         self.spin_rotation.setValue(settings.move_rotation)
+        self.spin_anchor.setValue(settings.anchor_rz)
+        self._invert_boxes["forward"].setChecked(settings.invert_forward)
+        self._invert_boxes["right"].setChecked(settings.invert_right)
+        self._invert_boxes["up"].setChecked(settings.invert_up)
+        self._invert_boxes["rotate"].setChecked(settings.invert_rotate)
         self.combo_frame.setCurrentIndex(
             max(self.combo_frame.findData(settings.move_frame.value), 0)
         )
@@ -187,8 +224,13 @@ class SettingsTab(QWidget):
             step_presets=presets or self._settings.step_presets,
             diagonal_mode=DiagonalMode(self.combo_diagonal.currentData()),
             use_tilt=self.chk_tilt.isChecked(),
-            move_frame=MoveFrame(str(self.combo_frame.currentData())),
+            move_frame=MoveSpace(str(self.combo_frame.currentData())),
             move_rotation=self.spin_rotation.value(),
+            anchor_rz=self.spin_anchor.value(),
+            invert_forward=self._invert_boxes["forward"].isChecked(),
+            invert_right=self._invert_boxes["right"].isChecked(),
+            invert_up=self._invert_boxes["up"].isChecked(),
+            invert_rotate=self._invert_boxes["rotate"].isChecked(),
             verify_after_paste=self.chk_verify.isChecked(),
             max_jump=self.spin_max_jump.value(),
             confirm_key=self.combo_confirm.currentData(),
