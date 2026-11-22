@@ -72,17 +72,21 @@ def test_forward_step_moves_x_plus_and_writes_x_only() -> None:
     assert session.pose == result.pose
 
 
-def test_diagonal_step_follows_the_tilt() -> None:
-    """``Num 3`` при наклоне 37°: ``Y`` вниз-вправо на ``cos``, ``Z`` на ``sin``."""
+def test_diagonal_step_rotates_with_the_object() -> None:
+    """``Num 3`` при наклоне 37°: шаг повёрнут на ``RX`` в осях предмета."""
     tilted = Pose(x=10.0, y=20.0, z=30.0, rx=37.0)
     panel = FakePanel(tilted)
     session = make_session(panel)
     session.capture()
     result = session.step(Direction.BACK_RIGHT, 1.0)
+    angle = math.radians(37.0)
+    local = 1.0 / math.sqrt(2.0)
+    expected_dy = -local * math.cos(angle) + local * math.sin(angle)
+    expected_dz = -local * math.sin(angle) - local * math.cos(angle)
     assert result.written == (Field.Y, Field.Z)
     assert result.pose.x == tilted.x
-    assert result.pose.y == pytest.approx(20.0 - math.cos(math.radians(37.0)), abs=0.001)
-    assert result.pose.z == pytest.approx(30.0 - math.sin(math.radians(37.0)), abs=0.001)
+    assert result.pose.y == pytest.approx(20.0 + expected_dy, abs=0.001)
+    assert result.pose.z == pytest.approx(30.0 + expected_dz, abs=0.001)
 
 
 def test_step_keeps_height_and_angles() -> None:

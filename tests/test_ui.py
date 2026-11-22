@@ -75,17 +75,19 @@ def test_forward_arrow_moves_x_plus(qt_app: QApplication) -> None:
     assert "записано: X" in window.status_text()
 
 
-def test_diagonal_arrow_follows_the_tilt(qt_app: QApplication) -> None:
-    """Кнопка «назад-вправо» при наклоне 37°: вниз-вправо по плоскости предмета."""
+def test_diagonal_arrow_rotates_with_the_object(qt_app: QApplication) -> None:
+    """Кнопка «назад-вправо» при наклоне 37° идёт по осям предмета (``P + Rx·Δ_local``)."""
     window, panel, _store, _cursor = make_window(qt_app, pose=replace(START, rx=37.0))
     window.movement.press_capture()
     window.movement.arrow(Direction.BACK_RIGHT).click()
-    cos37 = math.cos(math.radians(37.0)) * 0.5
-    sin37 = math.sin(math.radians(37.0)) * 0.5
+    angle = math.radians(37.0)
+    local = 0.5 / math.sqrt(2.0)  # диагональ в осях предмета
+    expected_dy = -local * math.cos(angle) + local * math.sin(angle)
+    expected_dz = -local * math.sin(angle) - local * math.cos(angle)
     assert panel.written_fields == [Field.Y, Field.Z]
     assert panel.pose().x == pytest.approx(START.x, abs=0.001)
-    assert panel.pose().y == pytest.approx(START.y - cos37, abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z - sin37, abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y + expected_dy, abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z + expected_dz, abs=0.001)
 
 
 def test_tilt_warning_is_visible(qt_app: QApplication) -> None:
@@ -411,7 +413,7 @@ def test_numpad_directions_match_the_game(
     assert panel.pose().y == pytest.approx(START.y + expected_dy)
 
 
-HALF_STEP = 0.5 / 2**0.5  # при 45° компоненты шага 0.5 м равны 0.354
+HALF_STEP = 0.5 / 2**0.5  # локальная диагональ шага 0.5 м
 
 
 @pytest.mark.parametrize(
@@ -423,14 +425,12 @@ HALF_STEP = 0.5 / 2**0.5  # при 45° компоненты шага 0.5 м р�
         (0x63, -HALF_STEP, -HALF_STEP),  # Num 3 — вниз-вправо
     ],
 )
-def test_numpad_diagonals_at_45(
+def test_numpad_diagonals_on_a_level_object(
     qt_app: QApplication, vk: int, expected_dy: float, expected_dz: float
 ) -> None:
-    """При наклоне 45° диагонали дают привычные равные компоненты."""
+    """При ``RX = 0`` диагонали дают привычные равные компоненты."""
     hotkeys = FakeHotkeySource()
-    window, panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=45.0)
-    )
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
     window.movement.press_capture()
     hotkeys.press(vk)
     hotkeys.release(vk)
@@ -439,8 +439,8 @@ def test_numpad_diagonals_at_45(
     assert panel.pose().z == pytest.approx(START.z + expected_dz, abs=0.001)
 
 
-def test_numpad_diagonal_at_37_follows_the_tilt(qt_app: QApplication) -> None:
-    """При наклоне 37° шаг идёт по плоскости, а не под фиксированными 45°."""
+def test_numpad_diagonal_at_37_rotates_the_step(qt_app: QApplication) -> None:
+    """При наклоне 37° шаг поворачивается вместе с предметом (``P + Rx·Δ_local``)."""
     hotkeys = FakeHotkeySource()
     window, panel, _store, _cursor = make_window(
         qt_app, hotkeys=hotkeys, pose=replace(START, rx=37.0)
@@ -448,8 +448,8 @@ def test_numpad_diagonal_at_37_follows_the_tilt(qt_app: QApplication) -> None:
     window.movement.press_capture()
     hotkeys.press(0x69)  # Num 9 — вверх-вправо
     hotkeys.release(0x69)
-    assert panel.pose().y == pytest.approx(START.y - 0.5 * math.cos(math.radians(37.0)), abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z + 0.5 * math.sin(math.radians(37.0)), abs=0.001)
+    assert panel.pose().y == pytest.approx(START.y - 0.495, abs=0.002)
+    assert panel.pose().z == pytest.approx(START.z + 0.070, abs=0.002)
 
 
 # --- режим по экрану (Alt) ------------------------------------------------
@@ -506,9 +506,7 @@ def test_alt_keeps_left_and_right_as_they_were(qt_app: QApplication) -> None:
 
 def test_alt_keeps_diagonals_working(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
-    window, panel, _store, _cursor = make_window(
-        qt_app, hotkeys=hotkeys, pose=replace(START, rx=45.0)
-    )
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
     window.movement.press_capture()
     toggle_tilt(hotkeys)
     hotkeys.press(NUMPAD9)

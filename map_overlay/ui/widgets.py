@@ -145,11 +145,11 @@ class DirectionPad(QWidget):
                     grid.addWidget(self._arrow(direction), row, column)
 
     def _axis_tooltip(self, direction: Direction) -> str:
-        """Подсказка для обычного режима: прямые — оси, диагонали — по наклону предмета."""
+        """Подсказка для обычного режима: прямые — оси, диагонали — в осях предмета."""
         if direction.is_diagonal:
             return (
                 f"{direction.label}: {DIAGONAL_TITLES[direction]} на шаг "
-                f"(по наклону RX, при 0° — по горизонтали)"
+                f"(в осях предмета, поворот на RX)"
             )
         dx, dy = direction.axes
         parts = []
