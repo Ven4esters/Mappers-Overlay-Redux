@@ -11,6 +11,7 @@ from lsp_overlay.application.writer import ApplyResult, FieldWriter
 from lsp_overlay.config import Calibration, PanelTimings, Settings
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.fields import FIELD_ORDER, FieldKey, get_field
+from lsp_overlay.domain.measure import MeasureSlot, MeasureTape, Span
 from lsp_overlay.domain.movement import move, rotate
 from lsp_overlay.domain.pose import Axis, Pose
 from lsp_overlay.domain.safety import ensure_within_limit
@@ -33,6 +34,7 @@ class MappingSession:
         self._writer = FieldWriter(panel, verify=settings.verify_after_paste)
         self._pose = Pose()
         self._panel_pose: Pose | None = None
+        self._tape = MeasureTape()
 
     @property
     def pose(self) -> Pose:
@@ -69,6 +71,25 @@ class MappingSession:
             length_decimals=length_decimals,
             confirm_key=confirm_key,
         )
+
+    @property
+    def span(self) -> Span | None:
+        """Замер рулетки, если запомнены обе точки."""
+        return self._tape.span()
+
+    def tape_points(self) -> dict[MeasureSlot, Pose]:
+        """Позы, сохранённые в рулетке."""
+        return self._tape.points
+
+    def remember_point(self, slot: MeasureSlot) -> Span | None:
+        """Запоминает текущее положение пропа как точку замера."""
+        self._tape.remember(slot, self._pose)
+        LOGGER.info("Замер %s: %s", slot.label, self._pose.position)
+        return self._tape.span()
+
+    def clear_tape(self) -> None:
+        """Забывает оба замера."""
+        self._tape.clear()
 
     def diagnose(self) -> DiagnosticReport:
         """Проверяет, доходят ли клики и вставка до панели игры."""

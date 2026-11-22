@@ -15,6 +15,7 @@ from lsp_overlay.domain.fields import FieldKey  # noqa: E402
 from lsp_overlay.domain.pose import Pose  # noqa: E402
 from lsp_overlay.infrastructure.config_store import ConfigStore  # noqa: E402
 from lsp_overlay.ui.overlay import OverlayWindow  # noqa: E402
+from PySide6.QtGui import QGuiApplication  # noqa: E402
 
 from fakes import FakeGamePanel, build_calibration  # noqa: E402
 
@@ -38,10 +39,10 @@ def make_window(
     return window, panel
 
 
-def test_window_has_four_tabs(tmp_path: Path, qt_app: object) -> None:
+def test_window_has_five_tabs(tmp_path: Path, qt_app: object) -> None:
     window, _panel = make_window(tmp_path, qt_app)
     titles = [window.tabs.tabText(index) for index in range(window.tabs.count())]
-    assert titles == ["Движение", "Повороты", "Калибровка", "Настройки"]
+    assert titles == ["Движение", "Повороты", "Рулетка", "Калибровка", "Настройки"]
 
 
 def test_capture_fills_coordinate_editors(tmp_path: Path, qt_app: object) -> None:
@@ -149,3 +150,49 @@ def test_diagnostics_reports_broken_write(tmp_path: Path, qt_app: object) -> Non
     window.action_diagnostics()
     assert window.lbl_status.property("level") == "error"
     assert "администратора" in window.lbl_status.text()
+
+
+def test_measure_tab_shows_object_length(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.action_remember_point("a")
+    assert window.measure_tab.value_text("distance") == "—"
+    window.movement_tab.field_edited.emit(FieldKey.X.value, START.x + 4.5)
+    window.action_remember_point("b")
+    assert window.measure_tab.value_text("planar") == "4.500 м"
+    assert window.measure_tab.value_text("heading") == "90.0°"
+
+
+def test_measure_step_becomes_shift_step(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.action_remember_point("a")
+    window.movement_tab.field_edited.emit(FieldKey.Y.value, START.y + 2.0)
+    window.action_remember_point("b")
+    window.measure_tab.step_requested.emit(2.0)
+    assert window.movement_tab.current_step() == pytest.approx(2.0)
+    assert window._settings.step == pytest.approx(2.0)
+
+
+def test_measure_reset_clears_points(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.action_remember_point("a")
+    window.measure_tab.reset_requested.emit()
+    assert window.measure_tab.point_text("a") == "—"
+
+
+def test_measure_step_button_waits_for_two_points(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    assert not window.measure_tab.btn_step.isEnabled()
+    window.action_remember_point("a")
+    window.movement_tab.field_edited.emit(FieldKey.X.value, START.x + 3.0)
+    window.action_remember_point("b")
+    assert window.measure_tab.btn_step.isEnabled()
+
+
+def test_measure_copy_puts_text_on_clipboard(tmp_path: Path, qt_app: object) -> None:
+    window, _panel = make_window(tmp_path, qt_app)
+    window.action_remember_point("a")
+    window.movement_tab.field_edited.emit(FieldKey.X.value, START.x + 1.0)
+    window.action_remember_point("b")
+    window.measure_tab.btn_copy.click()
+    assert "Замер" in window.measure_tab.result_text()
+    assert QGuiApplication.clipboard().text() == window.measure_tab.result_text()

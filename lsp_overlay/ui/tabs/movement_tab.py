@@ -178,6 +178,10 @@ class MovementTab(QWidget):
         self.field_edited.emit(key.value, self._editors[key].value())
 
     # ------------------------------------------------------------------- вывод
+    def current_step(self) -> float:
+        """Текущий шаг сдвига в метрах."""
+        return self._step
+
     def set_step(self, step: float) -> None:
         """Показывает шаг в комбобоксе и по центру крестовины."""
         self._step = step

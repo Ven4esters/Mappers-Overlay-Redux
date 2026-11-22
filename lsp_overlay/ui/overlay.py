@@ -20,11 +20,14 @@ from lsp_overlay.config import Calibration, Settings
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.errors import DomainError
 from lsp_overlay.domain.fields import FieldKey
+from lsp_overlay.domain.formatting import format_length
+from lsp_overlay.domain.measure import MeasureSlot
 from lsp_overlay.domain.pose import Axis, Pose
 from lsp_overlay.infrastructure.config_store import ConfigStore
 from lsp_overlay.ui.styles import STYLESHEET
 from lsp_overlay.ui.tabs.calibration_tab import CalibrationTab
-from lsp_overlay.ui.tabs.movement_tab import MovementTab
+from lsp_overlay.ui.tabs.measure_tab import MeasureTab
+from lsp_overlay.ui.tabs.movement_tab import STEP_MAX, STEP_MIN, MovementTab
 from lsp_overlay.ui.tabs.rotate_tab import RotateTab
 from lsp_overlay.ui.tabs.settings_tab import SettingsTab
 from lsp_overlay.ui.widgets import make_button
@@ -65,10 +68,12 @@ class OverlayWindow(QWidget):
         self.tabs = QTabWidget()
         self.movement_tab = MovementTab(self._settings)
         self.rotate_tab = RotateTab()
+        self.measure_tab = MeasureTab()
         self.calibration_tab = CalibrationTab(self._settings.calibration)
         self.settings_tab = SettingsTab(self._settings)
         self.tabs.addTab(self.movement_tab, "Движение")
         self.tabs.addTab(self.rotate_tab, "Повороты")
+        self.tabs.addTab(self.measure_tab, "Рулетка")
         self.tabs.addTab(self.calibration_tab, "Калибровка")
         self.tabs.addTab(self.settings_tab, "Настройки")
         root.addWidget(self.tabs, 1)
@@ -109,6 +114,10 @@ class OverlayWindow(QWidget):
         self.movement_tab.field_edited.connect(self.action_field_edited)
         self.rotate_tab.rotate_requested.connect(self.action_rotate)
         self.rotate_tab.angle_set_requested.connect(self.action_set_angle)
+        self.measure_tab.remember_requested.connect(self.action_remember_point)
+        self.measure_tab.reset_requested.connect(self.action_clear_tape)
+        self.measure_tab.step_requested.connect(self.action_measure_step)
+        self.measure_tab.status_message.connect(self._set_status)
         self.calibration_tab.calibration_changed.connect(self.action_calibration_changed)
         self.calibration_tab.status_message.connect(self._set_status)
         self.calibration_tab.diagnostics_requested.connect(self.action_diagnostics)
@@ -161,6 +170,36 @@ class OverlayWindow(QWidget):
             self._fail(error)
             return
         self._refresh()
+
+    def action_remember_point(self, slot: str) -> None:
+        """Запоминает текущее положение пропа как точку рулетки."""
+        span = self._session.remember_point(MeasureSlot(slot))
+        point = MeasureSlot(slot)
+        if span is None:
+            self._set_status(f"Точка {point.label} запомнена — поставьте проп у другого края")
+        else:
+            self._set_status(
+                f"Длина: {format_length(span.length_for_step(), 3)} м "
+                f"(по прямой {format_length(span.distance, 3)} м)",
+                "success",
+            )
+        self._refresh()
+
+    def action_clear_tape(self) -> None:
+        """Сбрасывает оба замера."""
+        self._session.clear_tape()
+        self._set_status("Замеры сброшены")
+        self._refresh()
+
+    def action_measure_step(self, length: float) -> None:
+        """Делает измеренную длину шагом сдвига."""
+        try:
+            step = min(max(length, STEP_MIN), STEP_MAX)
+            self.movement_tab.set_step(step)
+        except (DomainError, ValueError) as error:
+            self._fail(error)
+            return
+        self.action_step_changed(step)
 
     def action_step_changed(self, step: float) -> None:
         """Запоминает выбранный шаг."""
@@ -248,9 +287,13 @@ class OverlayWindow(QWidget):
 
     def _refresh(self) -> None:
         self.movement_tab.update_pose(self._session.pose, self._session.pending_fields())
+        self._refresh_tape()
         pending = len(self._session.pending_fields())
         self.btn_apply.setEnabled(pending > 0)
         self.btn_apply_commit.setEnabled(pending > 0)
+
+    def _refresh_tape(self) -> None:
+        self.measure_tab.update_tape(self._session.tape_points(), self._session.span)
 
 
 def _with_calibration(settings: Settings, calibration: Calibration) -> Settings:
