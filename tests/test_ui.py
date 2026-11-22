@@ -14,6 +14,7 @@ from lsp_overlay.config import Settings  # noqa: E402
 from lsp_overlay.domain.catalog import Catalog, Dimension, ObjectSpec  # noqa: E402
 from lsp_overlay.domain.directions import Direction  # noqa: E402
 from lsp_overlay.domain.fields import FieldKey  # noqa: E402
+from lsp_overlay.domain.movement import MoveFrame  # noqa: E402
 from lsp_overlay.domain.pose import Pose  # noqa: E402
 from lsp_overlay.infrastructure.catalog_store import CatalogStore  # noqa: E402
 from lsp_overlay.infrastructure.config_store import ConfigStore  # noqa: E402
@@ -248,6 +249,29 @@ def test_settings_saved_applies_opacity_and_persists(tmp_path: Path, qt_app: obj
     window.action_settings_saved(settings)
     assert window.windowOpacity() == pytest.approx(1.0)
     assert (tmp_path / "settings.json").exists()
+
+
+def test_move_status_shows_where_the_prop_went(tmp_path: Path, qt_app: object) -> None:
+    """После шага видно, по каким осям и на сколько сдвинулся предмет."""
+    window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
+    window.movement_tab.move_requested.emit(Direction.NORTH.value, 1.0)
+    text = window.lbl_status.text()
+    assert "по осям мира" in text
+    assert "ΔX +0.000" in text
+    assert "ΔY +1.000" in text
+
+
+def test_movement_frame_hint_follows_settings(tmp_path: Path, qt_app: object) -> None:
+    """Подсказка под крестовиной говорит, в каких осях ходят стрелки."""
+    window, _panel = make_window(tmp_path, qt_app, pose=Pose(x=0.0, y=0.0, z=0.0, rz=70.0))
+    window.action_capture()
+    assert "Оси: мир" in window.movement_tab.frame_text()
+    tab = window.settings_tab
+    tab.combo_frame.setCurrentIndex(tab.combo_frame.findData(MoveFrame.PROP.value))
+    window.action_settings_saved(tab._collect())  # noqa: SLF001 - проверяем саму вкладку
+    assert window._settings.move_frame is MoveFrame.PROP
+    assert "Оси: предмет" in window.movement_tab.frame_text()
+    assert "70.0°" in window.movement_tab.frame_text()
 
 
 def test_live_commit_checkbox_toggles_confirmation(tmp_path: Path, qt_app: object) -> None:

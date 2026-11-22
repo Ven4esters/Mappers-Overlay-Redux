@@ -19,6 +19,7 @@ from lsp_overlay.config import Settings
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.formatting import format_angle, format_length
+from lsp_overlay.domain.movement import MoveFrame
 from lsp_overlay.domain.pose import Pose
 from lsp_overlay.ui.keymap import NUMPAD_HINT
 from lsp_overlay.ui.widgets import make_button, make_label, make_number_editor
@@ -103,7 +104,24 @@ class MovementTab(QWidget):
             )
         )
         column.addWidget(make_label(NUMPAD_HINT, muted=True, wrap=True))
+        self.lbl_frame = make_label("", muted=True, wrap=True)
+        column.addWidget(self.lbl_frame)
         return group
+
+    def set_move_frame(self, frame: MoveFrame, yaw: float) -> None:
+        """Пишет, в каких осях сейчас ходят стрелки: это первое, что путает."""
+        if frame is MoveFrame.WORLD:
+            text = (
+                "Оси: мир — ↑ двигает на север (+Y), → на восток (+X), при любом угле предмета. "
+                "Переключается в «Настройках»."
+            )
+        else:
+            text = f"Оси: предмет — ↑ двигает вдоль его длины (угол {yaw:.1f}°), а не на север"
+        self.lbl_frame.setText(text)
+
+    def frame_text(self) -> str:
+        """Строка про оси движения (для тестов)."""
+        return self.lbl_frame.text()
 
     def _build_step_row(self) -> QWidget:
         holder = QWidget()

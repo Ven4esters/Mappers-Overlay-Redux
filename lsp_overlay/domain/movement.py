@@ -3,11 +3,32 @@
 from __future__ import annotations
 
 import math
+from enum import StrEnum
 
 from lsp_overlay.domain.directions import DiagonalMode, Direction, is_diagonal, local_vector
 from lsp_overlay.domain.errors import ValidationError
 from lsp_overlay.domain.geometry import add_scaled, normalize_diagonal, rotation_matrix, transform
 from lsp_overlay.domain.pose import Axis, Pose
+
+
+class MoveFrame(StrEnum):
+    """В каких осях двигают стрелки.
+
+    ``WORLD`` — всегда по сторонам света: `↑` это `+Y` (север), `→` это `+X` (восток),
+    независимо от того, как повёрнут предмет. ``PROP`` — по осям самого предмета: `↑`
+    уводит его «вперёд», вдоль длины, как бы он ни был повёрнут.
+    """
+
+    WORLD = "world"
+    PROP = "prop"
+
+    @property
+    def label(self) -> str:
+        """Название для интерфейса."""
+        return {
+            MoveFrame.WORLD: "Мир: ↑ север (+Y), → восток (+X)",
+            MoveFrame.PROP: "Предмет: ↑ вдоль его длины",
+        }[self]
 
 
 def _validate_step(step: float) -> None:
@@ -40,22 +61,24 @@ def move(
     *,
     diagonal_mode: DiagonalMode = DiagonalMode.SAME_DISTANCE,
     use_tilt: bool = True,
+    frame: MoveFrame = MoveFrame.PROP,
 ) -> Pose:
     """Сдвигает проп на ``step`` метров в направлении ``direction``.
 
     Сдвиг считается в локальных осях предмета и переводится в мировые координаты,
-    поэтому при ``RZ = 90°`` кнопка «вперёд» уводит проп на запад, вдоль его
-    собственной оси, а не в произвольном направлении. При ``use_tilt=False``
-    учитывается только поворот вокруг вертикали (``RZ``), наклоны игнорируются —
-    движение остаётся в плоскости пола.
+    поэтому при ``RZ = 90°`` и ``frame=MoveFrame.PROP`` кнопка «вперёд» уводит проп на запад,
+    вдоль его собственной оси. При ``frame=MoveFrame.WORLD`` поворот пропа не учитывается:
+    `↑` всегда север. При ``use_tilt=False`` учитывается только поворот вокруг вертикали
+    (``RZ``), наклоны игнорируются — движение остаётся в плоскости пола.
     """
     _validate_step(step)
     local = _local_offset(direction, step, diagonal_mode)
-    matrix = (
-        rotation_matrix(pose.rx, pose.ry, pose.rz)
-        if use_tilt
-        else rotation_matrix(0.0, 0.0, pose.rz)
-    )
+    if frame is MoveFrame.WORLD:
+        matrix = rotation_matrix(0.0, 0.0, 0.0)
+    elif use_tilt:
+        matrix = rotation_matrix(pose.rx, pose.ry, pose.rz)
+    else:
+        matrix = rotation_matrix(0.0, 0.0, pose.rz)
     return pose.translated(transform(local, matrix))
 
 

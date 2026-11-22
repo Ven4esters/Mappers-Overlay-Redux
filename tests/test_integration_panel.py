@@ -8,6 +8,7 @@ from lsp_overlay.application.session import MappingSession
 from lsp_overlay.config import PanelTimings, Settings
 from lsp_overlay.domain.directions import Direction
 from lsp_overlay.domain.fields import FieldKey
+from lsp_overlay.domain.movement import MoveFrame
 from lsp_overlay.domain.pose import Axis, Pose
 from lsp_overlay.infrastructure.panel import ClipboardPanel
 
@@ -17,7 +18,9 @@ START = Pose(x=250.5, y=-810.25, z=31.0, rz=0.0)
 AXIS_FIELD = FieldKey.RZ
 
 
-def make_stack(*, drop_select_all: bool = False) -> tuple[MappingSession, FakeLspGame]:
+def make_stack(
+    *, drop_select_all: bool = False, frame: MoveFrame = MoveFrame.WORLD
+) -> tuple[MappingSession, FakeLspGame]:
     calibration = build_calibration()
     clipboard = FakeClipboard()
     game = FakeLspGame(calibration, START, clipboard, drop_select_all=drop_select_all)
@@ -29,7 +32,7 @@ def make_stack(*, drop_select_all: bool = False) -> tuple[MappingSession, FakeLs
         timings=PanelTimings(0.0, 0.0, 0.0, 0.0),
         sleep=lambda _seconds: None,
     )
-    settings = Settings(timings=PanelTimings(0.0, 0.0, 0.0, 0.0))
+    settings = Settings(timings=PanelTimings(0.0, 0.0, 0.0, 0.0), move_frame=frame)
     session = MappingSession(panel, settings)
     return session, game
 
@@ -47,7 +50,7 @@ def test_full_cycle_moves_prop_and_saves_with_f() -> None:
 
 
 def test_rotated_prop_moves_along_its_own_axis() -> None:
-    session, game = make_stack()
+    session, game = make_stack(frame=MoveFrame.PROP)
     session.capture()
     session.rotate(Axis.YAW, 90.0)
     session.apply()
@@ -56,6 +59,18 @@ def test_rotated_prop_moves_along_its_own_axis() -> None:
 
     assert game.pose.x == pytest.approx(250.5 - 2.0, abs=1e-3)
     assert game.pose.y == pytest.approx(-810.25, abs=1e-3)
+
+
+def test_world_frame_ignores_prop_rotation() -> None:
+    session, game = make_stack()
+    session.capture()
+    session.rotate(Axis.YAW, 90.0)
+    session.apply()
+    session.move(Direction.NORTH, 2.0)
+    session.apply()
+
+    assert game.pose.y == pytest.approx(-810.25 + 2.0, abs=1e-3)
+    assert game.pose.x == pytest.approx(250.5, abs=1e-3)
 
 
 def test_lost_select_all_is_caught_and_prop_stays_in_place() -> None:

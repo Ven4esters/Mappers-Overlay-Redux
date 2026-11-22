@@ -30,6 +30,7 @@ from lsp_overlay.domain.errors import DomainError
 from lsp_overlay.domain.fields import FieldKey
 from lsp_overlay.domain.formatting import format_length
 from lsp_overlay.domain.measure import MeasureSlot
+from lsp_overlay.domain.movement import MoveFrame
 from lsp_overlay.domain.pose import Axis, Pose
 from lsp_overlay.infrastructure.catalog_store import CatalogStore
 from lsp_overlay.infrastructure.config_store import ConfigStore
@@ -61,6 +62,18 @@ REPEAT_INTERVAL_MS = 90
 REPEAT_TIMEOUT_S = 0.6
 MAX_LIVE_STEPS = 300
 BUSY_HINT = "Идёт обмен с панелью — не двигайте мышь"
+MOVE_ARROWS: dict[Direction, str] = {
+    Direction.NORTH: "↑",
+    Direction.NORTH_EAST: "↗",
+    Direction.EAST: "→",
+    Direction.SOUTH_EAST: "↘",
+    Direction.SOUTH: "↓",
+    Direction.SOUTH_WEST: "↙",
+    Direction.WEST: "←",
+    Direction.NORTH_WEST: "↖",
+    Direction.UP: "выше",
+    Direction.DOWN: "ниже",
+}
 LIVE_POLL_MS = 250
 KEYS_POLL_MS = 60
 FLASH_MS = 120
@@ -291,12 +304,25 @@ class OverlayWindow(QWidget):
             # бесконечно, ведь отпускания у кнопки нет
             self._live.step_once(target, step)
             return
+        before = self._session.pose
         try:
-            self._session.move(target, step)
+            after = self._session.move(target, step)
         except DomainError as error:
             self._fail(error)
             return
         self._refresh()
+        self._set_status(self._move_report(target, step, before, after), "info")
+
+    def _move_report(self, target: Direction, step: float, before: Pose, after: Pose) -> str:
+        """Показывает, что именно произошло: куда и на сколько сдвинулся предмет."""
+        arrow = MOVE_ARROWS[target]
+        frame = self._settings.move_frame
+        axes = "по осям мира" if frame is MoveFrame.WORLD else "по осям предмета"
+        return (
+            f"{arrow} шаг {step:g} м ({axes}): "
+            f"ΔX {after.x - before.x:+.3f} · ΔY {after.y - before.y:+.3f} → "
+            f"X {after.x:.3f} · Y {after.y:.3f}"
+        )
 
     def action_live_toggled(self, enabled: bool) -> None:
         """Включает и выключает живой режим с копией объекта."""
@@ -604,6 +630,7 @@ class OverlayWindow(QWidget):
         self._live.set_commit(settings.live_commit)
         self._live.set_hold_timeout(settings.live_hold_timeout)
         self.movement_tab.set_step(settings.step)
+        self.movement_tab.set_move_frame(settings.move_frame, self._session.pose.rz)
         self.btn_apply_commit.setText(f"Сохранить {settings.confirm_key.upper()}")
         self._set_status("Настройки сохранены", "success")
 
@@ -687,6 +714,7 @@ class OverlayWindow(QWidget):
 
     def _refresh(self) -> None:
         self.movement_tab.update_pose(self._session.pose, self._session.pending_fields())
+        self.movement_tab.set_move_frame(self._settings.move_frame, self._session.pose.rz)
         self.join_tab.update_pose(self._session.pose)
         self._refresh_tape()
         pending = len(self._session.pending_fields())

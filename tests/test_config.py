@@ -9,6 +9,7 @@ from lsp_overlay.config import (
     Settings,
 )
 from lsp_overlay.domain.fields import FIELD_ORDER
+from lsp_overlay.domain.movement import MoveFrame
 
 
 def test_defaults_are_valid() -> None:
@@ -26,6 +27,12 @@ def test_round_trip_keeps_values() -> None:
     original = Settings(step=0.25, max_jump=35.0, calibration=calibration)
     restored = Settings.from_dict(original.to_dict())
     assert restored == original
+
+
+def test_move_frame_round_trip() -> None:
+    settings = Settings(move_frame=MoveFrame.PROP)
+    assert Settings.from_dict(settings.to_dict()).move_frame is MoveFrame.PROP
+    assert Settings().move_frame is MoveFrame.WORLD
 
 
 def test_serialized_document_has_version() -> None:

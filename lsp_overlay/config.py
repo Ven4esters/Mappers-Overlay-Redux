@@ -13,6 +13,7 @@ from typing import Any, Final
 
 from lsp_overlay.domain.directions import DiagonalMode
 from lsp_overlay.domain.fields import FIELD_ORDER, FieldKey
+from lsp_overlay.domain.movement import MoveFrame
 from lsp_overlay.domain.safety import DEFAULT_MAX_JUMP
 
 SCHEMA_VERSION = 2
@@ -103,6 +104,7 @@ class Settings:
     step_presets: tuple[float, ...] = DEFAULT_STEP_PRESETS
     diagonal_mode: DiagonalMode = DiagonalMode.SAME_DISTANCE
     use_tilt: bool = True
+    move_frame: MoveFrame = MoveFrame.WORLD
     length_decimals: int = 4
     verify_after_paste: bool = True
     max_jump: float = DEFAULT_MAX_JUMP
@@ -154,6 +156,7 @@ class Settings:
             "step_presets": list(self.step_presets),
             "diagonal_mode": self.diagonal_mode.value,
             "use_tilt": self.use_tilt,
+            "move_frame": self.move_frame.value,
             "length_decimals": self.length_decimals,
             "verify_after_paste": self.verify_after_paste,
             "max_jump": self.max_jump,
@@ -199,6 +202,7 @@ class Settings:
             ),
             diagonal_mode=DiagonalMode(data.get("diagonal_mode", DiagonalMode.SAME_DISTANCE.value)),
             use_tilt=bool(data.get("use_tilt", True)),
+            move_frame=MoveFrame(str(data.get("move_frame", MoveFrame.WORLD.value))),
             length_decimals=int(data.get("length_decimals", 4)),
             verify_after_paste=bool(data.get("verify_after_paste", True)),
             max_jump=float(data.get("max_jump", DEFAULT_MAX_JUMP)),
