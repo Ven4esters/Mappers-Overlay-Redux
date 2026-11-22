@@ -138,10 +138,12 @@ def test_join_can_use_width_as_across_size() -> None:
     assert target.y == pytest.approx(2.15 - 2.5 / 2.0)
 
 
-def test_join_requires_measured_across_size() -> None:
-    plate = ObjectSpec(name="Плита", length=4.0, width=0.2)
-    with pytest.raises(ValidationError, match="толщина"):
-        join_pose(BASE, plate, plate, JoinRequest(across=AcrossField.THICKNESS))
+def test_flat_object_joins_end_to_end() -> None:
+    """Плоская стена без толщины стыкуется торцом в торец по своей плоскости."""
+    plate = ObjectSpec(name="Плита", length=2.73, width=2.5, thickness=0.0)
+    x, y = local_offset(plate, plate, corner(90.0, JoinSide.RIGHT))
+    assert x == pytest.approx(1.365)
+    assert y == pytest.approx(1.365)
 
 
 def test_corner_follows_rotated_base() -> None:
@@ -212,10 +214,10 @@ def test_unmeasured_object_is_rejected() -> None:
         join_pose(BASE, bare, WALL, corner())
 
 
-def test_missing_width_is_rejected_when_width_is_chosen() -> None:
-    thin = ObjectSpec(name="Линия", length=2.0)
-    with pytest.raises(ValidationError, match="ширина"):
-        join_pose(BASE, WALL, thin, JoinRequest(across=AcrossField.WIDTH))
+def test_join_requires_measured_length() -> None:
+    point = ObjectSpec(name="Точка", length=0.0, width=2.0, thickness=0.1)
+    with pytest.raises(ValidationError, match="длина"):
+        join_pose(BASE, WALL, point, JoinRequest(across=AcrossField.WIDTH))
 
 
 def test_local_offset_is_planar_and_finite() -> None:

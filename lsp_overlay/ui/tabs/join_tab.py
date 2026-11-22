@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QGridLayout,
     QGroupBox,
@@ -163,6 +164,14 @@ class JoinTab(QWidget):
         grid = QGridLayout(group)
         grid.setHorizontalSpacing(6)
         grid.setVerticalSpacing(3)
+        self.chk_refresh = QCheckBox("Перечитывать A из панели")
+        self.chk_refresh.setToolTip(
+            "По умолчанию A берётся из последнего «Считать»: в момент установки в панели "
+            "выделен уже B, и чтение вернуло бы его координаты. Включайте только если "
+            "панель действительно показывает A (например, вы его повернули)."
+        )
+        self.chk_refresh.setContentsMargins(0, 4, 0, 0)
+        self.chk_refresh.toggled.connect(self._on_geometry_changed)
         self.lbl_base = make_label(EMPTY_TEXT, muted=True, wrap=True)
         self._value_labels: dict[str, QLabel] = {}
         for row, (key, title) in enumerate((("x", "X"), ("y", "Y"), ("rz", "RZ"))):
@@ -172,9 +181,11 @@ class JoinTab(QWidget):
             value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self._value_labels[key] = value
             grid.addWidget(value, row, 1)
+        rows = len(self._value_labels)
         self.lbl_shift = make_label(EMPTY_TEXT, muted=True, wrap=True)
-        grid.addWidget(self.lbl_shift, len(self._value_labels), 0, 1, 2)
-        grid.addWidget(self.lbl_base, len(self._value_labels) + 1, 0, 1, 2)
+        grid.addWidget(self.lbl_shift, rows, 0, 1, 2)
+        grid.addWidget(self.lbl_base, rows + 1, 0, 1, 2)
+        grid.addWidget(self.chk_refresh, rows + 2, 0, 1, 2)
         return group
 
     def _build_actions(self) -> QWidget:
@@ -323,12 +334,18 @@ class JoinTab(QWidget):
         """Строка сдвига в осях A (для тестов)."""
         return self.lbl_shift.text()
 
+    def refresh_base(self) -> bool:
+        """Перечитывать ли позу A из панели перед стыком."""
+        return self.chk_refresh.isChecked()
+
     def _update_base_line(self) -> None:
         pose = self._pose
-        self.lbl_base.setText(
-            f"A сейчас: X {format_length(pose.x, 2)} · Y {format_length(pose.y, 2)} · "
-            f"угол {pose.rz:.1f}° — при установке угол перечитывается из панели"
-        )
+        where = f"X {format_length(pose.x, 2)} · Y {format_length(pose.y, 2)} · угол {pose.rz:.1f}°"
+        if self.refresh_base():
+            tail = "A перечитан из панели — в панели должен стоять A, а не B"
+        else:
+            tail = "A из последнего «Считать» — панель не перечитывается, в ней сейчас B"
+        self.lbl_base.setText(f"A сейчас: {where} — {tail}")
 
     def _update_across_value(self, first: ObjectSpec | None, second: ObjectSpec | None) -> None:
         field = AcrossField(self.combo_across.currentData())
@@ -337,8 +354,11 @@ class JoinTab(QWidget):
             self.lbl_across.setText(EMPTY_TEXT)
             return
         value = spec.dimension(field.dimension)
-        if value <= 0.0:
+        if value < 0.0:
             self.lbl_across.setText(f"не измерено ({field.label.lower()})")
+            return
+        if value == 0.0:
+            self.lbl_across.setText("0.000 м — плоскость, торец в торец")
             return
         self.lbl_across.setText(f"{format_length(value, 3)} м")
 

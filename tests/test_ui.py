@@ -106,8 +106,8 @@ def test_join_swap_makes_second_object_the_base(tmp_path: Path, qt_app: object) 
     assert window.join_tab.selected_specs()[1] == first
 
 
-def test_join_reads_base_pose_itself(tmp_path: Path, qt_app: object) -> None:
-    """Без «Считать» стык сам читает A из панели — угол берётся настоящий."""
+def test_join_requires_capture_first(tmp_path: Path, qt_app: object) -> None:
+    """Без «Считать» стык не ставится: неизвестно, где стоит A."""
     settings = Settings(calibration=build_calibration())
     panel = FakeGamePanel(Pose(x=100.0, y=200.0, z=30.0, rz=25.0))
     window = OverlayWindow(
@@ -117,8 +117,41 @@ def test_join_reads_base_pose_itself(tmp_path: Path, qt_app: object) -> None:
     window.join_tab.combo_first.setCurrentIndex(0)
     window.join_tab.combo_second.setCurrentIndex(0)
     window.join_tab.place_requested.emit()
-    assert panel.writes
-    assert panel.pose.rz == pytest.approx(-65.0)
+    assert not panel.writes
+    assert "Считать" in window.lbl_status.text()
+
+
+def test_join_keeps_captured_base_even_if_panel_shows_other_object(
+    tmp_path: Path, qt_app: object
+) -> None:
+    """В панели после «Считать» стоит B — стык всё равно идёт от A."""
+    window, panel = make_window(
+        tmp_path, qt_app, pose=Pose(x=-1847.342, y=420.077, z=128.316, rz=70.0)
+    )
+    window.action_capture()
+    panel.pose = Pose(x=-1847.792, y=413.718, z=128.456, rz=0.0)
+    window.action_save_object(ObjectSpec(name="Стена March", length=2.73, width=2.5, thickness=0.0))
+    window.join_tab.combo_first.setCurrentIndex(0)
+    window.join_tab.combo_second.setCurrentIndex(0)
+    window.join_tab.place_requested.emit()
+    assert "угол A 70.0° → B -20.0°" in window.lbl_status.text()
+    assert panel.pose.x == pytest.approx(-1848.158, abs=1e-3)
+
+
+def test_join_can_reread_panel_pose_by_checkbox(tmp_path: Path, qt_app: object) -> None:
+    """Галочка «Перечитывать A из панели» включает явное чтение."""
+    window, panel = make_window(tmp_path, qt_app, pose=Pose(x=1.0, y=2.0, z=3.0, rz=0.0))
+    window.action_capture()
+    panel.pose = Pose(x=1.0, y=2.0, z=3.0, rz=70.0)
+    window.action_save_object(ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2))
+    window.join_tab.combo_first.setCurrentIndex(0)
+    window.join_tab.combo_second.setCurrentIndex(0)
+    assert not window.join_tab.refresh_base()
+    assert "из последнего «Считать»" in window.join_tab.base_line()
+    window.join_tab.chk_refresh.setChecked(True)
+    assert "перечитан из панели" in window.join_tab.base_line()
+    window.join_tab.place_requested.emit()
+    assert "угол A 70.0° → B -20.0°" in window.lbl_status.text()
 
 
 def test_join_tab_shows_base_angle_and_across_value(tmp_path: Path, qt_app: object) -> None:
@@ -259,6 +292,7 @@ def test_join_switches_across_to_width(tmp_path: Path, qt_app: object) -> None:
     assert panel.pose.x == pytest.approx(250.5 + 0.05 + 2.0)
     assert panel.pose.y == pytest.approx(-810.25 + 2.0 - 0.05)
     panel.pose = START  # возвращаем A на место: следующая попытка — снова от A
+    window.action_capture()
     index = window.join_tab.combo_across.findData("width")
     window.join_tab.combo_across.setCurrentIndex(index)
     window.join_tab.place_requested.emit()

@@ -538,9 +538,11 @@ class OverlayWindow(QWidget):
         if first is None or second is None:
             self._set_status("Выберите оба предмета в списках «Стык»", "warning")
             return
-        self._busy("Читаю угол A и ставлю второй предмет — не двигайте мышь")
+        self._busy("Считаю стык и ставлю второй предмет — не двигайте мышь")
         try:
-            result = self._session.place_join(first, second, self.join_tab.request())
+            result = self._session.place_join(
+                first, second, self.join_tab.request(), refresh=self.join_tab.refresh_base()
+            )
         except DomainError as error:
             self._fail(error)
             return

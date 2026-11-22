@@ -222,21 +222,35 @@ def test_session_reports_wrong_axis_before_recording() -> None:
     assert session.measurement_issue(Dimension.LENGTH) is None
 
 
-def test_place_join_rereads_base_angle_from_panel() -> None:
-    """Угол A берётся из панели: предмет могли повернуть после «Считать»."""
+def test_place_join_can_reread_base_from_panel() -> None:
+    """Явное перечитывание: угол A берётся из панели, если там стоит он."""
     session, panel = make_session()
     panel.pose = Pose(x=PANEL_POSE.x, y=PANEL_POSE.y, z=PANEL_POSE.z, rz=70.0)
     wall = ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2)
-    result = session.place_join(wall, wall, JoinRequest())
+    result = session.place_join(wall, wall, JoinRequest(), refresh=True)
     assert result.pose.rz == pytest.approx(-20.0)
     base = session.last_join_base
     assert base is not None
     assert base.rz == pytest.approx(70.0)
 
 
-def test_place_join_can_skip_refresh() -> None:
-    session, panel = make_session()
-    panel.pose = Pose(x=PANEL_POSE.x, y=PANEL_POSE.y, z=PANEL_POSE.z, rz=70.0)
+def test_place_join_keeps_captured_base_when_panel_holds_other_object() -> None:
+    """В панели уже стоит B — стык всё равно считается от считанного A."""
+    session, panel = make_session(Pose(x=-1847.342, y=420.077, z=128.316, rz=70.0))
+    panel.pose = Pose(x=-1847.792, y=413.718, z=128.456, rz=0.0)
+    wall = ObjectSpec(name="Стена March 0-64", length=2.73, width=2.5, thickness=0.0)
+    result = session.place_join(wall, wall, JoinRequest(scheme=JoinScheme.CORNER))
+    assert result.pose.rz == pytest.approx(-20.0)
+    assert result.pose.x == pytest.approx(-1848.158, abs=1e-3)
+    assert result.pose.y == pytest.approx(421.827, abs=1e-3)
+    base = session.last_join_base
+    assert base is not None
+    assert base.rz == pytest.approx(70.0)
+
+
+def test_place_join_requires_capture() -> None:
+    panel = FakeGamePanel(Pose(x=1.0, y=2.0, z=3.0))
+    session = MappingSession(panel, Settings())
     wall = ObjectSpec(name="Стена", length=4.0, width=2.5, thickness=0.2)
-    result = session.place_join(wall, wall, JoinRequest(), refresh=False)
-    assert result.pose.rz == pytest.approx(-90.0)
+    with pytest.raises(PanelUnavailableError, match="Считать"):
+        session.place_join(wall, wall, JoinRequest())

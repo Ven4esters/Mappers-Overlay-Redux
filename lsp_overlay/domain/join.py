@@ -117,11 +117,10 @@ def _ensure_measurable(spec: ObjectSpec, field: AcrossField) -> None:
         raise ValidationError(
             f"у предмета «{spec.name}» не измерена длина — без неё стык не посчитать"
         )
-    if across_of(spec, field) <= ACROSS_EPSILON:
-        raise ValidationError(
-            f"у предмета «{spec.name}» не измерено «{field.label.lower()}» — "
-            "без него стык не посчитать"
-        )
+    across = across_of(spec, field)
+    if across < -ACROSS_EPSILON:
+        raise ValidationError(f"у предмета «{spec.name}» отрицательный поперечный размер")
+    # Ноль допустим: плоская стена без толщины стыкуется торец в торец по своей плоскости.
 
 
 def local_offset(
