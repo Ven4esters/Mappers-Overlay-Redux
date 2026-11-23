@@ -23,7 +23,14 @@ from map_overlay.trace import JOURNAL
 from map_overlay.ui.tabs.movement_tab import MovementTab
 from map_overlay.ui.window import MainWindow
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtWidgets import QApplication, QCheckBox, QDoubleSpinBox, QLineEdit, QSpinBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QDoubleSpinBox,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+)
 
 from fakes import FakeCursor, FakeHotkeySource, FakePanel, FakeSizeStore, FakeStore
 
@@ -1042,14 +1049,37 @@ def test_sizes_tab_replaces_same_name(qt_app: QApplication) -> None:
     assert store.library.items[0].length == pytest.approx(3.0)
 
 
-def test_sizes_tab_moves_item_into_form(qt_app: QApplication) -> None:
+def test_sizes_row_has_no_form_button(qt_app: QApplication) -> None:
+    """Кнопки «В форму» больше нет: поля заполняет карандаш."""
     store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0)))
     window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
-    window.sizes.press_edit("Ящик")
-    name, length, width = window.sizes.form_values()
-    assert name == "Ящик"
-    assert float(length) == pytest.approx(2.0)
-    assert float(width) == pytest.approx(1.0)
+    texts = [item.text() for item in window.sizes.findChildren(QPushButton)]
+    assert "В форму" not in texts
+    assert "Удалить" not in texts
+
+
+def test_sizes_row_uses_trash_icon(qt_app: QApplication) -> None:
+    """Удаление — кнопка-значок корзины: без подписи, с иконкой и подсказкой."""
+    store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    trash = window.sizes.trash("Ящик")
+    assert trash is not None
+    assert trash.text() == ""
+    assert not trash.icon().isNull()
+    assert trash.toolTip() == "Удалить предмет из библиотеки"
+    assert trash.accessibleName() == "Удалить"
+
+
+def test_sizes_trash_click_deletes_item(qt_app: QApplication) -> None:
+    """Нажатие на корзину убирает предмет из библиотеки и со списка."""
+    store = FakeSizeStore(
+        _library(ObjectSize(name="Ящик", length=2.0, width=1.0), ObjectSize("Бочка", 1.0, 1.0))
+    )
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_delete("Ящик")
+    assert [item.name for item in store.library.items] == ["Бочка"]
+    assert window.sizes.row_names() == ["Бочка"]
+    assert window.sizes.trash("Ящик") is None
 
 
 def test_sizes_tab_deletes_item(qt_app: QApplication) -> None:

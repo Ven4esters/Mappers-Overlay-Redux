@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QLocale, QPointF, Qt, Signal
+from PySide6.QtCore import QLocale, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QDoubleValidator, QIcon, QPainter, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -42,8 +42,8 @@ EDIT_HINT = (
     "Правка «{name}»: измените название, длину или ширину и нажмите «Сохранить "
     "изменения». «Очистить» вернёт форму в режим добавления."
 )
-PENCIL_ICON_PX = 24
-PENCIL_BUTTON_PX = 30
+ICON_PX = 24
+ICON_BUTTON_PX = 30
 # Размер рисунка карандаша; на экране он показывается вдвое мельче."
 
 
@@ -67,6 +67,7 @@ class SizesTab(QWidget):
         self._search_engine = NameSearch()
         self._editing: str | None = None
         self._pencils: dict[str, QPushButton] = {}
+        self._trash_buttons: dict[str, QPushButton] = {}
         self._build()
         self._refresh()
 
@@ -203,15 +204,6 @@ class SizesTab(QWidget):
         )
         self._form_hint.setText(EDIT_HINT.format(name=self._editing))
 
-    def _edit(self, name: str) -> None:
-        """Перенести габариты предмета в поля (кнопка «В форму»), не меняя запись."""
-        item = self._library.find(name)
-        if item is None:
-            return
-        self._name.setText(item.name)
-        self._length.setText(_text(item.length))
-        self._width.setText(_text(item.width))
-
     def _delete(self, name: str) -> None:
         item = self._library.find(name)
         if item is None:
@@ -263,13 +255,17 @@ class SizesTab(QWidget):
         """Нажать «Очистить» — выйти из правки и обнулить поля (для тестов)."""
         self._clear_button.click()
 
-    def press_delete(self, name: str) -> None:
-        """Удалить предмет по названию (для тестов и окна)."""
-        self._delete(name)
+    def trash(self, name: str) -> QPushButton | None:
+        """Кнопка-корзина строки (для тестов)."""
+        return self._trash_buttons.get(name)
 
-    def press_edit(self, name: str) -> None:
-        """Перенести габариты предмета в форму (для тестов)."""
-        self._edit(name)
+    def press_delete(self, name: str) -> None:
+        """Нажать корзину в строке предмета (для тестов и окна)."""
+        item = self._trash_buttons.get(name)
+        if item is not None:
+            item.click()
+            return
+        self._delete(name)
 
     def press_pencil(self, name: str) -> None:
         """Нажать карандаш в строке предмета — взять запись в правку (для тестов)."""
@@ -323,6 +319,7 @@ class SizesTab(QWidget):
         if self._rows_layout is None:
             return
         self._pencils.clear()
+        self._trash_buttons.clear()
         while self._rows_layout.count():
             entry = self._rows_layout.takeAt(0)
             widget = entry.widget()
@@ -361,27 +358,40 @@ class SizesTab(QWidget):
         )
         choose.setEnabled(not active)
         choose.clicked.connect(lambda _checked=False, name=item.name: self._activate(name))
-        edit = button("В форму", widget_role="small", tooltip="Перенести значения в поля выше")
-        edit.clicked.connect(lambda _checked=False, name=item.name: self._edit(name))
-        pencil = button("", widget_role="small", tooltip="Править название и габариты")
-        pencil.setIcon(_pencil_icon(self.palette().color(QPalette.ColorRole.Text)))
-        pencil.setAccessibleName("Править")
-        pencil.setProperty("item_name", item.name)
-        pencil.setFixedSize(PENCIL_BUTTON_PX, PENCIL_BUTTON_PX)
+        pencil = self._icon_button(
+            tooltip="Править название и габариты",
+            accessible="Править",
+            icon=_pencil_icon(self.palette().color(QPalette.ColorRole.Text)),
+            name=item.name,
+        )
         pencil.clicked.connect(lambda _checked=False, name=item.name: self._begin_edit(name))
-        remove = button("Удалить", widget_role="small", tooltip="Убрать предмет из библиотеки")
-        remove.clicked.connect(lambda _checked=False, name=item.name: self._delete(name))
+        trash = self._icon_button(
+            tooltip="Удалить предмет из библиотеки",
+            accessible="Удалить",
+            icon=_trash_icon(self.palette().color(QPalette.ColorRole.Text)),
+            name=item.name,
+        )
+        trash.clicked.connect(lambda _checked=False, name=item.name: self._delete(name))
         row.addWidget(choose)
-        row.addWidget(edit)
         row.addWidget(pencil)
-        row.addWidget(remove)
+        row.addWidget(trash)
         self._pencils[item.name] = pencil
+        self._trash_buttons[item.name] = trash
         return host
+
+    def _icon_button(self, *, tooltip: str, accessible: str, icon: QIcon, name: str) -> QPushButton:
+        """Кнопка-значок размером с иконку: подпись заменена рисунком и подсказкой."""
+        item = button("", widget_role="small", tooltip=tooltip)
+        item.setIcon(icon)
+        item.setAccessibleName(accessible)
+        item.setProperty("item_name", name)
+        item.setFixedSize(ICON_BUTTON_PX, ICON_BUTTON_PX)
+        return item
 
 
 def _pencil_icon(color: QColor) -> QIcon:
     """Нарисовать карандаш: иконка не зависит от шрифтов и значков системы."""
-    size = PENCIL_ICON_PX
+    size = ICON_PX
     # Рисуем в логических точках: pixmap с devicePixelRatio 2 сам удвоит разрешение для
     # экранов HiDPI. Дополнительный масштаб здесь не нужен — иначе рисунок обрежется.
     pixmap = QPixmap(size * 2, size * 2)
@@ -411,6 +421,36 @@ def _pencil_icon(color: QColor) -> QIcon:
     )
     painter.drawPolygon(body)
     painter.drawPolygon(cap)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _trash_icon(color: QColor) -> QIcon:
+    """Нарисовать корзину: иконка не зависит от шрифтов и системных наборов значков."""
+    size = ICON_PX
+    pixmap = QPixmap(size * 2, size * 2)
+    pixmap.setDevicePixelRatio(2.0)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(color)
+    scale = size / 24.0
+
+    def polygon(points: list[tuple[float, float]]) -> QPolygonF:
+        return QPolygonF([QPointF(x * scale, y * scale) for x, y in points])
+
+    painter.drawPolygon(polygon([(5.0, 5.0), (19.0, 5.0), (19.0, 7.5), (5.0, 7.5)]))
+    painter.drawPolygon(polygon([(9.0, 2.5), (15.0, 2.5), (15.0, 5.0), (9.0, 5.0)]))
+    painter.drawPolygon(polygon([(6.5, 8.5), (17.5, 8.5), (16.5, 21.0), (7.5, 21.0)]))
+    # Рёбра корзины вырезаем: сплошной силуэт в 16 px читается хуже.
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+    painter.fillRect(
+        QRectF(10.0 * scale, 10.5 * scale, 1.2 * scale, 8.0 * scale), Qt.GlobalColor.transparent
+    )
+    painter.fillRect(
+        QRectF(13.0 * scale, 10.5 * scale, 1.2 * scale, 8.0 * scale), Qt.GlobalColor.transparent
+    )
     painter.end()
     return QIcon(pixmap)
 
