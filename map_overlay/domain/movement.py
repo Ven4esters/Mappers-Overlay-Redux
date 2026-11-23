@@ -44,7 +44,8 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     вперёд — ``X`` в плюс, влево — ``Y`` в плюс.
 
     Диагональ — по случаю: в горизонтали без наклона, в плоскости ``Y/Z`` при одном
-    ``RX`` и ``Rx(RX)·Ry(RY)`` при обоих углах (см. ``_diagonal``).
+    ``RX`` и ``Rx(RX)·Ry(RY)`` при обоих углах — кроме пары ``Num 7/3``, у которой и при
+    двух углах работает формула плоскости ``Y/Z`` (см. ``_diagonal``).
 
     С ``tilt=True`` (в интерфейсе — режим высоты, клавиша ``Alt``) меняется только
     смысл клавиш «вперёд-назад»: ``Num 8`` поднимает предмет по локальной оси ``Z``
@@ -120,12 +121,18 @@ def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
        Num 7 и Num 3 (ax·ay = +1):   ΔY = ay · k · cos RX,   ΔZ = ax · k · sin RX
        ```
 
-    3. **Наклонены оба угла** (``RX ≠ 0`` и ``RY ≠ 0``) — формула 1.6.2 с ``L = шаг``:
+    3. **Наклонены оба угла** (``RX ≠ 0`` и ``RY ≠ 0``) — для пары ``Num 9/1`` формула
+       1.6.2 с ``L = шаг``; у пары ``Num 7/3`` остаётся формула случая 2 (``RY`` в неё
+       не входит, ``X`` не меняется, длина ``шаг/√2``) — так задал заказчик:
 
        ```
-       ΔX = ax · L · sin RY
-       ΔY = ay · L · sin RX · cos RY
-       ΔZ = ax · L · cos RX · cos RY
+       Num 9 и Num 1:  ΔX = ax · L · sin RY
+                       ΔY = ay · L · sin RX · cos RY
+                       ΔZ = ax · L · cos RX · cos RY          L = шаг
+
+       Num 7 и Num 3:  ΔX = 0
+                       ΔY = ay · (шаг/√2) · cos RX
+                       ΔZ = ax · (шаг/√2) · sin RX
        ```
 
     ``ax = ±1`` — клавиша «вперёд/назад» (она же «вверх/вниз»), ``ay = ±1`` —
@@ -134,7 +141,9 @@ def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
     ax, ay = direction.axes
     if pose.rx == 0.0:
         return _flat_diagonal(ax, ay)
-    if pose.ry == 0.0:
+    # Пара Num 7/3 и при RY ≠ 0 считается по формуле плоскости Y/Z (эталон 1.8.2):
+    # в формуле заказчика для этой пары RY не участвует и X не меняется.
+    if pose.ry == 0.0 or ax * ay > 0:
         return _rx_diagonal(ax, ay, pose.rx)
     return _rx_ry_diagonal(ax, ay, pose.rx, pose.ry)
 
@@ -191,6 +200,9 @@ def _rx_ry_diagonal(ax: int, ay: int, rx: float, ry: float) -> tuple[float, floa
     ΔY = ay · L · sin RX · cos RY
     ΔZ = ax · L · cos RX · cos RY          L = шаг
     ```
+
+    Так считаются только клавиши пары ``Num 9/1``: у пары ``Num 7/3`` при ``RY ≠ 0``
+    остаётся формула плоскости ``Y/Z`` (см. ``_diagonal``).
 
     Эталон заказчика: ``RX = 55°``, ``RY = 17°``, шаг 3.0 →
     ``(+0.877, −2.350, +1.646)``; второй — ``RX = 41.5°``, ``RY = 22.3°`` →

@@ -51,6 +51,26 @@ def reference_step(
     return reference_step_2d(direction, rx, ry, step)
 
 
+#: Задание 1.8.2: ``RX = 55°``, ``RY = 17°``, шаг 3 м — точка заказчика для пары 7-3.
+RX_RY_LEFT_POSE = Pose(x=-1849.342, y=416.528, z=128.826, rx=55.0, ry=17.0)
+
+
+@pytest.mark.parametrize(
+    ("direction", "expected"),
+    [
+        (Direction.FORWARD_LEFT, (417.745, 130.564)),
+        (Direction.BACK_RIGHT, (415.311, 127.088)),
+    ],
+)
+def test_user_example_for_the_left_pair_with_two_angles(
+    direction: Direction, expected: tuple[float, float]
+) -> None:
+    """``RX = 55°``, ``RY = 17°``, шаг 3 м: у пары 7-3 работает формула плоскости ``Y/Z``."""
+    result = shifted(RX_RY_LEFT_POSE, direction, 3.0)
+    assert result.x == RX_RY_LEFT_POSE.x
+    assert (result.y, result.z) == expected
+
+
 #: Задание 1.8.1: ``RX = 76°``, шаг 3 м — точка заказчика для пар 9-1 и 7-3.
 RX76_POSE = Pose(x=-1850.403, y=416.221, z=130.544, rx=76.0)
 
@@ -78,9 +98,15 @@ RY_POSE = Pose(x=-1849.342, y=416.528, z=128.826, rx=55.0, ry=17.0)
 def reference_step_2d(
     direction: Direction, rx: float, ry: float, step: float
 ) -> tuple[float, float, float]:
-    """Формула задания: ``ΔX = ax·L·sin RY``, ``ΔY = ay·L·sin RX·cos RY``,
-    ``ΔZ = ax·L·cos RX·cos RY`` при ``L = шаг``."""
+    """Формула задания для двух углов — по паре клавиш.
+
+    * ``Num 9/1``: ``ΔX = ax·L·sin RY``, ``ΔY = ay·L·sin RX·cos RY``,
+      ``ΔZ = ax·L·cos RX·cos RY`` при ``L = шаг``;
+    * ``Num 7/3``: остаётся формула плоскости ``Y/Z`` (``RY`` не участвует).
+    """
     ax, ay = direction.axes
+    if ax * ay > 0:  # пара Num 7/3
+        return reference_step(direction, rx, 0.0, step)
     arm = step
     tx, ty = math.radians(rx), math.radians(ry)
     return (
@@ -200,15 +226,29 @@ def test_diagonal_follows_rx_and_ry(direction: Direction, rx: float, ry: float) 
 
 @pytest.mark.parametrize("ry", [-90.0, -37.0, 17.0, 45.0, 90.0])
 @pytest.mark.parametrize("rx", [-55.0, 12.5, 37.0, 55.0, 90.0])
-@pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
+@pytest.mark.parametrize("direction", [Direction.FORWARD_RIGHT, Direction.BACK_LEFT])
 def test_diagonal_length_is_the_full_step_with_both_angles(
     direction: Direction, rx: float, ry: float
 ) -> None:
-    """Случай «оба угла»: поворот вектор не растягивает — длина равна шагу."""
+    """Пара ``Num 9/1`` при двух углах: поворот вектор не растягивает — длина ``шаг``."""
     pose = Pose(x=0.0, y=0.0, z=0.0, rx=rx, ry=ry)
     result = shifted(pose, direction, 2.0)
     distance = math.dist((result.x, result.y, result.z), (pose.x, pose.y, pose.z))
     assert distance == pytest.approx(2.0, abs=0.003)
+
+
+@pytest.mark.parametrize("ry", [-37.0, 17.0, 45.0])
+@pytest.mark.parametrize("rx", [-55.0, 12.5, 37.0, 55.0])
+@pytest.mark.parametrize("direction", [Direction.FORWARD_LEFT, Direction.BACK_RIGHT])
+def test_left_pair_keeps_the_plane_step_with_both_angles(
+    direction: Direction, rx: float, ry: float
+) -> None:
+    """Пара ``Num 7/3`` при двух углах идёт по формуле плоскости ``Y/Z``: длина ``шаг/√2``."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, rx=rx, ry=ry)
+    result = shifted(pose, direction, 2.0)
+    assert result.x == pose.x
+    distance = math.dist((result.y, result.z), (pose.y, pose.z))
+    assert distance == pytest.approx(2.0 / math.sqrt(2.0), abs=0.003)
 
 
 @pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
@@ -241,12 +281,13 @@ def test_diagonal_depth_follows_the_sign_of_ry(direction: Direction) -> None:
 
 
 def test_up_diagonal_goes_into_plus_x_and_down_diagonal_into_minus_x() -> None:
-    """С двумя углами «вверх-*» уходят вперёд, «вниз-*» — назад."""
+    """С двумя углами пара ``Num 9/1`` уходит по глубине: «вверх-*» вперёд, «вниз-*» назад."""
     pose = Pose(x=0.0, y=0.0, z=0.0, rx=37.0, ry=17.0)
     assert shifted(pose, Direction.FORWARD_RIGHT, 1.0).x > 0
-    assert shifted(pose, Direction.FORWARD_LEFT, 1.0).x > 0
-    assert shifted(pose, Direction.BACK_RIGHT, 1.0).x < 0
     assert shifted(pose, Direction.BACK_LEFT, 1.0).x < 0
+    # У пары Num 7/3 глубина не меняется даже при RY ≠ 0 (формула заказчика 1.8.2).
+    assert shifted(pose, Direction.FORWARD_LEFT, 1.0).x == 0.0
+    assert shifted(pose, Direction.BACK_RIGHT, 1.0).x == 0.0
 
 
 @pytest.mark.parametrize("ry", [2.5, 17.0, 37.0, 60.0, 89.0])
