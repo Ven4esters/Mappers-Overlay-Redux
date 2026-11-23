@@ -83,8 +83,9 @@ def test_diagonal_step_rotates_with_the_object() -> None:
     arm = 1.0 / math.sqrt(2.0)
     assert result.written == (Field.Y, Field.Z)
     assert result.pose.x == pytest.approx(10.0, abs=0.001)
-    assert result.pose.y == pytest.approx(20.0 - arm * math.sin(angle), abs=0.001)
-    assert result.pose.z == pytest.approx(30.0 - arm * math.cos(angle), abs=0.001)
+    # ``Num 3`` — левая пара: у неё ``cos`` у ``Y`` и ``sin`` у ``Z``.
+    assert result.pose.y == pytest.approx(20.0 - arm * math.cos(angle), abs=0.001)
+    assert result.pose.z == pytest.approx(30.0 - arm * math.sin(angle), abs=0.001)
 
 
 def test_diagonal_step_follows_rx_and_ry() -> None:
@@ -197,7 +198,7 @@ def test_alt_mode_keeps_the_diagonal_step() -> None:
     arm = 1.0 / math.sqrt(2.0)
     assert result.written == (Field.Y, Field.Z)
     assert panel.pose().x == pytest.approx(10.0, abs=0.001)
-    assert panel.pose().y == pytest.approx(20.0 + arm * math.sin(math.radians(30.0)), abs=0.001)
+    assert panel.pose().y == pytest.approx(20.0 + arm * math.cos(math.radians(30.0)), abs=0.001)
 
 
 def test_plain_step_keeps_height() -> None:

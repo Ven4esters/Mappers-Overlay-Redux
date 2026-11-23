@@ -85,8 +85,9 @@ def test_diagonal_arrow_rotates_with_the_object(qt_app: QApplication) -> None:
     arm = 0.5 / math.sqrt(2.0)
     assert panel.written_fields == [Field.Y, Field.Z]
     assert panel.pose().x == pytest.approx(START.x, abs=0.001)
-    assert panel.pose().y == pytest.approx(START.y - arm * math.sin(angle), abs=0.001)
-    assert panel.pose().z == pytest.approx(START.z - arm * math.cos(angle), abs=0.001)
+    # ``Num 3`` из левой пары: ``cos`` у ``Y``, ``sin`` у ``Z`` (эталоны 1.8.1).
+    assert panel.pose().y == pytest.approx(START.y - arm * math.cos(angle), abs=0.001)
+    assert panel.pose().z == pytest.approx(START.z - arm * math.sin(angle), abs=0.001)
 
 
 def test_diagonal_arrow_follows_rx_and_ry(qt_app: QApplication) -> None:

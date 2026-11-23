@@ -112,12 +112,12 @@ def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
        ``ΔY = ay·(шаг/√2)``, ``ΔZ = ax·(шаг/√2)``, ``ΔX = 0``. ``Num 9`` уводит
        вправо (``−Y``) и вверх (``+Z``) на 45°; ``RZ`` и ``RY`` здесь не участвуют.
     2. **Наклонён только ``RX``** (``RX ≠ 0``, ``RY = 0``) — поворот в плоскости
-       ``Y/Z``, ``X`` не меняется (формула 1.5.4, ``k = шаг/√2``):
+       ``Y/Z``, ``X`` не меняется (``k = шаг/√2``). У каждой пары клавиш своя
+       тригонометрия — эталоны заказчика 1.8.1:
 
        ```
-       ΔX = 0
-       ΔY = ay · k · sin RX
-       ΔZ = ax · k · cos RX
+       Num 9 и Num 1 (ax·ay = −1):   ΔY = ay · k · sin RX,   ΔZ = ax · k · cos RX
+       Num 7 и Num 3 (ax·ay = +1):   ΔY = ay · k · cos RX,   ΔZ = ax · k · sin RX
        ```
 
     3. **Наклонены оба угла** (``RX ≠ 0`` и ``RY ≠ 0``) — формула 1.6.2 с ``L = шаг``:
@@ -158,17 +158,29 @@ def _flat_diagonal(ax: int, ay: int) -> tuple[float, float, float]:
 
 
 def _rx_diagonal(ax: int, ay: int, rx: float) -> tuple[float, float, float]:
-    """Случай 2 (``RX ≠ 0``, ``RY = 0``): поворот в плоскости ``Y/Z`` — формула 1.5.4.
+    """Случай 2 (``RX ≠ 0``, ``RY = 0``): поворот в плоскости ``Y/Z`` — по паре клавиш.
+
+    Пары заданы заказчиком, ``k = шаг/√2``, ``ΔX = 0``:
 
     ```Delta
-    ΔY = ay · (шаг/√2) · sin RX,   ΔZ = ax · (шаг/√2) · cos RX,   ΔX = 0
+    Num 9 и Num 1 (ax·ay = −1):   ΔY = ay · k · sin RX,   ΔZ = ax · k · cos RX
+    Num 7 и Num 3 (ax·ay = +1):   ΔY = ay · k · cos RX,   ΔZ = ax · k · sin RX
     ```
 
-    Эталон заказчика: ``RX = 37°``, шаг 2.0 → ``ΔY = −0.851``, ``ΔZ = +1.129``.
+    Угол поворота у пар разный: при ``RX = 76°`` и шаге 3 ``Num 9`` уходит вправо на
+    2.058 и вверх на 0.513, а ``Num 3`` — вправо на 0.513 и вниз на 2.058. Длина шага
+    у обеих пар одна: ``k``.
+
+    Эталоны: ``RX = 37°``, шаг 2.0, ``Num 9`` → ``ΔY = −0.851``, ``ΔZ = +1.129``;
+    ``RX = 76°``, шаг 3.0, ``Num 3`` → ``ΔY = −0.513``, ``ΔZ = −2.058``.
     """
     arm = 1.0 / math.hypot(ax, ay)
     angle = math.radians(rx)
-    return 0.0, round(ay * arm * math.sin(angle), 12), round(ax * arm * math.cos(angle), 12)
+    if ax * ay < 0:  # правая пара: Num 9 и Num 1
+        dy, dz = math.sin(angle), math.cos(angle)
+    else:  # левая пара: Num 7 и Num 3
+        dy, dz = math.cos(angle), math.sin(angle)
+    return 0.0, round(ay * arm * dy, 12), round(ax * arm * dz, 12)
 
 
 def _rx_ry_diagonal(ax: int, ay: int, rx: float, ry: float) -> tuple[float, float, float]:

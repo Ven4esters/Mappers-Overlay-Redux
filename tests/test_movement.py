@@ -38,8 +38,37 @@ def reference_step(
         return 0.0, ay * arm, ax * arm
     if ry == 0.0:
         angle = math.radians(rx)
-        return 0.0, ay * arm * math.sin(angle), ax * arm * math.cos(angle)
+        # Пары клавиш считаются разной тригонометрией (эталоны 1.8.1).
+        dy, dz = (
+            (math.sin(angle), math.cos(angle))
+            if ax * ay < 0
+            else (
+                math.cos(angle),
+                math.sin(angle),
+            )
+        )
+        return 0.0, ay * arm * dy, ax * arm * dz
     return reference_step_2d(direction, rx, ry, step)
+
+
+#: Задание 1.8.1: ``RX = 76°``, шаг 3 м — точка заказчика для пар 9-1 и 7-3.
+RX76_POSE = Pose(x=-1850.403, y=416.221, z=130.544, rx=76.0)
+
+
+@pytest.mark.parametrize(
+    ("direction", "expected"),
+    [
+        (Direction.FORWARD_RIGHT, (414.163, 131.057)),
+        (Direction.BACK_LEFT, (418.279, 130.031)),
+        (Direction.FORWARD_LEFT, (416.734, 132.602)),
+        (Direction.BACK_RIGHT, (415.708, 128.486)),
+    ],
+)
+def test_user_example_at_76_degrees(direction: Direction, expected: tuple[float, float]) -> None:
+    """``RX = 76°``, шаг 3 м: у пар 9-1 и 7-3 своя тригонометрия."""
+    result = shifted(RX76_POSE, direction, 3.0)
+    assert result.x == RX76_POSE.x
+    assert (result.y, result.z) == expected
 
 
 #: Задание 1.6.2: ``Num 9``, шаг 3 м, ``RX = 55°``, ``RY = 17°``.
@@ -189,9 +218,15 @@ def test_diagonal_at_zero_ry_keeps_the_old_formula(direction: Direction) -> None
     result = shifted(pose, direction, 3.0)
     ax, ay = direction.axes
     arm = 3.0 / math.hypot(ax, ay)
+    angle = math.radians(37.0)
+    # Num 9/1 — пара с ``sin`` у ``Y``; Num 7/3 — пара с ``cos`` у ``Y``.
+    if ax * ay < 0:
+        expected_y, expected_z = ay * arm * math.sin(angle), ax * arm * math.cos(angle)
+    else:
+        expected_y, expected_z = ay * arm * math.cos(angle), ax * arm * math.sin(angle)
     assert result.x == pose.x
-    assert result.y - pose.y == pytest.approx(ay * arm * math.sin(math.radians(37.0)), abs=0.002)
-    assert result.z - pose.z == pytest.approx(ax * arm * math.cos(math.radians(37.0)), abs=0.002)
+    assert result.y - pose.y == pytest.approx(expected_y, abs=0.002)
+    assert result.z - pose.z == pytest.approx(expected_z, abs=0.002)
 
 
 @pytest.mark.parametrize("direction", [d for d in Direction if d.is_diagonal])
@@ -266,15 +301,17 @@ def test_opposite_diagonals_cancel_out(rx: float, ry: float) -> None:
 
 @pytest.mark.parametrize("rx", [-37.0, 0.0, 20.0, 37.0, 45.0, 80.0])
 def test_diagonal_keys_are_mirror_symmetric(rx: float) -> None:
-    """``Num 7`` — зеркало ``Num 9`` по ``Y``, ``Num 3`` — по ``Z``."""
+    """Зеркальны клавиши одной пары: ``Num 9`` ↔ ``Num 1`` и ``Num 7`` ↔ ``Num 3``."""
     pose = Pose(x=0.0, y=0.0, z=0.0, rx=rx)
-    up_right = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
-    up_left = shifted(pose, Direction.FORWARD_LEFT, 1.0)
-    down_right = shifted(pose, Direction.BACK_RIGHT, 1.0)
-    assert up_left.y - pose.y == pytest.approx(-(up_right.y - pose.y), abs=0.002)
-    assert up_left.z - pose.z == pytest.approx(up_right.z - pose.z, abs=0.002)
-    assert down_right.z - pose.z == pytest.approx(-(up_right.z - pose.z), abs=0.002)
-    assert down_right.y - pose.y == pytest.approx(up_right.y - pose.y, abs=0.002)
+    pairs = (
+        (Direction.FORWARD_RIGHT, Direction.BACK_LEFT),
+        (Direction.FORWARD_LEFT, Direction.BACK_RIGHT),
+    )
+    for first, second in pairs:
+        one = shifted(pose, first, 1.0)
+        two = shifted(pose, second, 1.0)
+        assert two.y - pose.y == pytest.approx(-(one.y - pose.y), abs=0.002)
+        assert two.z - pose.z == pytest.approx(-(one.z - pose.z), abs=0.002)
 
 
 @pytest.mark.parametrize("rx", [-60.0, -37.0, 20.0, 37.0, 45.0, 80.0])
