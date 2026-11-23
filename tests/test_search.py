@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from map_overlay.domain.search import (
     RANGE_LIMIT,
+    NameSearch,
     SearchIndex,
     build_index,
     expand_range,
@@ -219,3 +220,72 @@ def test_box_is_found_by_english_synonym() -> None:
     assert matches("Ящик", "box")
     assert matches("Box", "ящик")
     assert matches("Ящик", "ящ")
+
+
+LIBRARY = [
+    "Стена March, TID, Hood, Soup, New, 01-39",
+    "Стена March 01-10",
+    "Wall March",
+    "Ящик March",
+]
+
+
+@pytest.mark.parametrize("query", ["M", "Ma", "Mar", "Marc", "March", "march"])
+def test_search_works_while_typing(query: str) -> None:
+    """«Mar» находит «March»: совпадение по началу слова, а не только по целому."""
+    assert matches(WALL, query)
+
+
+def test_typing_narrows_the_result() -> None:
+    """Чем точнее запрос, тем меньше строк: выдача только сужается."""
+    engine = NameSearch()
+    counts = [len(engine.match(LIBRARY, query)) for query in ("M", "Ma", "Mar", "March")]
+    assert counts == sorted(counts, reverse=True)
+    assert counts[0] == 4
+    assert counts[-1] == 4
+    assert len(engine.match(LIBRARY, "March 01")) <= len(engine.match(LIBRARY, "March"))
+
+
+def test_more_words_narrow_the_result() -> None:
+    engine = NameSearch()
+    assert len(engine.match(LIBRARY, "March")) == 4
+    assert len(engine.match(LIBRARY, "March TID")) == 1
+    assert engine.match(LIBRARY, "March TID") == [WALL]
+
+
+def test_exact_word_comes_first() -> None:
+    """Порядок: точное слово выше совпадения по началу и внутри слова."""
+    engine = NameSearch()
+    names = ["Стенд March", "March", "Стена March"]
+    assert engine.match(names, "March")[0] == "March"
+
+
+def test_number_is_found_by_its_beginning() -> None:
+    """Пока номер не дописан, работает совпадение по началу: «0» находит «01-39»."""
+    engine = NameSearch()
+    assert engine.match(["Стена 01-39"], "Стена 0") == ["Стена 01-39"]
+    assert engine.note == "по началу"
+    assert engine.match(["Стена 01-39"], "Стена 05") == ["Стена 01-39"]
+    assert engine.note == ""
+
+
+def test_exact_padding_still_wins_over_prefix() -> None:
+    """Точная запись важнее начала: «Стена 1» не подмешивает «01-10»."""
+    engine = NameSearch()
+    names = ["Стена 01-10", "Стена 1-10"]
+    assert engine.match(names, "Стена 1") == ["Стена 1-10"]
+    assert engine.note == ""
+
+
+def test_empty_query_returns_everything() -> None:
+    engine = NameSearch()
+    assert engine.match(LIBRARY, "   ") == LIBRARY
+    assert engine.note == ""
+
+
+def test_engine_caches_indexes_and_resets() -> None:
+    engine = NameSearch()
+    engine.match(LIBRARY, "March")
+    assert len(engine._indexes) == len(LIBRARY)
+    engine.reset()
+    assert engine._indexes == {}

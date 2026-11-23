@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -39,6 +40,7 @@ from map_overlay.domain.lemmas import stem, stems_of
 __all__ = [
     "RANGE_LIMIT",
     "SEPARATORS",
+    "NameSearch",
     "SearchIndex",
     "build_index",
     "expand_range",
@@ -55,6 +57,11 @@ RANGE_LIMIT: Final = 1000
 _RANGE_RE: Final = re.compile(r"(?P<prefix>.*?)(?P<start>\d+)\s*-\s*(?P<end>\d+)\s*\Z")
 _WORD_RE: Final = re.compile(r"[^\s,;]+")
 _WILDCARD: Final = "*"
+
+SCORE_EXACT: Final = 3
+SCORE_PREFIX: Final = 2
+SCORE_INSIDE: Final = 1
+# Вес совпадения слова: точное слово или лемма, начало слова, часть слова.
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,23 +80,110 @@ class SearchIndex:
     text: str
     """Название основами через пробел: по нему ищется часть слова («стен» → «Стена»)."""
 
-    def matches(self, words: tuple[str, ...], *, ignore_padding: bool = False) -> bool:
+    def score(self, words: tuple[str, ...]) -> int:
+        """Насколько точно название подходит под слова: больше — точнее.
+
+        Используется для порядка строк: точное слово (или лемма) выше, чем совпадение
+        по началу, а оно — выше, чем совпадение внутри слова.
+        """
+        total = 0
+        for word in words:
+            if word.isdigit() or word in self.stems:
+                total += SCORE_EXACT
+            elif any(base.startswith(word) for base in self.stems):
+                total += SCORE_PREFIX
+            else:
+                total += SCORE_INSIDE
+        return total
+
+    def matches(
+        self,
+        words: tuple[str, ...],
+        *,
+        ignore_padding: bool = False,
+        number_prefix: bool = False,
+    ) -> bool:
         """Подходит ли предмет под слова запроса (все слова должны найтись).
 
         Args:
             words: слова запроса из :func:`parse_query`.
             ignore_padding: сравнивать номера по значению, а не по записи: «1» тогда
-                совпадёт с `01`. Включается только как запасной вариант, когда точных
-                совпадений нет.
+                совпадёт с `01`. Запасной вариант, когда точных совпадений нет.
+            number_prefix: считать совпадением начало номера: «0» найдёт `01`. Ещё более
+                запасной вариант — для набора по буквам, пока номер не дописан.
         """
         for word in words:
             if word.isdigit():
-                known = self.values if ignore_padding else self.numbers
-                if (int(word) if ignore_padding else word) not in known:
+                if ignore_padding:
+                    known = int(word) in self.values
+                elif number_prefix:
+                    known = any(number.startswith(word) for number in self.numbers)
+                else:
+                    known = word in self.numbers
+                if not known:
                     return False
             elif not any(base in self.text for base in stems_of(word)):
                 return False
         return True
+
+
+class NameSearch:
+    """Поиск по набору названий: кэш индексов, порядок по точности, диапазоны.
+
+    Один и тот же движок работает на вкладке «Размеры» и в выборе предмета на вкладке
+    «Навигация»: правила поиска должны совпадать.
+    """
+
+    def __init__(self) -> None:
+        self._indexes: dict[str, SearchIndex] = {}
+        self._note = ""
+
+    def reset(self) -> None:
+        """Забыть разобранные названия (после изменения библиотеки)."""
+        self._indexes.clear()
+
+    def index(self, name: str) -> SearchIndex:
+        """Разобранное название: считается один раз до сброса."""
+        index = self._indexes.get(name)
+        if index is None:
+            index = build_index(name)
+            self._indexes[name] = index
+        return index
+
+    @property
+    def loose(self) -> bool:
+        """Последний поиск нашёл совпадения только запасным способом."""
+        return bool(self._note)
+
+    @property
+    def note(self) -> str:
+        """Чем именно пришлось уступить: пусто, «без учёта нулей» или «по началу номера»."""
+        return self._note
+
+    def match(self, names: Sequence[str], query: str) -> list[str]:
+        """Подходящие названия: точные совпадения выше, порядок библиотеки сохранён."""
+        words = parse_query(query)
+        self._note = ""
+        if not words:
+            return list(names)
+        found = [name for name in names if self.index(name).matches(words)]
+        if not found and any(word.isdigit() for word in words):
+            found = [name for name in names if self.index(name).matches(words, ignore_padding=True)]
+            if found:
+                self._note = "без учёта нулей"
+        if not found and any(word.isdigit() for word in words):
+            found = [name for name in names if self.index(name).matches(words, number_prefix=True)]
+            if found:
+                self._note = "по началу"
+        if not found:
+            return []
+        order = {name: position for position, name in enumerate(names)}
+        # Точнее — выше; при равной точности короче название значит «ближе» (в нём меньше
+        # лишних слов), дальше — порядок библиотеки.
+        return sorted(
+            found,
+            key=lambda name: (-self.index(name).score(words), len(name), order[name]),
+        )
 
 
 def parse_query(text: str) -> tuple[str, ...]:

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from map_overlay.domain.formatting import rounded
-from map_overlay.domain.search import SearchIndex, build_index, parse_query
+from map_overlay.domain.search import NameSearch
 from map_overlay.domain.sizes import (
     MAX_NAME_LEN,
     MAX_SIZE_M,
@@ -64,10 +64,9 @@ class SizesTab(QWidget):
         self._library = library
         self._path = path
         self._rows_layout: QVBoxLayout | None = None
-        self._indexes: dict[str, SearchIndex] = {}
+        self._search_engine = NameSearch()
         self._editing: str | None = None
         self._pencils: dict[str, QPushButton] = {}
-        self._loose_search = False
         self._build()
         self._refresh()
 
@@ -142,7 +141,7 @@ class SizesTab(QWidget):
         card.add(host)
         card.add(
             label(
-                "«Выбрать» делает предмет текущим: на вкладке «Движение» его длину, ширину "
+                "«Выбрать» делает предмет текущим: на вкладке «Навигация» его длину, ширину "
                 "и половины можно сразу подставить в шаг.",
                 widget_role="muted",
             )
@@ -230,7 +229,7 @@ class SizesTab(QWidget):
     def set_library(self, library: SizeLibrary) -> None:
         """Показать новую библиотеку (после сохранения или удаления)."""
         self._library = library
-        self._indexes.clear()
+        self._search_engine.reset()
         if self._editing is not None and library.find(self._editing) is None:
             self._editing = None
             self._sync_form_mode()
@@ -309,35 +308,14 @@ class SizesTab(QWidget):
         return self._name.text(), self._length.text(), self._width.text()
 
     def _visible_items(self) -> list[ObjectSize]:
-        """Предметы, подходящие под запрос: все слова запроса должны найтись.
+        """Предметы, подходящие под запрос, — от точных совпадений к частичным.
 
-        Слова ищутся по синонимам названия (фрагменты через запятую и отдельные слова),
-        а номер из запроса — по диапазону: «Стена 05» найдёт «…, 01-39».
+        Ищется по мере набора: «Mar» находит «Стена March», а каждое следующее слово
+        сужает выдачу. Правила — в :class:`map_overlay.domain.search.NameSearch`.
         """
-        words = parse_query(self._search.text())
-        self._loose_search = False
-        if not words:
-            return list(self._library.items)
-        found = [item for item in self._library.items if self._index(item).matches(words)]
-        if found or not any(word.isdigit() for word in words):
-            return found
-        # Точно записанных номеров не нашлось: сравниваем номера по значению, чтобы
-        # «Стена 1» всё-таки нашла запись с диапазоном «01-39».
-        found = [
-            item
-            for item in self._library.items
-            if self._index(item).matches(words, ignore_padding=True)
-        ]
-        self._loose_search = bool(found)
-        return found
-
-    def _index(self, item: ObjectSize) -> SearchIndex:
-        """Разобранное название предмета: считаем один раз до смены библиотеки."""
-        index = self._indexes.get(item.name)
-        if index is None:
-            index = build_index(item.name)
-            self._indexes[item.name] = index
-        return index
+        names = [item.name for item in self._library.items]
+        by_name = {item.name: item for item in self._library.items}
+        return [by_name[name] for name in self._search_engine.match(names, self._search.text())]
 
     def _refresh(self, _text: str = "") -> None:
         items = self._visible_items()
@@ -362,7 +340,8 @@ class SizesTab(QWidget):
         if not visible:
             return f"Ничего не найдено по запросу «{self._search.text().strip()}»"
         total = len(self._library.items)
-        note = " · номер совпал без учёта нулей" if self._loose_search else ""
+        engine = self._search_engine
+        note = f" · номер совпал {engine.note}" if engine.loose else ""
         if visible == total and not note:
             return f"Предметов: {total}"
         return f"Найдено: {visible} из {total}{note}"
@@ -378,7 +357,7 @@ class SizesTab(QWidget):
         choose = button(
             "Выбрать",
             widget_role="small",
-            tooltip="Сделать предмет текущим: его размеры появятся на вкладке «Движение»",
+            tooltip="Сделать предмет текущим: его размеры появятся на вкладке «Навигация»",
         )
         choose.setEnabled(not active)
         choose.clicked.connect(lambda _checked=False, name=item.name: self._activate(name))

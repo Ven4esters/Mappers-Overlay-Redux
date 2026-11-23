@@ -45,8 +45,11 @@ from map_overlay.ui.widgets import button, label
 
 logger = logging.getLogger(__name__)
 
-WINDOW_WIDTH = 780
-WINDOW_HEIGHT = 840
+WINDOW_WIDTH = 640
+WINDOW_HEIGHT = 820
+MINI_WIDTH = 380
+MINI_HEIGHT = 430
+# Мини-версия: крестовина, шаг и выбор предмета без прокрутки и переключения вкладок.
 STATUS_INFO = "info"
 STATUS_OK = "ok"
 STATUS_WARN = "warn"
@@ -100,6 +103,9 @@ class MainWindow(QMainWindow):
         self._learn_timer = QTimer(self)
         self._learn_timer.setSingleShot(True)
         self._learn_timer.timeout.connect(self._learning_expired)
+        self._mini = False
+        self._normal_size: tuple[int, int] | None = None
+        self._normal_tab = 0
         self._build()
         self._refresh_header()
         self._hotkeys = context.hotkeys
@@ -148,7 +154,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_tab = SettingsTab(settings=settings, config_path=self._context.config_path)
         self.movement.set_sizes(self._context.sizes)
-        self._tabs.addTab(self._scroll(self.movement), "Движение")
+        self._tabs.addTab(self._scroll(self.movement), "Навигация")
         self._tabs.addTab(self._scroll(self.sizes), "Размеры")
         self._tabs.addTab(self._scroll(self.calibration), "Калибровка")
         self._tabs.addTab(self._scroll(self.settings_tab), "Настройки")
@@ -232,7 +238,14 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
         self._calibration_label = label("", widget_role="muted")
         self._calibration_label.setWordWrap(False)
+        self._mini_button = button(
+            "Мини",
+            widget_role="small",
+            tooltip="Свернуть окно до крестовины и шага",
+        )
+        self._mini_button.clicked.connect(self.toggle_mini)
         layout.addWidget(self._calibration_label)
+        layout.addWidget(self._mini_button)
         return header
 
     def _refresh_header(self) -> None:
@@ -240,6 +253,64 @@ class MainWindow(QMainWindow):
         points = len(settings.calibration)
         empty = "есть" if settings.has_confirmation_point() else "нет"
         self._calibration_label.setText(f"Калибровка {points}/6 · F: {empty}")
+
+    def toggle_mini(self) -> None:
+        """Переключить обычный вид и мини-версию."""
+        self.set_mini(not self._mini)
+
+    def set_mini(self, enabled: bool) -> None:
+        """Свернуть окно до мини-версии (крестовина и шаг) или вернуть полный вид.
+
+        В мини-версии прячутся вкладки и подписи: остаётся только то, чем двигают
+        предмет. Обратное переключение возвращает прежний размер и прежнюю вкладку.
+        """
+        if enabled == self._mini:
+            return
+        self._mini = enabled
+        if enabled:
+            self._normal_size = (self.width(), self.height())
+            self._normal_tab = self._tabs.currentIndex()
+            self._tabs.setCurrentIndex(0)
+            self._tabs.tabBar().setVisible(False)
+            self._calibration_label.setVisible(False)
+            self._mini_button.setText("Обычный")
+            self._mini_button.setToolTip("Вернуть полное окно: вкладки, калибровка, настройки")
+            self.movement.set_compact(True)
+            self.resize(MINI_WIDTH, MINI_HEIGHT)
+        else:
+            self._tabs.tabBar().setVisible(True)
+            self._calibration_label.setVisible(True)
+            self._mini_button.setText("Мини")
+            self._mini_button.setToolTip("Свернуть окно до крестовины и шага")
+            self.movement.set_compact(False)
+            width, height = self._normal_size or (WINDOW_WIDTH, WINDOW_HEIGHT)
+            self.resize(width, height)
+            if 0 <= self._normal_tab < self._tabs.count():
+                self._tabs.setCurrentIndex(self._normal_tab)
+
+    def press_mini(self) -> None:
+        """Нажать «Мини»/«Обычный» (для тестов)."""
+        self._mini_button.click()
+
+    def is_mini(self) -> bool:
+        """Включена ли мини-версия (для тестов)."""
+        return self._mini
+
+    def mini_button_text(self) -> str:
+        """Надпись на переключателе мини-версии (для тестов)."""
+        return self._mini_button.text()
+
+    def tab_bar_visible(self) -> bool:
+        """Видна ли строка вкладок (для тестов)."""
+        return self._tabs.tabBar().isVisible()
+
+    def tabs_index(self) -> int:
+        """Номер текущей вкладки (для тестов)."""
+        return self._tabs.currentIndex()
+
+    def select_tab(self, index: int) -> None:
+        """Переключить вкладку по номеру (для тестов)."""
+        self._tabs.setCurrentIndex(index)
 
     def tab_titles(self) -> list[str]:
         """Названия вкладок по порядку."""

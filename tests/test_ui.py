@@ -56,7 +56,7 @@ def make_window(
 
 def test_four_tabs(qt_app: QApplication) -> None:
     window, _panel, _store, _cursor = make_window(qt_app)
-    assert window.tab_titles() == ["Движение", "Размеры", "Калибровка", "Настройки"]
+    assert window.tab_titles() == ["Навигация", "Размеры", "Калибровка", "Настройки"]
 
 
 def test_capture_shows_pose(qt_app: QApplication) -> None:
@@ -1435,3 +1435,105 @@ def test_search_finds_wall_by_english_word_and_typo(qt_app: QApplication) -> Non
     for query in ("wall", "Cтена", "март"):
         window.sizes.press_search(query)
         assert window.sizes.row_names() == ["Стена March, TID, 01-39"], query
+
+
+def test_sizes_search_narrows_while_typing(qt_app: QApplication) -> None:
+    """Поиск на вкладке «Размеры» сужается по мере набора: «Mar» уже находит стену."""
+    names = ["Стена March, TID, 01-39", "Stend March", "Ящик"]
+    store = FakeSizeStore(_library(*(ObjectSize(name, 2.9, 2.7) for name in names)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    counts = []
+    for query in ("M", "Ma", "Mar", "March", "March TID"):
+        window.sizes.press_search(query)
+        counts.append(len(window.sizes.row_names()))
+    assert counts == sorted(counts, reverse=True)
+    window.sizes.press_search("March TID")
+    assert window.sizes.row_names() == ["Стена March, TID, 01-39"]
+
+
+def test_navigation_has_item_search(qt_app: QApplication) -> None:
+    """На вкладке «Навигация» есть тот же поиск по предметам."""
+    names = ["Стена March, TID, 01-39", "Стена March 01-10", "Ящик"]
+    store = FakeSizeStore(_library(*(ObjectSize(name, 2.9, 2.7) for name in names)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    assert window.movement.visible_size_names() == names
+    window.movement.press_size_search("Mar")
+    assert set(window.movement.visible_size_names()) == set(names[:2])
+    assert "Найдено: 2 из 3" in window.movement.size_search_hint()
+    window.movement.press_size_search("March 01")
+    # «01» есть и в диапазоне 01-39, поэтому находятся обе стены
+    assert set(window.movement.visible_size_names()) == set(names[:2])
+    window.movement.press_size_search("March TID")
+    assert window.movement.visible_size_names() == ["Стена March, TID, 01-39"]
+    window.movement.press_size_search("нет такого")
+    assert window.movement.visible_size_names() == []
+    assert "Ничего не найдено" in window.movement.size_search_hint()
+
+
+def test_navigation_search_selects_item(qt_app: QApplication) -> None:
+    """Из отфильтрованного списка предмет выбирается как обычно."""
+    names = ["Стена March", "Ящик"]
+    store = FakeSizeStore(_library(*(ObjectSize(name, 2.9, 2.7) for name in names)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.movement.press_size_search("ящ")
+    window.movement.select_size("Ящик")
+    assert store.library.active == "Ящик"
+    assert "Ящик" in window.status_text()
+
+
+def test_navigation_search_keeps_active_item_visible(qt_app: QApplication) -> None:
+    """Если фильтр скрыл выбранный предмет, он всё равно остаётся в списке."""
+    store = FakeSizeStore(_library(ObjectSize("Ящик", 2.0, 1.0), ObjectSize("Стена", 2.9, 2.7)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.movement.select_size("Стена")
+    window.movement.press_size_search("ящ")
+    assert window.movement.visible_size_names() == ["Стена", "Ящик"]
+    assert "Найдено: 1 из 2" in window.movement.size_search_hint()
+
+
+def test_window_is_narrower_than_before() -> None:
+    """Окно стало уже: 640 вместо 780 пикселей."""
+    from map_overlay.ui.window import WINDOW_WIDTH
+
+    assert WINDOW_WIDTH == 640
+
+
+def test_mini_toggle_shrinks_and_restores(qt_app: QApplication) -> None:
+    """Переключатель «Мини» сворачивает окно и возвращает прежний вид."""
+    from map_overlay.ui.window import MINI_HEIGHT, MINI_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH
+
+    window, _panel, _settings, _cursor = make_window(qt_app)
+    window.show()
+    window.set_mini(False)
+    assert window.width() == WINDOW_WIDTH
+    assert window.height() == WINDOW_HEIGHT
+    assert window.mini_button_text() == "Мини"
+    assert window.tab_bar_visible()
+
+    window.press_mini()
+    assert window.is_mini()
+    assert window.width() == MINI_WIDTH
+    assert window.height() == MINI_HEIGHT
+    assert window.mini_button_text() == "Обычный"
+    assert not window.tab_bar_visible()
+    assert window.movement.is_compact()
+    assert window.tabs_index() == 0
+
+    window.press_mini()
+    assert not window.is_mini()
+    assert window.width() == WINDOW_WIDTH
+    assert window.height() == WINDOW_HEIGHT
+    assert window.mini_button_text() == "Мини"
+    assert window.tab_bar_visible()
+    assert not window.movement.is_compact()
+
+
+def test_mini_remembers_previous_tab(qt_app: QApplication) -> None:
+    """Из «Настроек» мини-версия уходит на навигацию, а обратно возвращает «Настройки»."""
+    window, _panel, _settings, _cursor = make_window(qt_app)
+    window.show()
+    window.select_tab(3)
+    window.press_mini()
+    assert window.tabs_index() == 0
+    window.press_mini()
+    assert window.tabs_index() == 3

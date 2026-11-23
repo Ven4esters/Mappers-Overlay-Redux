@@ -1,4 +1,4 @@
-"""Вкладка движения: координаты, шаг и крестовина из восьми стрелок."""
+"""Вкладка навигации: координаты, шаг, выбор предмета и крестовина из восьми стрелок."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QHBoxLayout,
+    QLineEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -24,6 +25,7 @@ from map_overlay.domain.movement import (
     validate_step,
 )
 from map_overlay.domain.pose import Pose
+from map_overlay.domain.search import NameSearch
 from map_overlay.domain.sizes import SIZE_USES, ObjectSize, SizeLibrary, SizeUse
 from map_overlay.errors import ValidationError
 from map_overlay.ui.widgets import Card, DirectionPad, PoseGrid, button, label
@@ -46,7 +48,7 @@ _HINTS: Final[tuple[str, ...]] = (
 
 
 class MovementTab(QWidget):
-    """Считать координаты и двигать предмет стрелками."""
+    """Считать координаты, выбрать предмет и двигать его стрелками."""
 
     capture_requested = Signal()
     confirm_requested = Signal()
@@ -60,13 +62,15 @@ class MovementTab(QWidget):
         self._tilt = False
         self._library = SizeLibrary()
         self._size_buttons: list[QPushButton] = []
+        self._size_engine = NameSearch()
         self._build(default_step)
 
     def _build(self, default_step: float) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
-        layout.addWidget(self._build_pose_card())
+        self._pose_card = self._build_pose_card()
+        layout.addWidget(self._pose_card)
         layout.addWidget(self._build_move_card(default_step))
         self._warning = label("", widget_role="warn")
         self._warning.hide()
@@ -102,11 +106,13 @@ class MovementTab(QWidget):
         self._pad.direction_clicked.connect(self._request_move)
         card.add(self._pad)
         card.add_layout(self._build_step_row(default_step))
+        card.add_layout(self._build_size_search_row())
         card.add_layout(self._build_size_row())
         card.add(self._size_info)
         card.add_layout(self._build_mode_row())
-        for hint in _HINTS:
-            card.add(label(hint, widget_role="muted"))
+        self._hint_labels = [label(hint, widget_role="muted") for hint in _HINTS]
+        for hint in self._hint_labels:
+            card.add(hint)
         return card
 
     def _build_step_row(self, default_step: float) -> QHBoxLayout:
@@ -124,6 +130,21 @@ class MovementTab(QWidget):
         row.addWidget(self._step_combo)
         row.addWidget(label("м", widget_role="muted"))
         row.addStretch(1)
+        return row
+
+    def _build_size_search_row(self) -> QHBoxLayout:
+        """Поиск по предметам: тот же, что на вкладке «Размеры»."""
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self._size_search = QLineEdit(self)
+        self._size_search.setPlaceholderText("Поиск: слова названия или номер из диапазона")
+        self._size_search.setClearButtonEnabled(True)
+        self._size_search.textChanged.connect(self._rebuild_size_combo)
+        self._size_hint = label("", widget_role="muted")
+        self._size_hint.setWordWrap(True)
+        row.addWidget(label("Поиск", widget_role="muted"))
+        row.addWidget(self._size_search, 1)
+        row.addWidget(self._size_hint, 1)
         return row
 
     def _build_size_row(self) -> QHBoxLayout:
@@ -188,6 +209,16 @@ class MovementTab(QWidget):
             raise ValidationError("Шаг должен быть числом") from exc
         return validate_step(value)
 
+    def set_compact(self, enabled: bool) -> None:
+        """Свернуть вкладку до крестовины и шага (мини-версия окна)."""
+        self._pose_card.setVisible(not enabled)
+        for hint in self._hint_labels:
+            hint.setVisible(not enabled)
+
+    def is_compact(self) -> bool:
+        """Скрыты ли координаты и подсказки (для тестов)."""
+        return not self._pose_card.isVisibleTo(self)
+
     def press_capture(self) -> None:
         """Нажать «Считать» (для тестов и будущих горячих клавиш)."""
         self._capture_button.click()
@@ -195,12 +226,34 @@ class MovementTab(QWidget):
     def set_sizes(self, library: SizeLibrary) -> None:
         """Показать библиотеку размеров и выбранный предмет.
 
-        Список перестраивается только когда меняется набор предметов: выбор предмета
-        приходит из этого же списка, и перестройка внутри его сигнала — лишний риск.
+        Список перестраивается из фильтра поиска; сигналы списка на это время выключены,
+        иначе перестройка внутри собственного сигнала выбора запускала бы новый выбор.
         """
         self._library = library
-        active = library.active_item
-        names = [item.name for item in library.items]
+        self._size_engine.reset()
+        self._rebuild_size_combo()
+
+    def _matched_size_names(self) -> list[str]:
+        """Предметы, подходящие под запрос поиска (в порядке точности)."""
+        names = [item.name for item in self._library.items]
+        return self._size_engine.match(names, self._size_search.text())
+
+    def _visible_size_names(self) -> list[str]:
+        """Строки списка: найденные предметы, а выбранный — всегда, даже если не найден."""
+        matched = self._matched_size_names()
+        active = self._library.active_item
+        if active is not None and active.name not in matched:
+            return [active.name, *matched]
+        return matched
+
+    def _rebuild_size_combo(self, _text: str = "") -> None:
+        """Перестроить список предметов под текущий запрос поиска.
+
+        Содержимое меняется только когда меняется набор строк: выбор предмета приходит из
+        этого же списка, и перестройка внутри его сигнала — лишний риск.
+        """
+        names = self._visible_size_names()
+        active = self._library.active_item
         if names != self._size_names():
             self._size_combo.blockSignals(True)
             self._size_combo.clear()
@@ -208,14 +261,28 @@ class MovementTab(QWidget):
             self._size_combo.addItems(names)
             self._size_combo.blockSignals(False)
         self._size_combo.blockSignals(True)
-        self._size_combo.setCurrentIndex(
-            0 if active is None else self._size_combo.findText(active.name)
-        )
+        index = 0 if active is None else self._size_combo.findText(active.name)
+        self._size_combo.setCurrentIndex(max(0, index))
         self._size_combo.blockSignals(False)
         self._size_combo.setEnabled(bool(names))
         for widget in self._size_buttons:
             widget.setEnabled(active is not None)
         self._size_info.setText(_size_info(active))
+        self._size_hint.setText(self._size_hint_text())
+
+    def _size_hint_text(self) -> str:
+        """Подсказка рядом с поиском: сколько предметов нашлось."""
+        total = len(self._library.items)
+        if not total:
+            return "Библиотека пуста: предметы добавляются на вкладке «Размеры»"
+        query = self._size_search.text().strip()
+        if not query:
+            return f"Предметов: {total}"
+        matched = self._matched_size_names()
+        if not matched:
+            return f"Ничего не найдено по запросу «{query}»"
+        note = f" · номер совпал {self._size_engine.note}" if self._size_engine.loose else ""
+        return f"Найдено: {len(matched)} из {total}{note}"
 
     def _size_names(self) -> list[str]:
         """Названия предметов в списке без строки «не выбран»."""
@@ -252,6 +319,18 @@ class MovementTab(QWidget):
     def size_names(self) -> list[str]:
         """Названия в списке предметов (для тестов)."""
         return [self._size_combo.itemText(index) for index in range(self._size_combo.count())]
+
+    def press_size_search(self, query: str) -> None:
+        """Ввести запрос в поиск предметов (для тестов)."""
+        self._size_search.setText(query)
+
+    def size_search_hint(self) -> str:
+        """Подсказка рядом с поиском предметов (для тестов)."""
+        return self._size_hint.text()
+
+    def visible_size_names(self) -> list[str]:
+        """Предметы в списке с учётом поиска, без строки «не выбран» (для тестов)."""
+        return self._visible_size_names()
 
     def select_size(self, name: str) -> None:
         """Выбрать предмет в списке (для тестов)."""

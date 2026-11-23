@@ -99,10 +99,16 @@ def test_mixed_alphabet_typo_is_understood(word: str) -> None:
 
 
 def test_latin_word_is_not_rewritten() -> None:
-    """Чисто латинское слово не превращается в кириллическое."""
-    assert stems_of("TID") == ("тид",)
-    assert stems_of("hood") == ("худи",)
+    """Чисто латинское слово остаётся собой и вдобавок получает лемму."""
+    assert stems_of("TID") == ("tid", "тид")
+    assert stems_of("hood") == ("hood", "худи")
     assert default_book().spellings("march") == ("march",)
+
+
+def test_word_itself_is_in_stems() -> None:
+    """Само слово в наборе основ: иначе «Mar» не нашло бы «March»."""
+    assert "march" in stems_of("March")
+    assert "март" in stems_of("March")
 
 
 def test_aliases_work_both_ways() -> None:
@@ -137,7 +143,7 @@ def test_empty_book_still_normalizes_and_strips() -> None:
     book = LemmaBook()
     assert book.words == 0
     assert book.normalize("Проём") == "проем"
-    assert book.stems("Стена") == ("стен",)
+    assert book.stems("Стена") == ("стена", "стен")
 
 
 def test_default_book_is_cached() -> None:
@@ -222,7 +228,7 @@ def test_missing_dictionary_does_not_break_search(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(lemmas, "DATA_PATH", "data/нет-такого.json")
     lemmas.reset()
     assert default_book().words == 0
-    assert stems_of("Стена") == ("стен",)
+    assert stems_of("Стена") == ("стена", "стен")
 
 
 def test_describe_reports_size() -> None:
