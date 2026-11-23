@@ -32,10 +32,12 @@ from map_overlay.domain.keynames import COMMON_GAME_KEYS, VK_ESCAPE, VK_MENU, ke
 from map_overlay.domain.movement import COORD_DECIMALS
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
+from map_overlay.domain.sizes import SizeLibrary
 from map_overlay.errors import ConfigError, ValidationError
 from map_overlay.ui.tabs.calibration_tab import CalibrationTab
 from map_overlay.ui.tabs.movement_tab import MovementTab, pose_text
 from map_overlay.ui.tabs.settings_tab import SettingsTab
+from map_overlay.ui.tabs.sizes_tab import SizesTab
 from map_overlay.ui.tasks import TaskRunner
 from map_overlay.ui.widgets import button, label
 
@@ -101,6 +103,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(HOOK_CHECK_MS, self.check_hotkey_state)
         if context.settings_error:
             self._set_status(f"Настройки не загружены: {context.settings_error}", STATUS_ERROR)
+        elif context.sizes_error:
+            self._set_status(f"Размеры не загружены: {context.sizes_error}", STATUS_ERROR)
         else:
             self._set_status("Выберите поля, нажмите «Считать» и двигайте предмет стрелками.")
             self._check_num_lock()
@@ -133,8 +137,14 @@ class MainWindow(QMainWindow):
             points=settings.calibration,
             empty_point=settings.empty_point,
         )
+        self.sizes = SizesTab(
+            library=self._context.sizes,
+            path=self._context.sizes_path,
+        )
         self.settings_tab = SettingsTab(settings=settings, config_path=self._context.config_path)
+        self.movement.set_sizes(self._context.sizes)
         self._tabs.addTab(self._scroll(self.movement), "Движение")
+        self._tabs.addTab(self._scroll(self.sizes), "Размеры")
         self._tabs.addTab(self._scroll(self.calibration), "Калибровка")
         self._tabs.addTab(self._scroll(self.settings_tab), "Настройки")
         layout.addWidget(self._tabs, 1)
@@ -189,6 +199,9 @@ class MainWindow(QMainWindow):
         self.settings_tab.hotkey_change_requested.connect(self._start_learning)
         self.settings_tab.hotkey_clear_requested.connect(self._clear_hotkey)
         self.settings_tab.hotkeys_enabled_changed.connect(self._set_hotkeys_enabled)
+        self.sizes.library_changed.connect(self._sizes_changed)
+        self.sizes.status_message.connect(self._set_error_status)
+        self.movement.size_selected.connect(self._size_selected)
 
     def _scroll(self, inner: QWidget) -> QScrollArea:
         """Обернуть вкладку в прокрутку: окно не растёт выше экрана."""
@@ -350,6 +363,43 @@ class MainWindow(QMainWindow):
         return self._session
 
     # --- действия ---------------------------------------------------------
+
+    # --- библиотека размеров ----------------------------------------------
+
+    def _sizes_changed(self, library: object) -> None:
+        """Сохранить библиотеку размеров и обновить список предметов."""
+        candidate = cast(SizeLibrary, library)
+        try:
+            self._context.save_sizes(candidate)
+        except ConfigError as exc:
+            self._set_status(str(exc), STATUS_ERROR)
+            return
+        self.sizes.set_library(candidate)
+        self.movement.set_sizes(candidate)
+        active = candidate.active_item
+        suffix = f", выбран «{active.name}»" if active is not None else ""
+        self._set_status(f"Размеры: предметов {len(candidate.items)}{suffix}", STATUS_OK)
+
+    def _size_selected(self, name: object) -> None:
+        """Запомнить выбранный предмет: из него берётся шаг."""
+        selected = cast("str | None", name)
+        try:
+            library = self._context.sizes.select(selected)
+            self._context.save_sizes(library)
+        except (ConfigError, ValidationError) as exc:
+            self._set_status(str(exc), STATUS_ERROR)
+            self.movement.set_sizes(self._context.sizes)
+            return
+        self.sizes.set_library(library)
+        self.movement.set_sizes(library)
+        active = library.active_item
+        if active is None:
+            self._set_status("Предмет не выбран: шаг задаётся вручную.")
+            return
+        self._set_status(
+            f"Выбран «{active.name}»: длина, ширина и половины подставляются в шаг кнопками.",
+            STATUS_OK,
+        )
 
     def _capture(self) -> None:
         self._stop_hold()

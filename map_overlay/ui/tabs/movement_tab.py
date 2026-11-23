@@ -24,10 +24,13 @@ from map_overlay.domain.movement import (
     validate_step,
 )
 from map_overlay.domain.pose import Pose
+from map_overlay.domain.sizes import SIZE_USES, ObjectSize, SizeLibrary, SizeUse
 from map_overlay.errors import ValidationError
 from map_overlay.ui.widgets import Card, DirectionPad, PoseGrid, button, label
 
 STEP_PRESETS: Final[tuple[str, ...]] = ("0.1", "0.25", "0.5", "1", "2", "5", "10")
+SIZE_COMBO_WIDTH: Final = 150
+NO_SIZE_TEXT: Final = "— не выбран —"
 STEP_DECIMALS: Final = 3
 _HINTS: Final[tuple[str, ...]] = (
     "Одна стрелка — один шаг; те же действия есть на Numpad. Зажмите клавишу — "
@@ -49,11 +52,14 @@ class MovementTab(QWidget):
     confirm_requested = Signal()
     move_requested = Signal(object, float)
     tilt_toggled = Signal(bool)
+    size_selected = Signal(object)
 
     def __init__(self, *, default_step: float, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._pose: Pose | None = None
         self._tilt = False
+        self._library = SizeLibrary()
+        self._size_buttons: list[QPushButton] = []
         self._build(default_step)
 
     def _build(self, default_step: float) -> None:
@@ -96,6 +102,8 @@ class MovementTab(QWidget):
         self._pad.direction_clicked.connect(self._request_move)
         card.add(self._pad)
         card.add_layout(self._build_step_row(default_step))
+        card.add_layout(self._build_size_row())
+        card.add(self._size_info)
         card.add_layout(self._build_mode_row())
         for hint in _HINTS:
             card.add(label(hint, widget_role="muted"))
@@ -115,6 +123,24 @@ class MovementTab(QWidget):
         self._step_combo.editTextChanged.connect(self._sync_step_text)
         row.addWidget(self._step_combo)
         row.addWidget(label("м", widget_role="muted"))
+        row.addStretch(1)
+        return row
+
+    def _build_size_row(self) -> QHBoxLayout:
+        """Строка «предмет из библиотеки → шаг по его размеру»."""
+        self._size_info = label("", widget_role="muted")
+        self._size_combo = QComboBox(self)
+        self._size_combo.setMinimumWidth(SIZE_COMBO_WIDTH)
+        self._size_combo.currentIndexChanged.connect(self._size_changed)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addWidget(label("Предмет", widget_role="muted"))
+        row.addWidget(self._size_combo)
+        for use in SIZE_USES:
+            item = button(use.label, widget_role="small", tooltip=use.hint)
+            item.clicked.connect(lambda _checked=False, kind=use: self.apply_size(kind))
+            self._size_buttons.append(item)
+            row.addWidget(item)
         row.addStretch(1)
         return row
 
@@ -165,6 +191,75 @@ class MovementTab(QWidget):
     def press_capture(self) -> None:
         """Нажать «Считать» (для тестов и будущих горячих клавиш)."""
         self._capture_button.click()
+
+    def set_sizes(self, library: SizeLibrary) -> None:
+        """Показать библиотеку размеров и выбранный предмет.
+
+        Список перестраивается только когда меняется набор предметов: выбор предмета
+        приходит из этого же списка, и перестройка внутри его сигнала — лишний риск.
+        """
+        self._library = library
+        active = library.active_item
+        names = [item.name for item in library.items]
+        if names != self._size_names():
+            self._size_combo.blockSignals(True)
+            self._size_combo.clear()
+            self._size_combo.addItem(NO_SIZE_TEXT)
+            self._size_combo.addItems(names)
+            self._size_combo.blockSignals(False)
+        self._size_combo.blockSignals(True)
+        self._size_combo.setCurrentIndex(
+            0 if active is None else self._size_combo.findText(active.name)
+        )
+        self._size_combo.blockSignals(False)
+        self._size_combo.setEnabled(bool(names))
+        for widget in self._size_buttons:
+            widget.setEnabled(active is not None)
+        self._size_info.setText(_size_info(active))
+
+    def _size_names(self) -> list[str]:
+        """Названия предметов в списке без строки «не выбран»."""
+        return [self._size_combo.itemText(index) for index in range(1, self._size_combo.count())]
+
+    def _size_changed(self, index: int) -> None:
+        """Пользователь выбрал другой предмет (или «не выбран»)."""
+        if index <= 0:
+            self.size_selected.emit(None)
+            return
+        self.size_selected.emit(self._size_combo.itemText(index))
+
+    def apply_size(self, use: SizeUse) -> bool:
+        """Подставить размер выбранного предмета в шаг.
+
+        Returns:
+            ``True``, если шаг изменён; ``False`` — предмет не выбран или шаг недопустим.
+        """
+        active = self._library.active_item
+        if active is None:
+            self.set_warning("Сначала выберите предмет: размеры задаются на вкладке «Размеры»")
+            return False
+        value = use.value_for(active)
+        try:
+            step = validate_step(value)
+        except ValidationError as exc:
+            self.set_warning(f"{use.label} «{active.name}» — {value:g} м: {exc}")
+            return False
+        self._step_combo.setCurrentText(_format_step(rounded(step, STEP_DECIMALS)))
+        self.set_warning("")
+        self._size_info.setText(f"{active.name}: шаг = {use.label.lower()} ({step:g} м)")
+        return True
+
+    def size_names(self) -> list[str]:
+        """Названия в списке предметов (для тестов)."""
+        return [self._size_combo.itemText(index) for index in range(self._size_combo.count())]
+
+    def select_size(self, name: str) -> None:
+        """Выбрать предмет в списке (для тестов)."""
+        self._size_combo.setCurrentIndex(self._size_combo.findText(name))
+
+    def press_size_button(self, use: SizeUse) -> QPushButton:
+        """Кнопка «в шаг» для проверки нажатия (для тестов)."""
+        return self._size_buttons[SIZE_USES.index(use)]
 
     def set_default_step(self, step: float) -> None:
         """Показать новый шаг по умолчанию."""
@@ -229,6 +324,13 @@ class MovementTab(QWidget):
 
 def _format_step(step: float) -> str:
     return f"{step:g}"
+
+
+def _size_info(size: ObjectSize | None) -> str:
+    """Подпись под строкой предмета: габариты выбранного или подсказка."""
+    if size is None:
+        return "Выберите предмет, чтобы подставить его размер в шаг"
+    return f"Длина {size.length:g} м · ширина {size.width:g} м"
 
 
 def pose_text(pose: Pose) -> str:

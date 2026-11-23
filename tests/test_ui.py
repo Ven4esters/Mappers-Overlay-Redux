@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from map_overlay.config import Settings
@@ -15,13 +16,15 @@ from map_overlay.domain.fields import Field
 from map_overlay.domain.movement import alt_hint
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
+from map_overlay.domain.sizes import ObjectSize, SizeLibrary, SizeUse
 from map_overlay.errors import ValidationError
+from map_overlay.infrastructure.size_store import JsonSizeStore
 from map_overlay.ui.tabs.movement_tab import MovementTab
 from map_overlay.ui.window import MainWindow
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import QApplication, QCheckBox
 
-from fakes import FakeCursor, FakeHotkeySource, FakePanel, FakeStore
+from fakes import FakeCursor, FakeHotkeySource, FakePanel, FakeSizeStore, FakeStore
 
 START = Pose(x=1850.0, y=1850.0, z=128.326, rx=0.0, ry=0.0, rz=0.0)
 
@@ -33,6 +36,7 @@ def make_window(
     missing: tuple[Field, ...] = (),
     settings: Settings | None = None,
     hotkeys: FakeHotkeySource | None = None,
+    size_store: FakeSizeStore | None = None,
 ) -> tuple[MainWindow, FakePanel, FakeStore, FakeCursor]:
     panel = FakePanel(pose, missing=missing)
     store = FakeStore(settings)
@@ -43,14 +47,15 @@ def make_window(
         panel_factory=lambda _settings: panel,
         hotkeys=hotkeys or FakeHotkeySource(),
         config_path=None,
+        size_store=size_store,
     )
     window = MainWindow(context, synchronous_tasks=True)
     return window, panel, store, cursor
 
 
-def test_three_tabs(qt_app: QApplication) -> None:
+def test_four_tabs(qt_app: QApplication) -> None:
     window, _panel, _store, _cursor = make_window(qt_app)
-    assert window.tab_titles() == ["Движение", "Калибровка", "Настройки"]
+    assert window.tab_titles() == ["Движение", "Размеры", "Калибровка", "Настройки"]
 
 
 def test_capture_shows_pose(qt_app: QApplication) -> None:
@@ -979,3 +984,151 @@ def test_freeze_is_released_even_if_the_worker_never_stops(qt_app: QApplication)
         qt_app.processEvents()
         time.sleep(0.02)
     assert hotkeys.frozen is False
+
+
+# --- библиотека размеров ---------------------------------------------------
+
+
+def _library(*items: ObjectSize, active: str | None = None) -> SizeLibrary:
+    library = SizeLibrary()
+    for item in items:
+        library = library.with_item(item)
+    return library.select(active)
+
+
+def test_sizes_tab_adds_item_and_saves(qt_app: QApplication) -> None:
+    store = FakeSizeStore()
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.fill_form("Ящик", 2.0, 1.0)
+    window.sizes.press_add()
+    assert [item.name for item in store.library.items] == ["Ящик"]
+    assert store.saved
+    assert window.sizes.row_names() == ["Ящик"]
+    assert "Ящик" in window.status_text()
+
+
+def test_sizes_tab_rejects_empty_name(qt_app: QApplication) -> None:
+    store = FakeSizeStore()
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.fill_form("   ", 2.0, 1.0)
+    window.sizes.press_add()
+    assert store.library.items == ()
+    assert "пустым" in window.status_text()
+
+
+def test_sizes_tab_save_error_is_shown(qt_app: QApplication) -> None:
+    store = FakeSizeStore()
+    store.error = "диск переполнен"
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.fill_form("Ящик", 2.0, 1.0)
+    window.sizes.press_add()
+    assert "диск переполнен" in window.status_text()
+    assert window.sizes.row_names() == []
+
+
+def test_sizes_tab_replaces_same_name(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.fill_form("ящик", 3.0, 1.5)
+    window.sizes.press_add()
+    assert len(store.library.items) == 1
+    assert store.library.items[0].length == pytest.approx(3.0)
+
+
+def test_sizes_tab_moves_item_into_form(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_edit("Ящик")
+    assert window.sizes.form_values()[0] == "Ящик"
+    assert window.sizes.form_values()[1] == pytest.approx(2.0)
+
+
+def test_sizes_tab_deletes_item(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_delete("Ящик")
+    assert store.library.items == ()
+    assert window.sizes.row_names() == []
+
+
+def test_movement_lists_library_items(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0), active="Ящик"))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    assert window.movement.size_names() == ["— не выбран —", "Ящик"]
+
+
+def test_size_button_sets_the_step(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0), active="Ящик"))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.movement.press_size_button(SizeUse.LENGTH).click()
+    assert window.movement.current_step() == pytest.approx(2.0)
+    window.movement.press_size_button(SizeUse.HALF_WIDTH).click()
+    assert window.movement.current_step() == pytest.approx(0.5)
+
+
+def test_size_half_length_sets_half_step(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize(name="Стол", length=1.6, width=0.8), active="Стол"))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.movement.press_size_button(SizeUse.HALF_LENGTH).click()
+    assert window.movement.current_step() == pytest.approx(0.8)
+
+
+def test_size_buttons_are_disabled_without_selection(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    assert not window.movement.press_size_button(SizeUse.LENGTH).isEnabled()
+    assert window.movement.apply_size(SizeUse.LENGTH) is False
+    assert "выберите предмет" in window.movement.warning_text().lower()
+    assert window.movement.current_step() == pytest.approx(0.5)
+
+
+def test_size_button_rejects_too_long_step(qt_app: QApplication) -> None:
+    store = FakeSizeStore(
+        _library(ObjectSize(name="Ангар", length=500.0, width=40.0), active="Ангар")
+    )
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.movement.press_size_button(SizeUse.LENGTH).click()
+    assert "Шаг должен быть" in window.movement.warning_text()
+    assert window.movement.current_step() == pytest.approx(0.5)
+
+
+def test_size_selection_is_saved(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.movement.select_size("Ящик")
+    assert store.library.active == "Ящик"
+    assert "Выбран «Ящик»" in window.status_text()
+
+
+def test_deleting_active_item_clears_selection(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0), active="Ящик"))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_delete("Ящик")
+    assert store.library.active is None
+    assert window.movement.size_names() == ["— не выбран —"]
+
+
+def test_broken_sizes_file_is_reported(qt_app: QApplication) -> None:
+    store = FakeSizeStore()
+    store.error = "файл размеров испорчен"
+    window, panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    assert "Размеры не загружены" in window.status_text()
+    # Работа продолжается: без библиотеки оверлей считает и двигает как обычно.
+    window.movement.press_capture()
+    assert panel.reads
+
+
+def test_size_based_step_moves_the_object(qt_app: QApplication, tmp_path: Path) -> None:
+    """Полный путь: добавили предмет, взяли его длину в шаг и сдвинули на неё."""
+    path = tmp_path / "config" / "sizes.json"
+    store = JsonSizeStore(path)
+    window, panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.fill_form("Ящик", 2.0, 1.0)
+    window.sizes.press_add()
+    window.movement.press_capture()
+    window.movement.press_size_button(SizeUse.LENGTH).click()
+    window.movement.arrow(Direction.FORWARD).click()
+    assert panel.pose().x == pytest.approx(START.x + 2.0)
+    saved = JsonSizeStore(path).load()
+    assert [item.name for item in saved.items] == ["Ящик"]
+    assert saved.active == "Ящик"

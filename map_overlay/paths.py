@@ -13,6 +13,7 @@ from typing import Final
 
 HOME_ENV: Final = "MAP_OVERLAY_HOME"
 CONFIG_FILE: Final = "settings.json"
+SIZES_FILE: Final = "sizes.json"
 LOG_FILE: Final = "overlay.log"
 CRASH_FILE: Final = "crash.log"
 
@@ -30,6 +31,11 @@ def application_dir() -> Path:
 def settings_path() -> Path:
     """Файл настроек."""
     return application_dir() / "config" / CONFIG_FILE
+
+
+def sizes_path() -> Path:
+    """Файл библиотеки размеров предметов."""
+    return application_dir() / "config" / SIZES_FILE
 
 
 def log_path() -> Path:

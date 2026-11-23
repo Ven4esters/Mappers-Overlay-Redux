@@ -10,7 +10,8 @@ from map_overlay.domain.fields import Field
 from map_overlay.domain.formatting import format_value
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
-from map_overlay.errors import OperationCancelledError
+from map_overlay.domain.sizes import SizeLibrary
+from map_overlay.errors import ConfigError, OperationCancelledError
 
 
 class FakeClock:
@@ -297,3 +298,23 @@ class FakeHotkeySource:
 
 def bindings_of(settings: Settings) -> dict[Action, int | None]:
     return dict(settings.hotkeys)
+
+
+class FakeSizeStore:
+    """Библиотека размеров в памяти: помнит, что сохраняли."""
+
+    def __init__(self, library: SizeLibrary | None = None) -> None:
+        self.library = library if library is not None else SizeLibrary()
+        self.saved: list[SizeLibrary] = []
+        self.error: str | None = None
+
+    def load(self) -> SizeLibrary:
+        if self.error is not None:
+            raise ConfigError(self.error)
+        return self.library
+
+    def save(self, library: SizeLibrary) -> None:
+        if self.error is not None:
+            raise ConfigError(self.error)
+        self.library = library
+        self.saved.append(library)

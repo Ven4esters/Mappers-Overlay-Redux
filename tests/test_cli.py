@@ -60,3 +60,34 @@ def test_startup_error_is_reported(
     monkeypatch.setattr(main_module, "_run_window", broken)
     assert main([]) == 1
     assert "только в Windows" in capsys.readouterr().err
+
+
+def test_check_only_reports_sizes_library(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("MAP_OVERLAY_HOME", str(tmp_path))
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    payload = {
+        "schema_version": 1,
+        "active": "Ящик",
+        "items": [{"name": "Ящик", "length": 2.0, "width": 1.0}],
+    }
+    (config_dir / "sizes.json").write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+    assert main(["--check-only"]) == 0
+    output = capsys.readouterr().out
+    assert "Размеры предметов: 1" in output
+    assert "выбран «Ящик»" in output
+
+
+def test_check_only_reports_broken_sizes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("MAP_OVERLAY_HOME", str(tmp_path))
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "sizes.json").write_text("{сломано", encoding="utf-8")
+    assert main(["--check-only"]) == 2
+    assert "Размеры предметов не читаются" in capsys.readouterr().out

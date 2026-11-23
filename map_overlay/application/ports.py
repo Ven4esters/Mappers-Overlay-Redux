@@ -8,6 +8,7 @@ from typing import Protocol
 from map_overlay.config import Settings
 from map_overlay.domain.fields import Field
 from map_overlay.domain.point import Point
+from map_overlay.domain.sizes import SizeLibrary
 
 
 class PanelAutomation(Protocol):
@@ -176,4 +177,16 @@ class SettingsStore(Protocol):
 
     def save(self, settings: Settings) -> None:
         """Сохранить настройки."""
+        ...
+
+
+class SizeStore(Protocol):
+    """Хранилище библиотеки размеров предметов."""
+
+    def load(self) -> SizeLibrary:
+        """Загрузить библиотеку (или пустую, если файла нет)."""
+        ...
+
+    def save(self, library: SizeLibrary) -> None:
+        """Сохранить библиотеку."""
         ...
