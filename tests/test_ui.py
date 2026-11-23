@@ -1558,6 +1558,65 @@ def test_mini_toggle_shrinks_and_restores(qt_app: QApplication) -> None:
     assert not window.movement.is_compact()
 
 
+def _long_library() -> SizeLibrary:
+    """Библиотека с самым длинным названием: оно и раздувало окно."""
+    return SizeLibrary().with_item(
+        ObjectSize(name="Стена March, TID, Hood, Soup, New, 01-39", length=4.0, width=0.5)
+    )
+
+
+def test_every_tab_fits_window_width(qt_app: QApplication) -> None:
+    """Содержимое вкладок не шире окна: горизонтальной прокрутки нет, лишнее обрезалось бы."""
+    from map_overlay.ui.window import WINDOW_HEIGHT, WINDOW_WIDTH
+
+    window, _panel, _store, _cursor = make_window(qt_app, size_store=FakeSizeStore(_long_library()))
+    window.show()
+    window.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
+    qt_app.processEvents()
+    for index, title in enumerate(window.tab_titles()):
+        window.select_tab(index)
+        qt_app.processEvents()
+        assert window.tab_fits(index), f"вкладка «{title}» шире окна"
+
+
+def test_mini_hides_item_picker_and_stays_narrow(qt_app: QApplication) -> None:
+    """В мини-версии поиск и выбор предмета скрыты, а окно действительно узкое."""
+    from map_overlay.ui.window import MINI_WIDTH
+
+    window, _panel, _store, _cursor = make_window(qt_app, size_store=FakeSizeStore(_long_library()))
+    window.show()
+    assert window.movement.item_picker_visible()
+    window.press_mini()
+    qt_app.processEvents()
+    assert not window.movement.item_picker_visible()
+    assert window.width() == MINI_WIDTH
+    assert window.tab_fits(0)
+    window.press_mini()
+    qt_app.processEvents()
+    assert window.movement.item_picker_visible()
+
+
+def test_window_title_does_not_wrap(qt_app: QApplication) -> None:
+    """Заголовок окна — одной строкой: узкое окно иначе ломало шапку на два этажа."""
+    from PySide6.QtWidgets import QLabel
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    titles = [
+        item
+        for item in window.findChildren(QLabel)
+        if item.property("role") == "appTitle" and item.text() == "Mapper's Overlay Redux"
+    ]
+    assert titles
+    assert all(not item.wordWrap() for item in titles)
+
+
+def test_theme_styles_text_fields() -> None:
+    """Поля ввода оформлены темой: иначе светлый текст был бы на белом фоне."""
+    from map_overlay.ui.theme import APP_QSS
+
+    assert "QLineEdit" in APP_QSS
+
+
 def test_mini_remembers_previous_tab(qt_app: QApplication) -> None:
     """Из «Настроек» мини-версия уходит на навигацию, а обратно возвращает «Настройки»."""
     window, _panel, _settings, _cursor = make_window(qt_app)

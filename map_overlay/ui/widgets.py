@@ -64,6 +64,9 @@ class Card(QFrame):
     def __init__(self, title: str, *, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("card")
+        # Карточка занимает ровно свою высоту: лишнее место забирает растяжка под ней.
+        # Иначе при скрытых строках (мини-версия) карточка раздувалась пустотой.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(CARD_MARGIN, CARD_MARGIN, CARD_MARGIN, CARD_MARGIN)
         outer.setSpacing(CARD_SPACING)

@@ -33,8 +33,6 @@ STEP_SPIN_DECIMALS = 3
 SPIN_WIDTH = 110
 KEY_COLUMN_WIDTH = 62
 NAME_COLUMN_WIDTH = 116
-HOTKEY_COLUMN_GAP = 18
-HOTKEY_ROWS = 5
 
 
 class SettingsTab(QWidget):
@@ -166,21 +164,22 @@ class SettingsTab(QWidget):
         return card
 
     def _build_hotkey_grid(self, settings: Settings) -> QGridLayout:
-        """Сетка «действие — клавиша — Изменить — Снять» в два столбца."""
+        """Сетка «действие — клавиша — Изменить — Снять» в один столбец.
+
+        В два столбца строки не помещались в окно шириной 640: правый столбец с кнопками
+        уходил за границу прокручиваемой области.
+        """
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(4)
-        for index, action in enumerate(ACTION_ORDER):
-            column, row = divmod(index, HOTKEY_ROWS)
-            base = column * 5
-            self._add_hotkey_row(grid, settings, action, row, base)
-        grid.setColumnMinimumWidth(4, HOTKEY_COLUMN_GAP)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(6, 1)
+        for row, action in enumerate(ACTION_ORDER):
+            self._add_hotkey_row(grid, settings, action, row)
+        # Пустая растяжка справа: кнопки стоят сразу за клавишей, а не у правого края.
+        grid.setColumnStretch(4, 1)
         return grid
 
     def _add_hotkey_row(
-        self, grid: QGridLayout, settings: Settings, action: Action, row: int, base: int
+        self, grid: QGridLayout, settings: Settings, action: Action, row: int
     ) -> None:
         name = label(action.label, widget_role="muted")
         name.setMinimumWidth(NAME_COLUMN_WIDTH)
@@ -194,10 +193,10 @@ class SettingsTab(QWidget):
         clear.clicked.connect(
             lambda _checked=False, selected=action: self.hotkey_clear_requested.emit(selected)
         )
-        grid.addWidget(name, row, base)
-        grid.addWidget(key, row, base + 1)
-        grid.addWidget(change, row, base + 2)
-        grid.addWidget(clear, row, base + 3)
+        grid.addWidget(name, row, 0)
+        grid.addWidget(key, row, 1)
+        grid.addWidget(change, row, 2)
+        grid.addWidget(clear, row, 3)
         self._key_labels[action] = key
 
     def _describe_path(self) -> str:

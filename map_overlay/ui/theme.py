@@ -88,6 +88,16 @@ QTabBar::tab {{
 }}
 QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {ACCENT}; }}
 QTabBar::tab:hover {{ color: {TEXT}; }}
+QLineEdit {{
+    background: {SURFACE_RAISED};
+    border: 1px solid #2c3a55;
+    border-radius: 8px;
+    padding: 6px 8px;
+    min-height: 20px;
+    selection-background-color: #2563eb;
+}}
+QLineEdit:focus {{ border-color: {ACCENT}; }}
+QLineEdit:disabled {{ color: #55627a; border-color: #222c40; }}
 QComboBox, QSpinBox, QDoubleSpinBox {{
     background: {SURFACE_RAISED};
     border: 1px solid #2c3a55;

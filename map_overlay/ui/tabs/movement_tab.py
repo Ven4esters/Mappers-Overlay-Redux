@@ -32,6 +32,8 @@ from map_overlay.ui.widgets import Card, DirectionPad, PoseGrid, button, label
 
 STEP_PRESETS: Final[tuple[str, ...]] = ("0.1", "0.25", "0.5", "1", "2", "5", "10")
 SIZE_COMBO_WIDTH: Final = 150
+SIZE_COMBO_CHARS: Final = 14
+# Сколько символов названия гарантированно видно в списке предметов.
 NO_SIZE_TEXT: Final = "— не выбран —"
 STEP_DECIMALS: Final = 3
 _HINTS: Final[tuple[str, ...]] = (
@@ -106,8 +108,10 @@ class MovementTab(QWidget):
         self._pad.direction_clicked.connect(self._request_move)
         card.add(self._pad)
         card.add_layout(self._build_step_row(default_step))
-        card.add_layout(self._build_size_search_row())
-        card.add_layout(self._build_size_row())
+        self._size_search_row = self._build_size_search_row()
+        card.add(self._size_search_row)
+        self._size_row = self._build_size_row()
+        card.add(self._size_row)
         card.add(self._size_info)
         card.add_layout(self._build_mode_row())
         self._hint_labels = [label(hint, widget_role="muted") for hint in _HINTS]
@@ -132,9 +136,11 @@ class MovementTab(QWidget):
         row.addStretch(1)
         return row
 
-    def _build_size_search_row(self) -> QHBoxLayout:
+    def _build_size_search_row(self) -> QWidget:
         """Поиск по предметам: тот же, что на вкладке «Размеры»."""
-        row = QHBoxLayout()
+        holder = QWidget(self)
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         self._size_search = QLineEdit(self)
         self._size_search.setPlaceholderText("Поиск: слова названия или номер из диапазона")
@@ -145,25 +151,42 @@ class MovementTab(QWidget):
         row.addWidget(label("Поиск", widget_role="muted"))
         row.addWidget(self._size_search, 1)
         row.addWidget(self._size_hint, 1)
-        return row
+        return holder
 
-    def _build_size_row(self) -> QHBoxLayout:
+    def _build_size_row(self) -> QWidget:
         """Строка «предмет из библиотеки → шаг по его размеру»."""
         self._size_info = label("", widget_role="muted")
-        self._size_combo = QComboBox(self)
+        holder = QWidget(self)
+        self._size_combo = QComboBox(holder)
         self._size_combo.setMinimumWidth(SIZE_COMBO_WIDTH)
+        # Ширина списка не зависит от самого длинного названия: иначе «Стена March,
+        # TID, Hood, Soup, New, 01-39» растягивала окно и ломала мини-версию.
+        self._size_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._size_combo.setMinimumContentsLength(SIZE_COMBO_CHARS)
         self._size_combo.currentIndexChanged.connect(self._size_changed)
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        row.addWidget(label("Предмет", widget_role="muted"))
-        row.addWidget(self._size_combo)
+        outer = QVBoxLayout(holder)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(6)
+        # Строка выбора предмета и строка кнопок шага разделены: в одну строку четыре
+        # кнопки не помещались в окно шириной 640, и правый край уходил за границу.
+        pick = QHBoxLayout()
+        pick.setSpacing(8)
+        pick.addWidget(label("Предмет", widget_role="muted"))
+        pick.addWidget(self._size_combo)
+        pick.addStretch(1)
+        outer.addLayout(pick)
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
         for use in SIZE_USES:
             item = button(use.label, widget_role="small", tooltip=use.hint)
             item.clicked.connect(lambda _checked=False, kind=use: self.apply_size(kind))
             self._size_buttons.append(item)
-            row.addWidget(item)
-        row.addStretch(1)
-        return row
+            buttons.addWidget(item)
+        buttons.addStretch(1)
+        outer.addLayout(buttons)
+        return holder
 
     def _build_mode_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -210,14 +233,30 @@ class MovementTab(QWidget):
         return validate_step(value)
 
     def set_compact(self, enabled: bool) -> None:
-        """Свернуть вкладку до крестовины и шага (мини-версия окна)."""
+        """Свернуть вкладку до крестовины, шага и выбора предмета (мини-версия окна).
+
+        В мини-версии прячется всё, что нужно только для настройки шага: координаты,
+        подсказки, поиск, выбор предмета и кнопки «Длина/Ширина/½». Без этого строки
+        не помещались в узкое окно, и крестовина обрезалась справа.
+        """
         self._pose_card.setVisible(not enabled)
         for hint in self._hint_labels:
             hint.setVisible(not enabled)
+        for item in self._size_buttons:
+            item.setVisible(not enabled)
+        self._size_hint.setVisible(not enabled)
+        # Строка предмета и поиск прячутся целиком: в мини-версии нечего искать — она про то,
+        # чтобы двигать предмет стрелками, а выбор предмета задаёт шаг.
+        self._size_search_row.setVisible(not enabled)
+        self._size_row.setVisible(not enabled)
 
     def is_compact(self) -> bool:
         """Скрыты ли координаты и подсказки (для тестов)."""
         return not self._pose_card.isVisibleTo(self)
+
+    def item_picker_visible(self) -> bool:
+        """Видны ли поиск и выбор предмета (для тестов)."""
+        return self._size_row.isVisibleTo(self) and self._size_search_row.isVisibleTo(self)
 
     def press_capture(self) -> None:
         """Нажать «Считать» (для тестов и будущих горячих клавиш)."""

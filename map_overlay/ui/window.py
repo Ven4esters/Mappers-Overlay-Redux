@@ -235,7 +235,11 @@ class MainWindow(QMainWindow):
         header = QWidget(parent)
         layout = QHBoxLayout(header)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(label("Mapper's Overlay Redux", widget_role="appTitle"))
+        title = label("Mapper's Overlay Redux", widget_role="appTitle")
+        # Заголовок в одну строку: окно узкое, и перенос «Mapper's Overlay / Redux»
+        # съедал высоту шапки.
+        title.setWordWrap(False)
+        layout.addWidget(title)
         layout.addWidget(label(f"v{__version__}", widget_role="muted"))
         layout.addStretch(1)
         self._calibration_label = label("", widget_role="muted")
@@ -278,6 +282,7 @@ class MainWindow(QMainWindow):
             self._mini_button.setText("Обычный")
             self._mini_button.setToolTip("Вернуть полное окно: вкладки, калибровка, настройки")
             self.movement.set_compact(True)
+            self._fit_layout()
             self.resize(MINI_WIDTH, MINI_HEIGHT)
         else:
             self._tabs.tabBar().setVisible(True)
@@ -285,10 +290,26 @@ class MainWindow(QMainWindow):
             self._mini_button.setText("Мини")
             self._mini_button.setToolTip("Свернуть окно до крестовины и шага")
             self.movement.set_compact(False)
+            self._fit_layout()
             width, height = self._normal_size or (WINDOW_WIDTH, WINDOW_HEIGHT)
             self.resize(width, height)
             if 0 <= self._normal_tab < self._tabs.count():
                 self._tabs.setCurrentIndex(self._normal_tab)
+
+    def _fit_layout(self) -> None:
+        """Пересчитать минимальный размер окна после скрытия части вкладки.
+
+        Qt кэширует минимальный размер от раскладки: без пересчёта ``resize`` в мини-версии
+        упирался в ширину полного окна, и мини-окно оставалось большим.
+        """
+        layout = self.layout()
+        if layout is not None:
+            layout.invalidate()
+            layout.activate()
+        # Сбросить минимальный размер, который Qt оставил от прежнего вида: он и не давал
+        # окну стать уже. Раскладка оставит свой минимум сама на следующем проходе.
+        self.setMinimumSize(0, 0)
+        self.resize(self.minimumSizeHint())
 
     def press_mini(self) -> None:
         """Нажать «Мини»/«Обычный» (для тестов)."""
@@ -313,6 +334,18 @@ class MainWindow(QMainWindow):
     def select_tab(self, index: int) -> None:
         """Переключить вкладку по номеру (для тестов)."""
         self._tabs.setCurrentIndex(index)
+
+    def tab_fits(self, index: int) -> bool:
+        """Помещается ли содержимое вкладки в окно по ширине (для тестов).
+
+        Горизонтальная прокрутка выключена, поэтому всё, что шире окна, просто обрезается.
+        Проверка ловит именно это: скрытые поля ввода и лишние кнопки раздували вкладку.
+        """
+        area = self._tabs.widget(index)
+        if not isinstance(area, QScrollArea):
+            return True
+        content = area.widget()
+        return content is None or content.width() <= area.viewport().width()
 
     def tab_titles(self) -> list[str]:
         """Названия вкладок по порядку."""

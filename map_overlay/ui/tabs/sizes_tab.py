@@ -107,6 +107,12 @@ class SizesTab(QWidget):
         size_row.addWidget(self._width)
         size_row.addWidget(label(SUFFIX.strip(), widget_role="muted"))
         size_row.addStretch(1)
+        card.add_layout(size_row)
+
+        # Кнопки — отдельной строкой: в одну строку с полями и подписями они не влезали
+        # в узкое окно, и правый край формы уходил за границу карточки.
+        buttons_row = QHBoxLayout()
+        buttons_row.setSpacing(8)
         self._add_button = button(
             "Добавить в библиотеку",
             widget_role="primary",
@@ -115,9 +121,10 @@ class SizesTab(QWidget):
         self._add_button.clicked.connect(self._add)
         self._clear_button = button("Очистить", tooltip="Очистить поля формы")
         self._clear_button.clicked.connect(self._clear_form)
-        size_row.addWidget(self._add_button)
-        size_row.addWidget(self._clear_button)
-        card.add_layout(size_row)
+        buttons_row.addWidget(self._add_button)
+        buttons_row.addWidget(self._clear_button)
+        buttons_row.addStretch(1)
+        card.add_layout(buttons_row)
         self._form_hint = label(ADD_HINT, widget_role="muted")
         card.add(self._form_hint)
         return card
