@@ -22,7 +22,7 @@ from map_overlay.infrastructure.size_store import JsonSizeStore
 from map_overlay.ui.tabs.movement_tab import MovementTab
 from map_overlay.ui.window import MainWindow
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtWidgets import QApplication, QCheckBox
+from PySide6.QtWidgets import QApplication, QCheckBox, QDoubleSpinBox, QLineEdit, QSpinBox
 
 from fakes import FakeCursor, FakeHotkeySource, FakePanel, FakeSizeStore, FakeStore
 
@@ -1039,8 +1039,10 @@ def test_sizes_tab_moves_item_into_form(qt_app: QApplication) -> None:
     store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0)))
     window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
     window.sizes.press_edit("Ящик")
-    assert window.sizes.form_values()[0] == "Ящик"
-    assert window.sizes.form_values()[1] == pytest.approx(2.0)
+    name, length, width = window.sizes.form_values()
+    assert name == "Ящик"
+    assert float(length) == pytest.approx(2.0)
+    assert float(width) == pytest.approx(1.0)
 
 
 def test_sizes_tab_deletes_item(qt_app: QApplication) -> None:
@@ -1132,3 +1134,70 @@ def test_size_based_step_moves_the_object(qt_app: QApplication, tmp_path: Path) 
     saved = JsonSizeStore(path).load()
     assert [item.name for item in saved.items] == ["Ящик"]
     assert saved.active == "Ящик"
+
+
+def test_sizes_form_has_no_steppers(qt_app: QApplication) -> None:
+    """Длина и ширина вписываются руками: стрелок «+» и «−» в форме нет."""
+    window, _panel, _settings, _cursor = make_window(qt_app)
+    assert window.sizes.findChildren(QDoubleSpinBox) == []
+    assert window.sizes.findChildren(QSpinBox) == []
+    fields = [widget for widget in window.sizes.findChildren(QLineEdit)]
+    assert len(fields) >= 3
+
+
+def test_sizes_form_accepts_comma(qt_app: QApplication) -> None:
+    store = FakeSizeStore()
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.fill_form("Ящик", "2,5", "1,2")
+    window.sizes.press_add()
+    assert store.library.items[0].length == pytest.approx(2.5)
+    assert store.library.items[0].width == pytest.approx(1.2)
+
+
+def test_sizes_form_rejects_empty_size(qt_app: QApplication) -> None:
+    store = FakeSizeStore()
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.fill_form("Ящик", "", "1")
+    window.sizes.press_add()
+    assert store.library.items == ()
+    assert "Длина должна быть числом" in window.status_text()
+
+
+def test_search_filters_rows(qt_app: QApplication) -> None:
+    store = FakeSizeStore(
+        _library(
+            ObjectSize(name="Ящик", length=2.0, width=1.0),
+            ObjectSize(name="Паллета", length=1.2, width=0.8),
+            ObjectSize(name="Стеллаж", length=3.0, width=1.5),
+        )
+    )
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    assert len(window.sizes.row_names()) == 3
+    window.sizes.press_search("ящ")
+    assert window.sizes.row_names() == ["Ящик"]
+    assert "Найдено: 1 из 3" in window.sizes.list_hint()
+    window.sizes.press_search("")
+    assert len(window.sizes.row_names()) == 3
+
+
+def test_search_reports_nothing_found(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize(name="Ящик", length=2.0, width=1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_search("ангар")
+    assert window.sizes.row_names() == []
+    assert "Ничего не найдено" in window.sizes.list_hint()
+
+
+def test_select_makes_item_active(qt_app: QApplication) -> None:
+    store = FakeSizeStore(
+        _library(
+            ObjectSize(name="Ящик", length=2.0, width=1.0),
+            ObjectSize(name="Паллета", length=1.2, width=0.8),
+        )
+    )
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_select("Паллета")
+    assert store.library.active == "Паллета"
+    assert "Паллета" in window.status_text()
+    window.movement.press_size_button(SizeUse.LENGTH).click()
+    assert window.movement.current_step() == pytest.approx(1.2)
