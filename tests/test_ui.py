@@ -1567,3 +1567,9 @@ def test_mini_remembers_previous_tab(qt_app: QApplication) -> None:
     assert window.tabs_index() == 0
     window.press_mini()
     assert window.tabs_index() == 3
+
+
+def test_window_has_application_icon(qt_app: QApplication) -> None:
+    """У окна есть иконка приложения (её рисует map_overlay.ui.appicon)."""
+    window, _panel, _settings, _cursor = make_window(qt_app)
+    assert not window.windowIcon().isNull()

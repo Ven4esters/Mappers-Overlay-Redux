@@ -27,6 +27,7 @@ from map_overlay.infrastructure.win32_input import WindowsInput, enable_dpi_awar
 from map_overlay.logging_setup import setup_logging
 from map_overlay.paths import crash_path, log_path, settings_path, sizes_path
 from map_overlay.trace import note
+from map_overlay.ui.appicon import icon as app_icon
 from map_overlay.ui.theme import APP_QSS
 from map_overlay.ui.window import MainWindow
 
@@ -71,6 +72,7 @@ def _run_window() -> int:
     app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)
+    app.setWindowIcon(app_icon())
     app.setStyleSheet(APP_QSS)
 
     store = JsonSettingsStore(settings_path())

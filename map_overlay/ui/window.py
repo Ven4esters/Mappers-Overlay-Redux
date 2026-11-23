@@ -36,6 +36,7 @@ from map_overlay.domain.pose import Pose
 from map_overlay.domain.sizes import SizeLibrary
 from map_overlay.errors import ConfigError, ValidationError
 from map_overlay.trace import note
+from map_overlay.ui.appicon import icon as app_icon
 from map_overlay.ui.tabs.calibration_tab import CalibrationTab
 from map_overlay.ui.tabs.movement_tab import MovementTab, pose_text
 from map_overlay.ui.tabs.settings_tab import SettingsTab
@@ -122,6 +123,7 @@ class MainWindow(QMainWindow):
 
     def _build(self) -> None:
         self.setWindowTitle(f"Mapper's Overlay Redux {__version__}")
+        self.setWindowIcon(app_icon())
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         # Окно не отбирает фокус у игры при запуске: клавиатура остаётся у игры.

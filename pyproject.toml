@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mappers-overlay-redux"
-version = "1.13.1"
+version = "1.14.0"
 description = "Mapper's Overlay Redux — оверлей для мапперов LSP (FiveM): калибровка полей панели, запись координат и сдвиг по 8 направлениям."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -31,8 +31,8 @@ dev = [
 packages = ["map_overlay", "map_overlay.domain", "map_overlay.application", "map_overlay.infrastructure", "map_overlay.ui", "map_overlay.ui.tabs"]
 
 [tool.setuptools.package-data]
-# Словарь лемм для поиска: без него поиск работает только по окончаниям слов.
-"map_overlay" = ["data/*.json"]
+# Данные приложения: словарь лемм для поиска и иконка для exe.
+"map_overlay" = ["data/*.json", "data/*.ico"]
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv", "build", "dist"]
