@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import replace
 
 import pytest
@@ -798,6 +799,9 @@ class _AbandoningRunner:
     def abandon(self) -> bool:
         return True
 
+    def is_worker_alive(self) -> bool:
+        return False
+
 
 def test_abort_stops_the_hold(qt_app: QApplication) -> None:
     hotkeys = FakeHotkeySource()
@@ -912,3 +916,66 @@ def test_deadline_aborts_a_stuck_exchange(qt_app: QApplication) -> None:
     window._action_deadline()
     assert hotkeys.frozen is False
     assert "прервано" in window.status_text().lower()
+
+
+def test_abort_cancels_the_panel_and_forgets_the_pose(qt_app: QApplication) -> None:
+    """«Прервать» останавливает обмен и требует новый «Считать»."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    window._begin_busy("Шаг…")
+    window._runner = _AbandoningRunner()  # type: ignore[assignment]
+    window._abort_action()
+    assert panel.cancel_calls >= 1
+    assert window._pose is None
+    assert "Считать" in window.status_text()
+
+
+def test_failed_step_asks_to_read_again(qt_app: QApplication) -> None:
+    """После отказа панели шаги не идут от старых координат."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    panel.reject.add(Field.X)
+    window.movement.arrow(Direction.FORWARD).click()
+    assert "Считать" in window.status_text()
+    assert window._pose is None
+    writes = list(panel.writes)
+    window.movement.arrow(Direction.FORWARD).click()
+    assert panel.writes == writes
+    assert "Считать" in window.status_text()
+
+
+def test_changed_panel_blocks_the_arrow(qt_app: QApplication) -> None:
+    """Значение в панели поменяли — оверлей не затирает его, а просит пересчитать."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    panel.values[Field.X] = "1800.000"
+    window.movement.arrow(Direction.FORWARD).click()
+    assert panel.writes == []
+    assert "Считать" in window.status_text()
+    assert window._pose is None
+
+
+class _StuckRunner:
+    """Заглушка раннера, у которого поток не завершается никогда."""
+
+    def abandon(self) -> bool:
+        return True
+
+    def is_worker_alive(self) -> bool:
+        return True
+
+
+def test_freeze_is_released_even_if_the_worker_never_stops(qt_app: QApplication) -> None:
+    """Клавиатура не может остаться закрытой: ожидание выхода потока ограничено."""
+    hotkeys = FakeHotkeySource()
+    window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window._runner = _StuckRunner()  # type: ignore[assignment]
+    window._set_busy(True)
+    assert hotkeys.frozen is True
+    window._set_busy(False)
+    assert hotkeys.frozen is True
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline and hotkeys.frozen:
+        qt_app.processEvents()
+        time.sleep(0.02)
+    assert hotkeys.frozen is False

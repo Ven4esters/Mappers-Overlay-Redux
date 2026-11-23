@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Mapping
 from typing import Final
 
@@ -10,7 +11,7 @@ from map_overlay.application.ports import ClipboardPort, Clock, InputPort
 from map_overlay.config import Delays
 from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.point import Point
-from map_overlay.errors import ClipboardError, NotCalibratedError
+from map_overlay.errors import ClipboardError, NotCalibratedError, OperationCancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,29 @@ class CalibratedPanel:
         self._delays = delays
         self._empty_point = empty_point
         self._expected_cursor: Point | None = None
+        # Флаг отмены ставит интерфейс (кнопка «Прервать» или таймаут), читает рабочий поток.
+        self._cancel = threading.Event()
+
+    def cancel(self) -> None:
+        """Попросить прервать обмен: следующий шаг не начнётся."""
+        self._cancel.set()
+
+    def cancelled(self) -> bool:
+        """Прерван ли обмен."""
+        return self._cancel.is_set()
+
+    def reset_cancel(self) -> None:
+        """Снять прошлую отмену перед новым действием."""
+        self._cancel.clear()
+
+    def _check_cancelled(self) -> None:
+        """Прервать обмен, если интерфейс попросил об этом.
+
+        Raises:
+            OperationCancelledError: если пришла отмена.
+        """
+        if self._cancel.is_set():
+            raise OperationCancelledError("Действие отменено")
 
     def missing_points(self) -> tuple[Field, ...]:
         """Поля без точки калибровки."""
@@ -63,6 +87,7 @@ class CalibratedPanel:
             raise NotCalibratedError(
                 "Точка «пустое место панели» не задана — клик перед F невозможен"
             )
+        self._check_cancelled()
         self._wait_modifiers_released()
         self._click_point(self._empty_point)
         self._clock.sleep(self._delays.click)
@@ -80,6 +105,7 @@ class CalibratedPanel:
             ClipboardError: если панель не отдала значение — буфер остался пустым.
         """
         logger.debug("Читаю поле %s", field.label)
+        self._check_cancelled()
         self._wait_modifiers_released()
         self._clipboard.set("")
         self._click(field)
@@ -99,6 +125,7 @@ class CalibratedPanel:
     def write_field(self, field: Field, text: str) -> None:
         """Записать поле: буфер → клик → ``Ctrl+A`` → ``Ctrl+V``."""
         logger.debug("Пишу поле %s = %s", field.label, text)
+        self._check_cancelled()
         self._wait_modifiers_released()
         self._clipboard.set(text)
         self._click(field)
@@ -117,6 +144,7 @@ class CalibratedPanel:
         """
         waited = 0.0
         while waited < MODIFIER_WAIT_S and self._input.modifier_down():
+            self._check_cancelled()
             self._clock.sleep(MODIFIER_POLL_S)
             waited += MODIFIER_POLL_S
         if waited:
@@ -129,6 +157,7 @@ class CalibratedPanel:
         self._click_point(point)
 
     def _click_point(self, point: Point) -> None:
+        self._check_cancelled()
         self._return_cursor(point)
         self._input.click(point)
         self._expected_cursor = point

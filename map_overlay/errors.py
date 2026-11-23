@@ -43,6 +43,14 @@ class PanelRejectedError(ApplicationError):
     """Панель не приняла записанное значение."""
 
 
+class PanelChangedError(ApplicationError):
+    """Значения в панели изменились: продолжать нельзя без нового «Считать»."""
+
+
+class OperationCancelledError(AppError):
+    """Действие отменено пользователем или по таймауту."""
+
+
 class InputError(ApplicationError):
     """Win32 не выполнил клик или нажатие клавиши."""
 

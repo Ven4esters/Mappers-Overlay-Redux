@@ -10,6 +10,7 @@ from map_overlay.domain.fields import Field
 from map_overlay.domain.formatting import format_value
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
+from map_overlay.errors import OperationCancelledError
 
 
 class FakeClock:
@@ -132,6 +133,10 @@ class FakePanel:
         self.decimals = decimals
         self.confirm_calls = 0
         self.has_empty_point = True
+        self._cancelled = False
+        self.cancel_calls = 0
+        self.cancel_after_writes: int | None = None
+        # Если задано, панель «отменяет» себя после стольких записей (для проверки прерывания).
 
     def read_field(self, field: Field) -> str:
         self.reads.append(field)
@@ -140,9 +145,23 @@ class FakePanel:
         return self.values[field]
 
     def write_field(self, field: Field, text: str) -> None:
+        if self._cancelled:
+            raise OperationCancelledError("Действие отменено")
         self.writes.append((field, text))
         if field not in self.reject:
             self.values[field] = text
+        if self.cancel_after_writes is not None and len(self.writes) >= self.cancel_after_writes:
+            self.cancel()
+
+    def cancel(self) -> None:
+        self._cancelled = True
+        self.cancel_calls += 1
+
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    def reset_cancel(self) -> None:
+        self._cancelled = False
 
     def missing_points(self) -> tuple[Field, ...]:
         return self.missing

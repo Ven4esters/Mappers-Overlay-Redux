@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 
@@ -146,3 +147,30 @@ def test_handler_error_is_logged_and_does_not_wedge(qt_app: QApplication, caplog
         for record in caplog.records
     )
     runner.shutdown()
+
+
+def test_second_task_waits_for_the_abandoned_worker(qt_app: QApplication) -> None:
+    """Брошенный поток не даёт запустить второй: иначе два потока кликали бы разом."""
+    runner = TaskRunner()
+    release = threading.Event()
+
+    def slow() -> object:
+        release.wait(2.0)
+        return 1
+
+    results: list[object] = []
+    runner.submit(slow, on_success=results.append, on_error=lambda _message: None)
+    assert wait_for(qt_app, runner.is_worker_alive)
+    assert runner.abandon()
+    errors: list[str] = []
+    assert (
+        runner.submit(lambda: 2, on_success=lambda _result: None, on_error=errors.append) is False
+    )
+    assert errors and "ещё завершается" in errors[0]
+    release.set()
+    assert wait_for(qt_app, lambda: not runner.is_worker_alive())
+    started: list[object] = []
+    assert (
+        runner.submit(lambda: 3, on_success=started.append, on_error=lambda _message: None) is True
+    )
+    assert wait_for(qt_app, lambda: started == [3])

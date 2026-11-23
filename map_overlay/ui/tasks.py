@@ -85,6 +85,7 @@ class TaskRunner(QObject):
         self._generation = 0
         self._thread: QThread | None = None
         self._tasks: dict[int, _Task] = {}
+        self._threads: dict[int, QThread] = {}
         self._active: QThread | None = None
         self._active_generation: int | None = None
         self._label = ""
@@ -95,6 +96,24 @@ class TaskRunner(QObject):
     def is_busy(self) -> bool:
         """Идёт ли сейчас задача."""
         return self._active is not None
+
+    def is_worker_alive(self) -> bool:
+        """Работает ли ещё поток брошенной задачи.
+
+        Брошенный поток нельзя убить, поэтому запускать поверх него вторую задачу
+        нельзя: два потока начали бы одновременно кликать по панели.
+        """
+        alive = False
+        for generation, thread in list(self._threads.items()):
+            try:
+                running = thread.isRunning()
+            except RuntimeError:  # Qt уже удалил поток
+                running = False
+            if running:
+                alive = True
+            else:
+                self._threads.pop(generation, None)
+        return alive
 
     def busy_seconds(self) -> float:
         """Сколько секунд выполняется текущая задача."""
@@ -124,6 +143,12 @@ class TaskRunner(QObject):
         if self.is_busy():
             on_error("Дождитесь окончания предыдущего действия")
             return False
+        if self.is_worker_alive():
+            on_error(
+                "Прошлое действие ещё завершается — повторите через секунду. "
+                "Клавиатура уже свободна"
+            )
+            return False
         self._on_success = on_success
         self._on_error = on_error
         self._label = label
@@ -144,6 +169,7 @@ class TaskRunner(QObject):
         task = _Task(work, generation)
         thread = QThread(self)
         self._tasks[generation] = task
+        self._threads[generation] = thread
         task.moveToThread(thread)
         thread.started.connect(task.run)
         task.succeeded.connect(self._handle_success)
@@ -174,16 +200,16 @@ class TaskRunner(QObject):
             self.shutdown(1000)
 
     def shutdown(self, timeout_ms: int = 3000) -> None:
-        """Дождаться завершения задачи при закрытии окна."""
-        thread = self._thread
-        if thread is None:
-            return
-        try:
-            thread.quit()
-            if not thread.wait(timeout_ms):
-                logger.warning("Поток задачи не завершился за %d мс", timeout_ms)
-        except RuntimeError:  # Qt уже удалил поток после завершения задачи
-            self._thread = None
+        """Дождаться завершения всех задач при закрытии окна."""
+        for thread in list(self._threads.values()):
+            try:
+                thread.quit()
+                if not thread.wait(timeout_ms):
+                    logger.warning("Поток задачи не завершился за %d мс", timeout_ms)
+            except RuntimeError:  # Qt уже удалил поток после завершения задачи
+                continue
+        self._threads.clear()
+        self._thread = None
 
     def _run_inline(self, work: Work) -> bool:
         start = time.monotonic()

@@ -7,8 +7,9 @@ from dataclasses import replace
 import pytest
 from map_overlay.application.writer import PoseWriter
 from map_overlay.domain.fields import Field
+from map_overlay.domain.formatting import format_value
 from map_overlay.domain.pose import Pose
-from map_overlay.errors import PanelRejectedError
+from map_overlay.errors import OperationCancelledError, PanelChangedError, PanelRejectedError
 
 from fakes import FakePanel
 
@@ -25,7 +26,8 @@ def test_only_changed_fields_are_written() -> None:
     written = writer.write_changes(START, replace(START, x=1849.5))
     assert written == (Field.X,)
     assert panel.writes == [(Field.X, "1849.500")]
-    assert panel.reads == [Field.X]
+    # Первое чтение — сверка «панель всё ещё та же», второе — проверка вставки.
+    assert panel.reads == [Field.X, Field.X]
 
 
 def test_nothing_changes_nothing_written() -> None:
@@ -87,3 +89,46 @@ def test_decimals_from_settings_are_used() -> None:
     panel = FakePanel(START)
     make_writer(panel, decimals=2).write_changes(START, replace(START, x=1849.0))
     assert panel.writes == [(Field.X, "1849.00")]
+
+
+def test_changed_panel_value_stops_before_writing() -> None:
+    """В панели уже другое значение — шаг не начинается и ничего не затирается."""
+    panel = FakePanel(START)
+    panel.values[Field.X] = "1848.000"
+    with pytest.raises(PanelChangedError, match="Нажмите «Считать»"):
+        make_writer(panel).write_changes(START, replace(START, x=1849.5))
+    assert panel.writes == []
+
+
+def test_unreadable_panel_is_reported_as_changed() -> None:
+    """Панель закрыли или выбрали другое поле: понятная ошибка вместо записи наугад."""
+    panel = FakePanel(START)
+    panel.bad_read.add(Field.X)
+    with pytest.raises(PanelChangedError, match="не читается"):
+        make_writer(panel).write_changes(START, replace(START, y=1849.0))
+    assert panel.writes == []
+
+
+def test_cancel_between_fields_stops_the_write() -> None:
+    """Отмена видна между полями: в панель не уходит ни одного лишнего действия."""
+    panel = FakePanel(START)
+    panel.cancel_after_writes = 1
+    with pytest.raises(OperationCancelledError):
+        make_writer(panel).write_changes(START, replace(START, x=1849.0, y=1849.0))
+    assert panel.written_fields == [Field.X]
+
+
+def test_rounded_panel_value_does_not_block_the_step() -> None:
+    """Панель с двумя знаками — это не «другое значение»: шаг проходит."""
+    panel = FakePanel(START)
+    panel.values[Field.X] = format_value(START.x, 2)
+    assert make_writer(panel).write_changes(START, replace(START, y=1849.0)) == (Field.Y,)
+
+
+def test_five_centimetre_change_is_detected() -> None:
+    """Сдвиг в панели на 5 см — уже другое значение, запись не начинается."""
+    panel = FakePanel(START)
+    panel.values[Field.X] = format_value(START.x + 0.05, 3)
+    with pytest.raises(PanelChangedError):
+        make_writer(panel).write_changes(START, replace(START, y=1849.0))
+    assert panel.writes == []

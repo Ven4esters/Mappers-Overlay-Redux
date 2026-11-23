@@ -13,6 +13,8 @@ from map_overlay.domain.pose import Pose
 from map_overlay.errors import (
     ApplicationError,
     NotCalibratedError,
+    OperationCancelledError,
+    PanelChangedError,
     PanelRejectedError,
     PoseNotCapturedError,
     ValidationError,
@@ -149,14 +151,17 @@ def test_confirm_presses_f_without_reading() -> None:
     assert panel.writes == []
 
 
-def test_failed_write_keeps_previous_pose() -> None:
+def test_failed_write_drops_the_pose() -> None:
+    """После отказа панели координаты забываются: иначе шаг шёл бы от неверных."""
     panel = FakePanel(START)
     panel.reject.add(Field.X)
     session = make_session(panel)
     session.capture()
     with pytest.raises(PanelRejectedError):
         session.step(Direction.FORWARD, 0.5)
-    assert session.pose == START
+    assert session.pose is None
+    with pytest.raises(PoseNotCapturedError):
+        session.step(Direction.FORWARD, 0.5)
 
 
 def test_tilted_step_writes_height_and_marks_result() -> None:
@@ -209,3 +214,57 @@ def test_plain_step_keeps_height() -> None:
     result = session.step(Direction.FORWARD, 1.0)
     assert Field.Z not in result.written
     assert result.delta_z == 0.0
+
+
+def test_step_refuses_when_the_panel_was_changed() -> None:
+    """Значение вписали руками — шаг не выполняется, координаты забыты."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.capture()
+    panel.values[Field.X] = "-1840.000"
+    with pytest.raises(PanelChangedError, match="значение изменили"):
+        session.step(Direction.FORWARD, 0.5)
+    assert panel.writes == []
+    assert session.pose is None
+
+
+def test_cancelled_step_forgets_the_pose() -> None:
+    """Прерванный шаг не оставляет «полуприменённых» координат."""
+    panel = FakePanel(START)
+    panel.cancel_after_writes = 1
+    session = make_session(panel)
+    session.capture()
+    with pytest.raises(OperationCancelledError):
+        session.step(Direction.FORWARD_RIGHT, 1.0)
+    assert session.pose is None
+
+
+def test_capture_can_be_cancelled() -> None:
+    class CancellingPanel(FakePanel):
+        def read_field(self, field: Field) -> str:
+            self.cancel()
+            return super().read_field(field)
+
+    session = make_session(CancellingPanel(START))
+    with pytest.raises(OperationCancelledError):
+        session.capture()
+    assert session.pose is None
+
+
+def test_new_action_after_cancel_works() -> None:
+    """Отмена не залипает: следующий «Считать» проходит как обычно."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.cancel()
+    assert session.capture().x == pytest.approx(START.x)
+
+
+def test_failed_capture_forgets_the_old_pose() -> None:
+    """Недочитанная панель: старые координаты не должны пережить сбой."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.capture()
+    panel.bad_read.add(Field.RZ)
+    with pytest.raises(ApplicationError):
+        session.capture()
+    assert session.pose is None

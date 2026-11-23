@@ -13,13 +13,29 @@ from map_overlay.domain.movement import shifted, validate_step
 from map_overlay.domain.parsing import parse_number
 from map_overlay.domain.pose import Pose
 from map_overlay.errors import (
+    AppError,
     ApplicationError,
+    ClipboardError,
+    InputError,
     NotCalibratedError,
+    OperationCancelledError,
+    PanelChangedError,
+    PanelRejectedError,
     ParseError,
     PoseNotCapturedError,
 )
 
 logger = logging.getLogger(__name__)
+
+PANEL_TROUBLE: tuple[type[Exception], ...] = (
+    ClipboardError,
+    InputError,
+    OperationCancelledError,
+    PanelChangedError,
+    PanelRejectedError,
+)
+# Ошибки, после которых нельзя двигаться от прежних координат: состояние панели
+# неизвестно, нужен новый «Считать».
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +77,10 @@ class MappingSession:
         """Последняя считанная или записанная поза."""
         return self._pose
 
+    def cancel(self) -> None:
+        """Попросить прервать текущий обмен (кнопка «Прервать» или таймаут)."""
+        self._panel.cancel()
+
     def ensure_calibrated(self) -> None:
         """Проверить, что у всех полей есть точка.
 
@@ -82,14 +102,34 @@ class MappingSession:
             ApplicationError: если поле вернуло не число.
         """
         self.ensure_calibrated()
+        self._panel.reset_cancel()
+        try:
+            pose = self._read_pose()
+        except AppError:
+            # Недочитанная панель: прежние координаты больше не годятся.
+            self._invalidate()
+            raise
+        self._pose = pose
+        logger.info("Считано из панели: %s", pose)
+        return pose
+
+    def _read_pose(self) -> Pose:
+        """Прочитать все поля по порядку панели.
+
+        Raises:
+            ApplicationError: если поле вернуло не число.
+            OperationCancelledError: если действие прервали.
+        """
         values: dict[Field, float] = {}
         for field in PANEL_ORDER:
+            if self._panel.cancelled():
+                raise OperationCancelledError("Действие отменено")
             raw = self._panel.read_field(field)
             try:
                 values[field] = parse_number(raw)
             except ParseError as exc:
                 raise ApplicationError(f"Поле {field.label}: {exc}") from exc
-        pose = Pose(
+        return Pose(
             x=values[Field.X],
             y=values[Field.Y],
             z=values[Field.Z],
@@ -97,9 +137,6 @@ class MappingSession:
             ry=values[Field.RY],
             rz=values[Field.RZ],
         )
-        self._pose = pose
-        logger.info("Считано из панели: %s", pose)
-        return pose
 
     def confirm(self) -> None:
         """Зафиксировать текущее положение в игре: клик в пустое место и ``F``.
@@ -112,7 +149,12 @@ class MappingSession:
                 "Не задана точка «пустое место панели»: без неё некуда кликнуть перед F. "
                 "Откройте вкладку «Калибровка»."
             )
-        self._panel.confirm()
+        self._panel.reset_cancel()
+        try:
+            self._panel.confirm()
+        except PANEL_TROUBLE:
+            self._invalidate()
+            raise
         logger.info("Положение подтверждено клавишей F")
 
     def step(self, direction: Direction, step: float, *, tilt: bool = False) -> StepResult:
@@ -130,8 +172,14 @@ class MappingSession:
             raise PoseNotCapturedError(
                 "Сначала нажмите «Считать»: оверлей не знает текущих координат"
             )
+        self._panel.reset_cancel()
         target = shifted(self._pose, direction, validate_step(step), tilt=tilt)
-        written = self._writer.write_changes(self._pose, target)
+        try:
+            written = self._writer.write_changes(self._pose, target)
+        except PANEL_TROUBLE as exc:
+            logger.warning("Шаг отменён, координаты забыты: %s", exc)
+            self._invalidate()
+            raise
         result = StepResult(previous=self._pose, pose=target, written=written, tilted=tilt)
         self._pose = target
         if tilt and direction in (Direction.FORWARD, Direction.BACK):
@@ -146,3 +194,7 @@ class MappingSession:
             ", ".join(field.label for field in written) or "ничего",
         )
         return result
+
+    def _invalidate(self) -> None:
+        """Забыть позу: после сбоя панели двигаться от неё нельзя."""
+        self._pose = None

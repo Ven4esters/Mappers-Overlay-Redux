@@ -62,6 +62,11 @@ ACTION_DEADLINE_MS = 20000
 # Раньше зависший обмен оставлял окно занятым навсегда, и оверлей приходилось
 # закрывать через диспетчер задач. Теперь по таймауту задача бросается автоматически.
 STUCK_HINT_S = 5.0
+
+UNFREEZE_WAIT_MS = 1500
+# Сколько ждём выхода брошенного потока, прежде чем всё равно отпустить клавиатуру.
+
+UNFREEZE_POLL_MS = 100
 HOLD_REPEAT_MS = 150
 # Пауза перед следующим шагом удержания: отсчитывается от конца предыдущего.
 
@@ -243,13 +248,26 @@ class MainWindow(QMainWindow):
         """
         self.movement.set_busy(busy)
         self._abort_button.setEnabled(busy)
-        self._hotkeys.freeze(busy)
         if busy:
+            self._hotkeys.freeze(True)
             self._busy_timer.start(BUSY_TICK_MS)
             self._deadline_timer.start(ACTION_DEADLINE_MS)
         else:
             self._busy_timer.stop()
             self._deadline_timer.stop()
+            # Клавиатуру отпускаем только когда брошенный поток действительно вышел:
+            # иначе нажатие попадёт в панель между кликом и вставкой. Ожидание ограничено.
+            self._unfreeze_when_worker_stops()
+
+    def _unfreeze_when_worker_stops(self, waited_ms: int = 0) -> None:
+        """Отпустить клавиатуру, когда рабочий поток закончил (не дольше ``UNFREEZE_WAIT_MS``)."""
+        if self._runner.is_worker_alive() and waited_ms < UNFREEZE_WAIT_MS:
+            QTimer.singleShot(
+                UNFREEZE_POLL_MS,
+                lambda: self._unfreeze_when_worker_stops(waited_ms + UNFREEZE_POLL_MS),
+            )
+            return
+        self._hotkeys.freeze(False)
 
     def _action_deadline(self) -> None:
         """Прервать обмен, который не уложился в отведённое время.
@@ -265,11 +283,12 @@ class MainWindow(QMainWindow):
             self._runner.busy_seconds(),
         )
         self._stop_hold()
-        self._runner.abandon()
+        self._cancel_running()
         self._set_busy(False)
+        self._drop_pose("Панель не ответила за 20 с")
         self._set_status(
             "Действие прервано: панель не ответила за 20 с. Проверьте, что окно панели "
-            "на экране и не перекрыто, и повторите.",
+            "на экране и не перекрыто, и нажмите «Считать».",
             STATUS_WARN,
         )
 
@@ -293,17 +312,37 @@ class MainWindow(QMainWindow):
             return
         self._set_status(f"{self._busy_text} ({seconds:.0f} с)")
 
+    def _cancel_running(self) -> bool:
+        """Остановить обмен: сначала попросить рабочий поток выйти, потом бросить задачу.
+
+        Без сигнала отмены брошенный поток продолжал бы кликать и вставлять значения,
+        пока не пройдёт все поля: панель получала бы чужие нажатия, а координаты —
+        мусор. Отмена видна панели между шагами и завершает поток за один шаг.
+        """
+        if self._session is not None:
+            self._session.cancel()
+        return self._runner.abandon()
+
     def _abort_action(self) -> None:
         """Бросить зависшее действие, не закрывая окно."""
         self._stop_hold()
-        if not self._runner.abandon():
+        if not self._cancel_running():
             return
         self._set_busy(False)
+        self._drop_pose("Действие прервано вручную")
         self._set_status(
             "Действие прервано вручную, удержание остановлено. "
-            "Если панель не отвечает, перезапустите оверлей.",
+            "Клавиатура свободна. Нажмите «Считать», чтобы продолжить.",
             STATUS_WARN,
         )
+
+    def _drop_pose(self, reason: str) -> None:
+        """Забыть координаты: после сбоя двигаться от них нельзя."""
+        if self._pose is None:
+            return
+        logger.warning("%s — координаты сброшены, нужен новый «Считать»", reason)
+        self._pose = None
+        self.movement.set_pose(None)
 
     def _ensure_session(self) -> MappingSession:
         if self._session is None:
@@ -402,6 +441,9 @@ class MainWindow(QMainWindow):
         logger.warning("Действие не выполнено: %s", message)
         self._stop_hold()
         self._set_busy(False)
+        if self._session is not None and self._session.pose is None:
+            self._drop_pose(message)
+            message = f"{message}. Нажмите «Считать» и повторите"
         self._set_status(message, STATUS_ERROR)
 
     def _tilt_warning(self, pose: Pose) -> str:

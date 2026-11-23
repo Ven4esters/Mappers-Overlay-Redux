@@ -33,6 +33,18 @@ class PanelAutomation(Protocol):
         """Кликнуть в пустое место панели и нажать F."""
         ...
 
+    def cancel(self) -> None:
+        """Попросить прервать обмен: следующий шаг не начнётся."""
+        ...
+
+    def cancelled(self) -> bool:
+        """Прерван ли обмен (проверяется между шагами)."""
+        ...
+
+    def reset_cancel(self) -> None:
+        """Снять прошлую отмену перед новым действием."""
+        ...
+
 
 class InputPort(Protocol):
     """Клавиатура и мышь Windows."""
