@@ -1287,3 +1287,48 @@ def test_failed_step_is_logged_with_reason(qt_app: QApplication) -> None:
     assert "провалилась" in log
     assert "Панель не приняла поле X" in log
     assert "статус [error]" in log
+
+
+def test_search_finds_wall_by_word_and_number(qt_app: QApplication) -> None:
+    """«Стена March, TID, …, 01-39» находится по слову и по номеру из диапазона."""
+    wall = ObjectSize(name="Стена March, TID, Hood, Soup, New, 01-39", length=2.9, width=2.7)
+    store = FakeSizeStore(_library(wall))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    for query in ("Стена", "Стена March", "Стена TID", "стена 05", "Стена 39"):
+        window.sizes.press_search(query)
+        assert window.sizes.row_names() == [wall.name], query
+    window.sizes.press_search("Стена 40")
+    assert window.sizes.row_names() == []
+
+
+def test_search_finds_all_wall_variants(qt_app: QApplication) -> None:
+    """Варианты — отдельные предметы, но ищутся общим словом «стена»."""
+    names = [
+        "Стена March, TID, Hood, Soup, New, 01-39",
+        "Длинная стена 01-39, TID",
+        "Стена с дверным проёмом 01-39, TID",
+        "Полустена 01-39, TID",
+        "четверть стены 01-39, TID",
+        "Ящик",
+    ]
+    store = FakeSizeStore(_library(*(ObjectSize(name, 2.9, 2.7) for name in names)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_search("стена")
+    assert len(window.sizes.row_names()) == 5
+    assert "Найдено: 5 из 6" in window.sizes.list_hint()
+    window.sizes.press_search("стена 05")
+    assert len(window.sizes.row_names()) == 5
+    window.sizes.press_search("полустена")
+    assert window.sizes.row_names() == ["Полустена 01-39, TID"]
+
+
+def test_search_distinguishes_number_padding(qt_app: QApplication) -> None:
+    names = ["Стена 01-10", "Стена 001-10", "Стена 1-10"]
+    store = FakeSizeStore(_library(*(ObjectSize(name, 2.9, 2.7) for name in names)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_search("Стена 01")
+    assert window.sizes.row_names() == ["Стена 01-10"]
+    window.sizes.press_search("Стена 001")
+    assert window.sizes.row_names() == ["Стена 001-10"]
+    window.sizes.press_search("Стена 1")
+    assert window.sizes.row_names() == ["Стена 1-10"]

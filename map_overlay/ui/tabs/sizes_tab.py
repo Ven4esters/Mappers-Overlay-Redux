@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from map_overlay.domain.formatting import rounded
+from map_overlay.domain.search import SearchIndex, build_index, parse_query
 from map_overlay.domain.sizes import (
     MAX_NAME_LEN,
     MAX_SIZE_M,
@@ -50,6 +51,7 @@ class SizesTab(QWidget):
         self._library = library
         self._path = path
         self._rows_layout: QVBoxLayout | None = None
+        self._indexes: dict[str, SearchIndex] = {}
         self._build()
         self._refresh()
 
@@ -112,7 +114,7 @@ class SizesTab(QWidget):
     def _build_list(self) -> Card:
         card = Card("Мои предметы")
         self._search = QLineEdit(self)
-        self._search.setPlaceholderText("Поиск по названию")
+        self._search.setPlaceholderText("Поиск: слова названия или номер из диапазона")
         self._search.setClearButtonEnabled(True)
         self._search.textChanged.connect(self._refresh)
         search_row = QHBoxLayout()
@@ -182,6 +184,7 @@ class SizesTab(QWidget):
     def set_library(self, library: SizeLibrary) -> None:
         """Показать новую библиотеку (после сохранения или удаления)."""
         self._library = library
+        self._indexes.clear()
         self._refresh()
 
     def library(self) -> SizeLibrary:
@@ -231,11 +234,23 @@ class SizesTab(QWidget):
         return self._name.text(), self._length.text(), self._width.text()
 
     def _visible_items(self) -> list[ObjectSize]:
-        """Предметы, подходящие под запрос поиска (без учёта регистра)."""
-        query = self._search.text().strip().casefold()
-        if not query:
+        """Предметы, подходящие под запрос: все слова запроса должны найтись.
+
+        Слова ищутся по синонимам названия (фрагменты через запятую и отдельные слова),
+        а номер из запроса — по диапазону: «Стена 05» найдёт «…, 01-39».
+        """
+        words = parse_query(self._search.text())
+        if not words:
             return list(self._library.items)
-        return [item for item in self._library.items if query in item.name.casefold()]
+        return [item for item in self._library.items if self._index(item).matches(words)]
+
+    def _index(self, item: ObjectSize) -> SearchIndex:
+        """Разобранное название предмета: считаем один раз до смены библиотеки."""
+        index = self._indexes.get(item.name)
+        if index is None:
+            index = build_index(item.name)
+            self._indexes[item.name] = index
+        return index
 
     def _refresh(self, _text: str = "") -> None:
         items = self._visible_items()
