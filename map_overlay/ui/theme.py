@@ -14,6 +14,11 @@ ACCENT: Final = "#3b82f6"
 WARNING: Final = "#f5b942"
 ERROR: Final = "#ef4444"
 SUCCESS: Final = "#34d399"
+TEXT_DISABLED: Final = "#3d475a"
+# Цвет выключенного элемента: заметно тусклее обычного текста, но не «дыра» на экране.
+PANEL_DISPLAY: Final = "#0f1521"
+# Фон полей-показаний (координаты): темнее карточки, чтобы число читалось как данные.
+DANGER_EDGE: Final = "#7f2d2d"
 
 APP_QSS: Final = f"""
 QWidget {{
@@ -33,6 +38,24 @@ QFrame#header {{ background: {BACKGROUND}; border: none; }}
 QLabel[role="cardTitle"] {{ color: {MUTED}; font-size: 11px; font-weight: 600; }}
 QLabel[role="poseField"] {{ color: {MUTED}; font-size: 11px; }}
 QLabel[role="poseValue"] {{ font-family: "Consolas", "Cascadia Mono", monospace; font-size: 16px; }}
+QLabel[role="poseDisplay"] {{
+    font-family: "Consolas", "Cascadia Mono", monospace;
+    font-size: 16px;
+    background: {PANEL_DISPLAY};
+    border: 1px solid #1e2739;
+    border-radius: 6px;
+    padding: 3px 8px;
+}}
+QLabel[role="poseDisplay"][empty="true"] {{ color: #4f5c73; }}
+QLabel[role="hint"] {{ color: {MUTED}; font-size: 11px; }}
+QLabel[role="badge"], QLabel[role="badgeOk"] {{
+    color: {MUTED};
+    background: {SURFACE_RAISED};
+    border: 1px solid {BORDER};
+    border-radius: 9px;
+    padding: 3px 9px;
+}}
+QLabel[role="badgeOk"] {{ color: {SUCCESS}; border-color: #235c45; }}
 QLabel[role="muted"] {{ color: {MUTED}; }}
 QLabel[role="warn"] {{ color: {WARNING}; }}
 QLabel[role="error"] {{ color: {ERROR}; }}
@@ -51,7 +74,11 @@ QPushButton {{
 }}
 QPushButton:hover {{ background: #243050; }}
 QPushButton:pressed {{ background: #172033; }}
-QPushButton:disabled {{ color: #55627a; border-color: #222c40; }}
+QPushButton:disabled {{
+    color: {TEXT_DISABLED};
+    background: rgba(22, 29, 43, 0.45);
+    border-color: #1b2333;
+}}
 QPushButton[role="primary"] {{
     background: #2563eb;
     border: 1px solid {ACCENT};
@@ -62,6 +89,18 @@ QPushButton[role="primary"]:disabled {{
     background: #1b2740;
     border-color: #26324a;
     color: #55627a;
+}}
+QPushButton[role="danger"] {{
+    background: transparent;
+    border: 1px solid {DANGER_EDGE};
+    color: #f87171;
+}}
+QPushButton[role="danger"]:hover {{ background: rgba(239, 68, 68, 0.12); border-color: {ERROR}; }}
+QPushButton[role="danger"]:pressed {{ background: rgba(239, 68, 68, 0.2); }}
+QPushButton[role="danger"]:disabled {{
+    color: #5a3a42;
+    border-color: #33222a;
+    background: transparent;
 }}
 QPushButton[role="small"] {{
     padding: 4px 10px;
@@ -121,11 +160,17 @@ QCheckBox::indicator {{
 }}
 QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
 QScrollArea {{ background: transparent; border: none; }}
-QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px; }}
-QScrollBar::handle:vertical {{ background: #2c3a55; border-radius: 4px; min-height: 32px; }}
-QScrollBar::handle:vertical:hover {{ background: #3a4a6b; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+QScrollBar:vertical {{ background: transparent; width: 9px; margin: 2px; }}
+QScrollBar::handle:vertical {{
+    background: #243050;
+    border-radius: 4px;
+    min-height: 40px;
+}}
+QScrollBar::handle:vertical:hover {{ background: #33456b; }}
+QScrollBar:horizontal {{ background: transparent; height: 9px; margin: 2px; }}
+QScrollBar::handle:horizontal {{ background: #243050; border-radius: 4px; min-width: 40px; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; border: none; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 QStatusBar {{ background: {BACKGROUND}; }}
 QStatusBar::item {{ border: none; }}
 QToolTip {{

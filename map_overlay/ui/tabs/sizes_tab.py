@@ -25,7 +25,7 @@ from map_overlay.domain.sizes import (
     SizeLibrary,
 )
 from map_overlay.errors import AppError, ValidationError
-from map_overlay.ui.widgets import Card, button, label
+from map_overlay.ui.widgets import SECTION_GAP, Card, button, label
 
 SIZE_FIELD_WIDTH = 110
 DEFAULT_LENGTH = 2.0
@@ -76,7 +76,7 @@ class SizesTab(QWidget):
     def _build(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setSpacing(SECTION_GAP)
         layout.addWidget(self._build_form())
         layout.addWidget(self._build_list())
         path = str(self._path) if self._path is not None else "ещё не сохранён"

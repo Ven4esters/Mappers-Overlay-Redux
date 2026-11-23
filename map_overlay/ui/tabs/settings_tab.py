@@ -26,7 +26,7 @@ from map_overlay.domain.formatting import MAX_DECIMALS, MIN_DECIMALS
 from map_overlay.domain.keynames import key_name
 from map_overlay.domain.movement import MAX_STEP, MIN_STEP
 from map_overlay.errors import AppError
-from map_overlay.ui.widgets import Card, button, label
+from map_overlay.ui.widgets import SECTION_GAP, Card, button, label
 
 DELAY_STEP_S = 0.01
 STEP_SPIN_DECIMALS = 3
@@ -60,7 +60,7 @@ class SettingsTab(QWidget):
     def _build(self, settings: Settings) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(10)
+        layout.setSpacing(SECTION_GAP)
         layout.addWidget(self._build_delays(settings))
         layout.addWidget(self._build_values(settings))
         layout.addWidget(self._build_hotkeys(settings))

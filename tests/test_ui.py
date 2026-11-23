@@ -32,7 +32,14 @@ from PySide6.QtWidgets import (
     QSpinBox,
 )
 
-from fakes import FakeCursor, FakeHotkeySource, FakePanel, FakeSizeStore, FakeStore
+from fakes import (
+    FULL_CALIBRATION,
+    FakeCursor,
+    FakeHotkeySource,
+    FakePanel,
+    FakeSizeStore,
+    FakeStore,
+)
 
 START = Pose(x=1850.0, y=1850.0, z=128.326, rx=0.0, ry=0.0, rz=0.0)
 
@@ -1594,6 +1601,141 @@ def test_mini_hides_item_picker_and_stays_narrow(qt_app: QApplication) -> None:
     window.press_mini()
     qt_app.processEvents()
     assert window.movement.item_picker_visible()
+
+
+def test_pose_values_look_like_aligned_fields(qt_app: QApplication) -> None:
+    """Координаты — поля-показания: моноширинный шрифт и выравнивание по правому краю."""
+    from map_overlay.domain.formatting import format_value
+    from map_overlay.ui.widgets import PoseGrid
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    grid = window.findChild(PoseGrid)
+    assert grid is not None
+    assert grid.text_of(Field.X) == "—"
+    assert grid.alignment_of(Field.X) & Qt.AlignmentFlag.AlignRight
+    window.movement.press_capture()
+    assert grid.text_of(Field.X) == format_value(START.x, 3)
+    assert grid.text_of(Field.RX) == format_value(START.rx, 3)
+
+
+def test_pose_value_field_roles(qt_app: QApplication) -> None:
+    """Значения позы помечены ролью поля, а не обычной подписи."""
+    from PySide6.QtWidgets import QLabel
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    fields = [
+        item for item in window.findChildren(QLabel) if item.property("role") == "poseDisplay"
+    ]
+    assert len(fields) == len(Field)
+    assert all(item.property("empty") is True for item in fields)
+    window.movement.press_capture()
+    shown = [item for item in fields if item.text() != "—"]
+    assert len(shown) == len(Field)
+    assert all(item.property("empty") is False for item in shown)
+
+
+def test_crosshair_center_has_no_step_text(qt_app: QApplication) -> None:
+    """Шаг задаётся только полем «Шаг»: в центре крестовины подписи нет."""
+    from map_overlay.ui.widgets import CenterMark
+    from PySide6.QtWidgets import QLabel
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    pad = window.movement._pad
+    assert isinstance(pad.center, CenterMark)
+    texts = [item.text() for item in pad.findChildren(QLabel) if item.text()]
+    assert not texts, texts
+    assert not hasattr(pad, "set_step_text")
+
+
+def test_hints_are_bullet_lists_with_hotkeys(qt_app: QApplication) -> None:
+    """Подсказки — список с выделенными клавишами, а не простыня текста."""
+    from PySide6.QtCore import Qt as QtCore
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    hints = window.movement._hint_labels
+    assert len(hints) == 2
+    for hint in hints:
+        assert hint.textFormat() == QtCore.TextFormat.RichText
+        assert "<li>" in hint.text()
+        assert "<b>" in hint.text()
+
+
+def test_search_and_item_fields_are_aligned(qt_app: QApplication) -> None:
+    """«Поиск», «Предмет» и «Шаг» начинаются с одного места, счётчик — под поиском."""
+    from PySide6.QtCore import QPoint
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    window.show()
+    qt_app.processEvents()
+    movement = window.movement
+    left = [
+        widget.mapTo(movement, QPoint(0, 0)).x()
+        for widget in (movement._step_combo, movement._size_search, movement._size_combo)
+    ]
+    assert len(set(left)) == 1, left
+    search = movement._size_search.mapTo(movement, QPoint(0, 0))
+    hint = movement._size_hint.mapTo(movement, QPoint(0, 0))
+    assert hint.y() > search.y() + movement._size_search.height() - 1
+
+
+def test_disabled_button_shows_forbidden_cursor(qt_app: QApplication) -> None:
+    """Выключенная кнопка не обещает клик: курсор «нельзя», а не «палец»."""
+    from map_overlay.ui.widgets import button
+    from PySide6.QtCore import Qt as QtCore
+
+    item = button("Длина", widget_role="small")
+    assert item.cursor().shape() == QtCore.CursorShape.PointingHandCursor
+    item.setEnabled(False)
+    assert item.cursor().shape() == QtCore.CursorShape.ForbiddenCursor
+    item.setEnabled(True)
+    assert item.cursor().shape() == QtCore.CursorShape.PointingHandCursor
+
+
+def test_abort_button_is_a_danger_button(qt_app: QApplication) -> None:
+    """«Прервать» — кнопка с красной обводкой, а не текст в углу."""
+    from map_overlay.ui.theme import APP_QSS, DANGER_EDGE
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    assert window._abort_button.property("role") == "danger"
+    assert window._abort_button.text() == "Прервать"
+    assert DANGER_EDGE in APP_QSS
+
+
+def test_mini_button_sits_next_to_title_and_badge_shows_calibration(
+    qt_app: QApplication,
+) -> None:
+    """«Мини» — рядом с названием, калибровка — бейджем у правого края."""
+
+    window, _panel, _store, _cursor = make_window(
+        qt_app,
+        settings=Settings(calibration=FULL_CALIBRATION, empty_point=Point(10, 10)),
+    )
+    window.show()
+    qt_app.processEvents()
+    assert window._mini_button.x() < window._calibration_label.x()
+    assert window._calibration_label.property("role") == "badgeOk"
+
+    empty, _panel, _store, _cursor = make_window(qt_app)
+    empty.show()
+    qt_app.processEvents()
+    assert empty._calibration_label.property("role") == "badge"
+
+
+def test_section_gap_is_wider_than_card_spacing() -> None:
+    """Между карточками просторнее, чем внутри: блоки не слипаются."""
+    from map_overlay.ui.widgets import CARD_SPACING, SECTION_GAP
+
+    assert SECTION_GAP > CARD_SPACING
+
+
+def test_scrollbar_is_thin_and_dark() -> None:
+    """У прокрутки тонкий тёмный ползунок: она не выбивается из темы."""
+    from map_overlay.ui.theme import APP_QSS
+
+    assert "QScrollBar:vertical" in APP_QSS
+    assert "QScrollBar::handle" in APP_QSS
+    assert "width: 9px" in APP_QSS
+    assert "QScrollArea { background: transparent; border: none; }" in APP_QSS
 
 
 def test_window_title_does_not_wrap(qt_app: QApplication) -> None:

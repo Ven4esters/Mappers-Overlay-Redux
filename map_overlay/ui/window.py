@@ -27,7 +27,7 @@ from map_overlay.config import Settings
 from map_overlay.context import AppContext
 from map_overlay.domain.actions import Action
 from map_overlay.domain.directions import Direction
-from map_overlay.domain.fields import Field
+from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.formatting import format_delta, format_value
 from map_overlay.domain.keynames import COMMON_GAME_KEYS, VK_ESCAPE, VK_MENU, key_name
 from map_overlay.domain.movement import COORD_DECIMALS
@@ -42,7 +42,7 @@ from map_overlay.ui.tabs.movement_tab import MovementTab, pose_text
 from map_overlay.ui.tabs.settings_tab import SettingsTab
 from map_overlay.ui.tabs.sizes_tab import SizesTab
 from map_overlay.ui.tasks import TaskRunner
-from map_overlay.ui.widgets import button, label
+from map_overlay.ui.widgets import ROW_SPACING, button, label
 
 logger = logging.getLogger(__name__)
 
@@ -169,9 +169,11 @@ class MainWindow(QMainWindow):
         self._status.setObjectName("status")
         self._status.setWordWrap(True)
         self.statusBar().addWidget(self._status, 1)
+        # «Прервать» — кнопка с красной обводкой: заметная в нужный момент, но не
+        # похожая на обычную кнопку «нажми меня».
         self._abort_button = button(
             "Прервать",
-            widget_role="small",
+            widget_role="danger",
             tooltip="Бросить текущее действие, если панель не отвечает",
         )
         self._abort_button.setEnabled(False)
@@ -235,23 +237,28 @@ class MainWindow(QMainWindow):
         header = QWidget(parent)
         layout = QHBoxLayout(header)
         layout.setContentsMargins(0, 0, 0, 0)
-        title = label("Mapper's Overlay Redux", widget_role="appTitle")
+        self._title_label = label("Mapper's Overlay Redux", widget_role="appTitle")
         # Заголовок в одну строку: окно узкое, и перенос «Mapper's Overlay / Redux»
         # съедал высоту шапки.
-        title.setWordWrap(False)
-        layout.addWidget(title)
-        layout.addWidget(label(f"v{__version__}", widget_role="muted"))
-        layout.addStretch(1)
-        self._calibration_label = label("", widget_role="muted")
-        self._calibration_label.setWordWrap(False)
+        self._title_label.setWordWrap(False)
+        layout.addWidget(self._title_label)
+        self._version_label = label(f"v{__version__}", widget_role="muted")
+        self._version_label.setWordWrap(False)
+        layout.addWidget(self._version_label)
+        # «Мини» стоит рядом с названием, а не у правого края: там она читалась как кнопка
+        # системного заголовка окна и спорила с бейджем калибровки.
         self._mini_button = button(
             "Мини",
             widget_role="small",
             tooltip="Свернуть окно до крестовины и шага",
         )
         self._mini_button.clicked.connect(self.toggle_mini)
-        layout.addWidget(self._calibration_label)
+        layout.addSpacing(ROW_SPACING)
         layout.addWidget(self._mini_button)
+        layout.addStretch(1)
+        self._calibration_label = label("", widget_role="badge")
+        self._calibration_label.setWordWrap(False)
+        layout.addWidget(self._calibration_label)
         return header
 
     def _refresh_header(self) -> None:
@@ -259,6 +266,15 @@ class MainWindow(QMainWindow):
         points = len(settings.calibration)
         empty = "есть" if settings.has_confirmation_point() else "нет"
         self._calibration_label.setText(f"Калибровка {points}/6 · F: {empty}")
+        # Готовность калибровки — состояние, а не украшение: полная подсвечивается зелёным.
+        role = (
+            "badgeOk"
+            if points == len(PANEL_ORDER) and settings.has_confirmation_point()
+            else "badge"
+        )
+        self._calibration_label.setProperty("role", role)
+        self._calibration_label.style().unpolish(self._calibration_label)
+        self._calibration_label.style().polish(self._calibration_label)
 
     def toggle_mini(self) -> None:
         """Переключить обычный вид и мини-версию."""
@@ -279,6 +295,10 @@ class MainWindow(QMainWindow):
             self._tabs.setCurrentIndex(0)
             self._tabs.tabBar().setVisible(False)
             self._calibration_label.setVisible(False)
+            # В мини-версии название и версия не нужны: они занимали половину шапки и
+            # не давали окну сузиться до 380 пикселей.
+            self._title_label.setVisible(False)
+            self._version_label.setVisible(False)
             self._mini_button.setText("Обычный")
             self._mini_button.setToolTip("Вернуть полное окно: вкладки, калибровка, настройки")
             self.movement.set_compact(True)
@@ -287,6 +307,8 @@ class MainWindow(QMainWindow):
         else:
             self._tabs.tabBar().setVisible(True)
             self._calibration_label.setVisible(True)
+            self._title_label.setVisible(True)
+            self._version_label.setVisible(True)
             self._mini_button.setText("Мини")
             self._mini_button.setToolTip("Свернуть окно до крестовины и шага")
             self.movement.set_compact(False)

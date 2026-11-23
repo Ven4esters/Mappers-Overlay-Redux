@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPaintEvent
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -23,8 +24,14 @@ from map_overlay.domain.movement import ALT_TITLES, COORD_DECIMALS, DIAGONAL_TIT
 from map_overlay.domain.pose import Pose
 
 CARD_MARGIN: Final = 14
-CARD_SPACING: Final = 10
+CARD_SPACING: Final = 12
 GRID_SPACING: Final = 8
+SECTION_GAP: Final = 16
+# Расстояние между карточками. Должно быть больше, чем внутри карточки (CARD_SPACING),
+# иначе блоки слипаются и непонятно, где кончается один и начинается другой.
+ROW_SPACING: Final = 8
+LABEL_COLUMN_WIDTH: Final = 66
+# Колонка подписей «Поиск»/«Предмет»: поля ввода начинаются с одного места.
 
 ARROW_ROWS: Final[tuple[tuple[Direction | None, ...], ...]] = (
     (Direction.FORWARD_LEFT, Direction.FORWARD, Direction.FORWARD_RIGHT),
@@ -47,14 +54,35 @@ def label(text: str = "", *, widget_role: str = "muted") -> QLabel:
     return item
 
 
-def button(text: str, *, widget_role: str | None = None, tooltip: str = "") -> QPushButton:
+class AppButton(QPushButton):
+    """Кнопка, которая показывает своё состояние курсором: у выключенной — «нельзя»."""
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self._sync_cursor()
+
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802 - имя из Qt
+        """Обновить курсор, когда кнопку включили или выключили."""
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.EnabledChange:
+            self._sync_cursor()
+
+    def _sync_cursor(self) -> None:
+        shape = (
+            Qt.CursorShape.PointingHandCursor
+            if self.isEnabled()
+            else Qt.CursorShape.ForbiddenCursor
+        )
+        self.setCursor(shape)
+
+
+def button(text: str, *, widget_role: str | None = None, tooltip: str = "") -> AppButton:
     """Кнопка с необязательной ролью (например, ``primary``)."""
-    item = QPushButton(text)
+    item = AppButton(text)
     if widget_role:
         item.setProperty("role", widget_role)
     if tooltip:
         item.setToolTip(tooltip)
-    item.setCursor(Qt.CursorShape.PointingHandCursor)
     return item
 
 
@@ -108,8 +136,12 @@ class PoseGrid(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
         layout.addWidget(label(field.label, widget_role="poseField"))
+        # Значение — поле-показание: моноширинный шрифт и выравнивание по правому краю,
+        # чтобы 0.125 и 12.500 стояли друг под другом, а не «плясали».
         value = QLabel("—")
-        value.setProperty("role", "poseValue")
+        value.setProperty("role", "poseDisplay")
+        value.setProperty("empty", True)
+        value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         value.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         layout.addWidget(value)
         self._values[field] = value
@@ -119,10 +151,47 @@ class PoseGrid(QWidget):
         """Показать позу или прочерки, если она ещё не считана."""
         for field, widget in self._values.items():
             widget.setText("—" if pose is None else format_value(pose.value(field), COORD_DECIMALS))
+            widget.setProperty("empty", pose is None)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        return
+
+    def alignment_of(self, field: Field) -> Qt.AlignmentFlag:
+        """Как выровнено значение поля (для тестов)."""
+        return self._values[field].alignment()
+
+    def text_of(self, field: Field) -> str:
+        """Что показано в поле (для тестов)."""
+        return self._values[field].text()
+
+
+class CenterMark(QWidget):
+    """Нейтральная точка в центре крестовины: не кнопка и не подпись шага."""
+
+    RADIUS: Final = 3
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(28, 28)
+        self.setToolTip("Центр крестовины: шаг задаётся полем «Шаг» под кнопками")
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - имя из Qt
+        """Нарисовать точку с едва заметным кольцом."""
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        center = QPointF(self.width() / 2, self.height() / 2)
+        painter.setPen(QColor("#2c3a55"))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(center, 11, 11)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#55627a"))
+        painter.drawEllipse(center, self.RADIUS, self.RADIUS)
+        painter.end()
 
 
 class DirectionPad(QWidget):
-    """Крестовина из восьми стрелок с подписью шага в центре."""
+    """Крестовина из восьми стрелок с нейтральным центром."""
 
     direction_clicked = Signal(object)
 
@@ -135,13 +204,11 @@ class DirectionPad(QWidget):
         self._by_direction: dict[Direction, QPushButton] = {}
         self._enabled = True
         self._alt_mode = False
-        self._step_label = QLabel("шаг")
-        self._step_label.setProperty("role", "stepLabel")
-        self._step_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.center = CenterMark(self)
         for row, line in enumerate(ARROW_ROWS):
             for column, direction in enumerate(line):
                 if direction is None:
-                    grid.addWidget(self._step_label, row, column)
+                    grid.addWidget(self.center, row, column, Qt.AlignmentFlag.AlignCenter)
                 else:
                     grid.addWidget(self._arrow(direction), row, column)
 
@@ -181,10 +248,6 @@ class DirectionPad(QWidget):
                 item.setToolTip(self._axis_tooltip(direction))
             else:
                 item.setToolTip(self._axis_tooltip(direction))
-
-    def set_step_text(self, text: str) -> None:
-        """Подпись в центре крестовины."""
-        self._step_label.setText(text)
 
     def set_enabled(self, is_enabled: bool) -> None:
         """Включить или выключить все стрелки."""

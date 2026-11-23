@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Final
 
-from PySide6.QtCore import QLocale, Signal
+from PySide6.QtCore import QLocale, Qt, Signal
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QGridLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QVBoxLayout,
@@ -28,7 +30,16 @@ from map_overlay.domain.pose import Pose
 from map_overlay.domain.search import NameSearch
 from map_overlay.domain.sizes import SIZE_USES, ObjectSize, SizeLibrary, SizeUse
 from map_overlay.errors import ValidationError
-from map_overlay.ui.widgets import Card, DirectionPad, PoseGrid, button, label
+from map_overlay.ui.widgets import (
+    LABEL_COLUMN_WIDTH,
+    ROW_SPACING,
+    SECTION_GAP,
+    Card,
+    DirectionPad,
+    PoseGrid,
+    button,
+    label,
+)
 
 STEP_PRESETS: Final[tuple[str, ...]] = ("0.1", "0.25", "0.5", "1", "2", "5", "10")
 SIZE_COMBO_WIDTH: Final = 150
@@ -37,16 +48,21 @@ SIZE_COMBO_CHARS: Final = 14
 NO_SIZE_TEXT: Final = "— не выбран —"
 STEP_DECIMALS: Final = 3
 _HINTS: Final[tuple[str, ...]] = (
-    "Одна стрелка — один шаг; те же действия есть на Numpad. Зажмите клавишу — "
-    "шаг повторяется сразу за предыдущим, отпустите — движение останавливается.",
-    "Одно нажатие Alt включает режим высоты: Num 8 поднимает предмет по локальной "
-    "оси Z, Num 2 опускает (при RY ≠ 0 шаг идёт в плоскости X/Z). Остальные "
-    "клавиши не меняются: Num 4/6 — по горизонтали, диагонали — по наклону "
-    "предмета (без наклона — 45° в плоскости экрана Y/Z, с наклоном — по RX и RY). "
-    "Ещё одно нажатие — выключить. "
-    "Держать Alt не нужно: пока он зажат, игра не применяет правки панели.",
+    "<ul style='margin:0; padding-left:18px;'>"
+    "<li>Одна стрелка — один шаг; то же самое на клавишах <b>Num 8/2/4/6</b> "
+    "и <b>Num 7/9/1/3</b>.</li>"
+    "<li>Зажмите клавишу — шаги идут друг за другом, отпустите — движение остановится.</li>"
+    "</ul>",
+    "<ul style='margin:0; padding-left:18px;'>"
+    "<li>Одно нажатие <b>Alt</b> включает режим высоты: <b>Num 8</b> — вверх, "
+    "<b>Num 2</b> — вниз (при <b>RY ≠ 0</b> шаг идёт в плоскости X/Z).</li>"
+    "<li>Остальные клавиши не меняются: <b>Num 4/6</b> — по горизонтали, "
+    "диагонали — по наклону предмета.</li>"
+    "<li>Держать <b>Alt</b> не нужно: пока он зажат, игра не применяет правки панели.</li>"
+    "</ul>",
 )
-# Подсказки под крестовиной: одни и те же для окна и для режима высоты.
+# Подсказки под крестовиной — списком с выделенными клавишами: их читают в работе,
+# поэтому длинный абзац здесь неудобен.
 
 
 class MovementTab(QWidget):
@@ -70,7 +86,7 @@ class MovementTab(QWidget):
     def _build(self, default_step: float) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setSpacing(SECTION_GAP)
         self._pose_card = self._build_pose_card()
         layout.addWidget(self._pose_card)
         layout.addWidget(self._build_move_card(default_step))
@@ -79,7 +95,6 @@ class MovementTab(QWidget):
         layout.addWidget(self._warning)
         layout.addStretch(1)
         self._pad.set_enabled(False)
-        self._sync_step_text()
 
     def _build_pose_card(self) -> Card:
         """Карточка координат и углов с кнопками «Считать» и «Сохранить F»."""
@@ -108,21 +123,26 @@ class MovementTab(QWidget):
         self._pad.direction_clicked.connect(self._request_move)
         card.add(self._pad)
         card.add_layout(self._build_step_row(default_step))
-        self._size_search_row = self._build_size_search_row()
-        card.add(self._size_search_row)
-        self._size_row = self._build_size_row()
-        card.add(self._size_row)
+        self._picker = self._build_picker()
+        card.add(self._picker)
         card.add(self._size_info)
         card.add_layout(self._build_mode_row())
-        self._hint_labels = [label(hint, widget_role="muted") for hint in _HINTS]
-        for hint in self._hint_labels:
+        self._hint_labels: list[QLabel] = []
+        for text in _HINTS:
+            hint = label(text, widget_role="muted")
+            hint.setTextFormat(Qt.TextFormat.RichText)
+            self._hint_labels.append(hint)
             card.add(hint)
         return card
 
     def _build_step_row(self, default_step: float) -> QHBoxLayout:
         row = QHBoxLayout()
-        row.setSpacing(8)
-        row.addWidget(label("Шаг", widget_role="muted"))
+        row.setSpacing(ROW_SPACING)
+        # Подпись занимает ту же колонку, что «Поиск» и «Предмет»: поля начинаются с одного
+        # места, и строка шага не выглядит сдвинутой влево.
+        step_label = label("Шаг", widget_role="muted")
+        step_label.setMinimumWidth(LABEL_COLUMN_WIDTH)
+        row.addWidget(step_label)
         self._step_combo = QComboBox(self)
         self._step_combo.setEditable(True)
         self._step_combo.addItems(STEP_PRESETS)
@@ -130,33 +150,33 @@ class MovementTab(QWidget):
         self._step_combo.setValidator(QDoubleValidator(MIN_STEP, MAX_STEP, STEP_DECIMALS, self))
         self._step_combo.setLocale(QLocale.c())
         self._step_combo.setMinimumWidth(96)
-        self._step_combo.editTextChanged.connect(self._sync_step_text)
         row.addWidget(self._step_combo)
         row.addWidget(label("м", widget_role="muted"))
         row.addStretch(1)
         return row
 
-    def _build_size_search_row(self) -> QWidget:
-        """Поиск по предметам: тот же, что на вкладке «Размеры»."""
+    def _build_picker(self) -> QWidget:
+        """Поиск и выбор предмета: подписи в одной колонке, поля — во всю ширину.
+
+        «Поиск» и «Предмет» стоят друг под другом и начинаются с одного места, а счётчик
+        найденного ушёл под поле поиска: рядом с полем он сжимал его до половины карточки.
+        """
+        self._size_info = label("", widget_role="muted")
         holder = QWidget(self)
-        row = QHBoxLayout(holder)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
-        self._size_search = QLineEdit(self)
+        grid = QGridLayout(holder)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(ROW_SPACING)
+        grid.setVerticalSpacing(ROW_SPACING)
+        grid.setColumnMinimumWidth(0, LABEL_COLUMN_WIDTH)
+        grid.setColumnStretch(1, 1)
+
+        self._size_search = QLineEdit(holder)
         self._size_search.setPlaceholderText("Поиск: слова названия или номер из диапазона")
         self._size_search.setClearButtonEnabled(True)
         self._size_search.textChanged.connect(self._rebuild_size_combo)
-        self._size_hint = label("", widget_role="muted")
+        self._size_hint = label("", widget_role="hint")
         self._size_hint.setWordWrap(True)
-        row.addWidget(label("Поиск", widget_role="muted"))
-        row.addWidget(self._size_search, 1)
-        row.addWidget(self._size_hint, 1)
-        return holder
 
-    def _build_size_row(self) -> QWidget:
-        """Строка «предмет из библиотеки → шаг по его размеру»."""
-        self._size_info = label("", widget_role="muted")
-        holder = QWidget(self)
         self._size_combo = QComboBox(holder)
         self._size_combo.setMinimumWidth(SIZE_COMBO_WIDTH)
         # Ширина списка не зависит от самого длинного названия: иначе «Стена March,
@@ -166,26 +186,24 @@ class MovementTab(QWidget):
         )
         self._size_combo.setMinimumContentsLength(SIZE_COMBO_CHARS)
         self._size_combo.currentIndexChanged.connect(self._size_changed)
-        outer = QVBoxLayout(holder)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(6)
-        # Строка выбора предмета и строка кнопок шага разделены: в одну строку четыре
-        # кнопки не помещались в окно шириной 640, и правый край уходил за границу.
-        pick = QHBoxLayout()
-        pick.setSpacing(8)
-        pick.addWidget(label("Предмет", widget_role="muted"))
-        pick.addWidget(self._size_combo)
-        pick.addStretch(1)
-        outer.addLayout(pick)
+
         buttons = QHBoxLayout()
-        buttons.setSpacing(8)
+        buttons.setSpacing(ROW_SPACING)
         for use in SIZE_USES:
             item = button(use.label, widget_role="small", tooltip=use.hint)
             item.clicked.connect(lambda _checked=False, kind=use: self.apply_size(kind))
             self._size_buttons.append(item)
             buttons.addWidget(item)
         buttons.addStretch(1)
-        outer.addLayout(buttons)
+
+        grid.addWidget(label("Поиск", widget_role="muted"), 0, 0)
+        grid.addWidget(self._size_search, 0, 1)
+        grid.addWidget(self._size_hint, 1, 1)
+        grid.addWidget(label("Предмет", widget_role="muted"), 2, 0)
+        grid.addWidget(self._size_combo, 2, 1)
+        # Кнопки шага — под полем предмета: в одну строку с ним они не помещались в окно
+        # шириной 640, и правый край уходил за границу карточки.
+        grid.addLayout(buttons, 3, 1)
         return holder
 
     def _build_mode_row(self) -> QHBoxLayout:
@@ -211,14 +229,6 @@ class MovementTab(QWidget):
             return
         self.move_requested.emit(direction, step)
 
-    def _sync_step_text(self, _text: str = "") -> None:
-        try:
-            step = self.current_step()
-        except ValidationError:
-            self._pad.set_step_text("шаг?")
-            return
-        self._pad.set_step_text(f"{rounded(step, STEP_DECIMALS):g} м")
-
     def current_step(self) -> float:
         """Шаг из поля ввода.
 
@@ -242,13 +252,9 @@ class MovementTab(QWidget):
         self._pose_card.setVisible(not enabled)
         for hint in self._hint_labels:
             hint.setVisible(not enabled)
-        for item in self._size_buttons:
-            item.setVisible(not enabled)
-        self._size_hint.setVisible(not enabled)
-        # Строка предмета и поиск прячутся целиком: в мини-версии нечего искать — она про то,
+        # Поиск и выбор предмета прячутся целиком: в мини-версии нечего искать — она про то,
         # чтобы двигать предмет стрелками, а выбор предмета задаёт шаг.
-        self._size_search_row.setVisible(not enabled)
-        self._size_row.setVisible(not enabled)
+        self._picker.setVisible(not enabled)
 
     def is_compact(self) -> bool:
         """Скрыты ли координаты и подсказки (для тестов)."""
@@ -256,7 +262,7 @@ class MovementTab(QWidget):
 
     def item_picker_visible(self) -> bool:
         """Видны ли поиск и выбор предмета (для тестов)."""
-        return self._size_row.isVisibleTo(self) and self._size_search_row.isVisibleTo(self)
+        return self._picker.isVisibleTo(self)
 
     def press_capture(self) -> None:
         """Нажать «Считать» (для тестов и будущих горячих клавиш)."""
@@ -382,7 +388,6 @@ class MovementTab(QWidget):
     def set_default_step(self, step: float) -> None:
         """Показать новый шаг по умолчанию."""
         self._step_combo.setCurrentText(_format_step(step))
-        self._sync_step_text()
 
     def set_pose(self, pose: Pose | None) -> None:
         """Обновить координаты и доступность стрелок."""

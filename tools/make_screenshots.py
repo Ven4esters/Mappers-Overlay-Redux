@@ -378,7 +378,8 @@ def _save_diagram() -> None:
     painter.end()
 
     path = DOCS / "diagonal-rx.png"
-    if not image.save(str(path), b"PNG"):
+    # QImage.save ждёт формат строкой, хотя заглушки типов объявляют bytes.
+    if not image.save(str(path), "PNG"):  # type: ignore[call-overload]
         raise SystemExit(f"не удалось сохранить {path}")
     print(f"{path.name}: {image.width()}×{image.height()}, {path.stat().st_size} байт")
 

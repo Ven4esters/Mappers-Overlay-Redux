@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QGridLayout, QLabel, QPushButton, QVBoxLayout, QWi
 from map_overlay.application.ports import CursorPort
 from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.point import Point
-from map_overlay.ui.widgets import Card, button, label
+from map_overlay.ui.widgets import SECTION_GAP, Card, button, label
 
 COUNTDOWN_SECONDS: Final = 3
 COUNTDOWN_TICK_MS: Final = 1000
@@ -61,7 +61,7 @@ class CalibrationTab(QWidget):
     def _build(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setSpacing(SECTION_GAP)
         layout.addWidget(label(HINT, widget_role="muted"))
 
         card = Card("Точки панели LSP")
