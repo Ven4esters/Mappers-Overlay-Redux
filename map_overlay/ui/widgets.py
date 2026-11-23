@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Final
 
-from PySide6.QtCore import QEvent, QPointF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPaintEvent
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPaintEvent, QPen, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLayout,
     QPushButton,
@@ -52,22 +53,6 @@ def label(text: str = "", *, widget_role: str = "muted") -> QLabel:
     item = QLabel(text)
     item.setProperty("role", widget_role)
     item.setWordWrap(True)
-    return item
-
-
-HINT_LIST_STYLE: Final = "margin:0; padding-left:18px;"
-
-
-def bullets(*lines: str) -> str:
-    """Текст подсказки списком: один пункт на строку, разметка rich text."""
-    items = "".join(f"<li>{line}</li>" for line in lines)
-    return f"<ul style='{HINT_LIST_STYLE}'>{items}</ul>"
-
-
-def hint_label(*lines: str) -> QLabel:
-    """Подсказка списком: мелкий приглушённый текст, клавиши выделяются ``<b>``."""
-    item = label(bullets(*lines), widget_role="hint")
-    item.setTextFormat(Qt.TextFormat.RichText)
     return item
 
 
@@ -139,10 +124,42 @@ def button(
     return item
 
 
-class Card(QFrame):
-    """Карточка с заголовком: контейнер для группы элементов."""
+INFO_PX = 14
+# Значок справки: рисуется кодом, потому что «ⓘ» есть не во всех шрифтах.
 
-    def __init__(self, title: str, *, parent: QWidget | None = None) -> None:
+
+def info_pixmap(size: int = INFO_PX, color: str = "#8a97ad") -> QPixmap:
+    """Нарисовать значок «i» в круге для справки карточки."""
+    scale = 2  # retina: значок не мылится на экранах с двойной плотностью
+    pixmap = QPixmap(size * scale, size * scale)
+    pixmap.setDevicePixelRatio(scale)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    edge = QPen(QColor(color))
+    edge.setWidthF(1.2)
+    painter.setPen(edge)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    inset = 0.8
+    painter.drawEllipse(QRectF(inset, inset, size - 2 * inset, size - 2 * inset))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color))
+    painter.drawEllipse(QPointF(size / 2, size * 0.32), 0.85, 0.85)
+    painter.drawRoundedRect(QRectF(size / 2 - 0.8, size * 0.46, 1.6, size * 0.32), 0.8, 0.8)
+    painter.end()
+    return pixmap
+
+
+class Card(QFrame):
+    """Карточка с заголовком; справка — в значке ⓘ рядом с заголовком."""
+
+    def __init__(
+        self,
+        title: str,
+        *,
+        hint: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("card")
         # Карточка занимает ровно свою высоту: лишнее место забирает растяжка под ней.
@@ -151,10 +168,33 @@ class Card(QFrame):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(CARD_MARGIN, CARD_MARGIN, CARD_MARGIN, CARD_MARGIN)
         outer.setSpacing(CARD_SPACING)
-        outer.addWidget(label(title, widget_role="cardTitle"))
+        title_row = QHBoxLayout()
+        title_row.setSpacing(6)
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.addWidget(label(title, widget_role="cardTitle"))
+        # Справку не печатаем под карточкой: её читают только те, кому нужно.
+        self._info = label("", widget_role="info")
+        self._info.setPixmap(info_pixmap())
+        self._info.setFixedSize(INFO_PX, INFO_PX)
+        self._info.setToolTip(hint)
+        self._info.setVisible(bool(hint))
+        self._info.setCursor(Qt.CursorShape.WhatsThisCursor)
+        self._info.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        title_row.addWidget(self._info)
+        title_row.addStretch(1)
+        outer.addLayout(title_row)
         self.body = QVBoxLayout()
         self.body.setSpacing(CARD_SPACING)
         outer.addLayout(self.body)
+
+    def set_hint(self, text: str) -> None:
+        """Заменить справку карточки (например, при переходе в режим правки)."""
+        self._info.setToolTip(text)
+        self._info.setVisible(bool(text))
+
+    def hint(self) -> str:
+        """Текущая справка карточки (её показывает значок ⓘ)."""
+        return self._info.toolTip()
 
     def add(self, widget: QWidget, *, stretch: int = 0) -> None:
         """Добавить виджет в тело карточки."""

@@ -27,10 +27,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDoubleSpinBox,
-    QLineEdit,
     QPushButton,
-    QSpinBox,
-    QWidget,
 )
 
 from fakes import (
@@ -1181,13 +1178,18 @@ def test_size_based_step_moves_the_object(qt_app: QApplication, tmp_path: Path) 
     assert saved.active == "Ящик"
 
 
-def test_sizes_form_has_no_steppers(qt_app: QApplication) -> None:
-    """Длина и ширина вписываются руками: стрелок «+» и «−» в форме нет."""
+def test_sizes_unit_lives_inside_the_field(qt_app: QApplication) -> None:
+    """«м» — часть поля: единица в suffix, стрелок «+» и «−» нет, подписи «м» нет."""
+    from PySide6.QtWidgets import QLabel
+
     window, _panel, _settings, _cursor = make_window(qt_app)
-    assert window.sizes.findChildren(QDoubleSpinBox) == []
-    assert window.sizes.findChildren(QSpinBox) == []
-    fields = [widget for widget in window.sizes.findChildren(QLineEdit)]
-    assert len(fields) >= 3
+    spins = window.sizes.findChildren(QDoubleSpinBox)
+    assert len(spins) == 2
+    assert [spin.suffix() for spin in spins] == [" м", " м"]
+    for spin in spins:
+        assert spin.buttonSymbols() == QDoubleSpinBox.ButtonSymbols.NoButtons
+    units = [item for item in window.sizes.findChildren(QLabel) if item.text() == "м"]
+    assert units == []
 
 
 def test_sizes_form_accepts_comma(qt_app: QApplication) -> None:
@@ -1199,13 +1201,20 @@ def test_sizes_form_accepts_comma(qt_app: QApplication) -> None:
     assert store.library.items[0].width == pytest.approx(1.2)
 
 
-def test_sizes_form_rejects_empty_size(qt_app: QApplication) -> None:
+def test_sizes_field_never_goes_out_of_range(qt_app: QApplication) -> None:
+    """Размер не бывает пустым или отрицательным: поле держит значение в пределах."""
     store = FakeSizeStore()
     window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
-    window.sizes.fill_form("Ящик", "", "1")
+    length = window.sizes._length
+    length.lineEdit().setText("")
+    length.interpretText()
+    assert length.minimum() <= length.value() <= length.maximum()
+    length.setValue(0)
+    assert length.value() == pytest.approx(length.minimum())
+    window.sizes.fill_form("Ящик", "0.001", "1")
     window.sizes.press_add()
-    assert store.library.items == ()
-    assert "Длина должна быть числом" in window.status_text()
+    assert len(store.library.items) == 1
+    assert store.library.items[0].length == pytest.approx(length.minimum())
 
 
 def test_search_filters_rows(qt_app: QApplication) -> None:
@@ -1380,7 +1389,7 @@ def test_pencil_puts_item_into_edit_mode(qt_app: QApplication) -> None:
     assert not window.sizes.pencil("Ящик").icon().isNull()
     window.sizes.press_pencil("Ящик")
     assert window.sizes.editing_name() == "Ящик"
-    assert window.sizes.form_values() == ("Ящик", "2", "1")
+    assert window.sizes.form_values() == ("Ящик", "2 м", "1 м")
     assert window.sizes.add_button_text() == "Сохранить изменения"
     assert "Правка «Ящик»" in window.sizes.form_hint()
 
@@ -1649,17 +1658,17 @@ def test_crosshair_center_has_no_step_text(qt_app: QApplication) -> None:
     assert not hasattr(pad, "set_step_text")
 
 
-def test_hints_are_bullet_lists_with_hotkeys(qt_app: QApplication) -> None:
-    """Подсказки — список с выделенными клавишами, а не простыня текста."""
-    from PySide6.QtCore import Qt as QtCore
+def test_movement_help_hides_behind_the_card_icon(qt_app: QApplication) -> None:
+    """Справка «Сдвига» не занимает пол-вкладки: её показывает ⓘ у заголовка."""
+    from PySide6.QtWidgets import QLabel
 
     window, _panel, _store, _cursor = make_window(qt_app)
-    hints = window.movement._hint_labels
-    assert len(hints) == 2
-    for hint in hints:
-        assert hint.textFormat() == QtCore.TextFormat.RichText
-        assert "<li>" in hint.text()
-        assert "<b>" in hint.text()
+    card = window.movement._move_card
+    help_text = card.hint()
+    for key in ("Num 8", "Num 4/6", "Alt", "RY"):
+        assert key in help_text
+    assert card._info.toolTip() == help_text
+    assert not [item for item in card.findChildren(QLabel) if "<li>" in item.text()]
 
 
 def test_search_and_item_fields_are_aligned(qt_app: QApplication) -> None:
@@ -1792,23 +1801,22 @@ def test_calibration_show_is_disabled_without_point(qt_app: QApplication) -> Non
     assert show.toolTip() == "Перевести курсор в сохранённую точку"
 
 
-def test_calibration_hints_are_lists(qt_app: QApplication) -> None:
-    """Подсказки калибровки — списком, как на «Навигации»."""
+def test_calibration_help_hides_behind_the_card_icon(qt_app: QApplication) -> None:
+    """Справка калибровки — в ⓘ карточки: на вкладке нет простыни текста."""
     from map_overlay.ui.tabs.calibration_tab import CalibrationTab
-    from PySide6.QtCore import Qt as QtCore
     from PySide6.QtWidgets import QLabel
 
     tab = CalibrationTab(cursor=FakeCursor(), points={})
-    hints = [item for item in tab.findChildren(QLabel) if item.property("role") == "hint"]
-    assert len(hints) == 2
-    for hint in hints:
-        assert hint.textFormat() == QtCore.TextFormat.RichText
-        assert "<li>" in hint.text()
-        assert "<b>" in hint.text()
+    help_text = tab._card.hint()
+    for key in ("Задать", "Показать", "Сохранить F", "зелёным"):
+        assert key in help_text
+    assert tab._card._info.toolTip() == help_text
+    assert not [item for item in tab.findChildren(QLabel) if "<li>" in item.text()]
+    assert not [item for item in tab.findChildren(QLabel) if item.property("role") == "hint"]
 
 
 def test_sizes_form_fields_share_a_column(qt_app: QApplication) -> None:
-    """«Название», «Длина» и «Ширина» начинаются с одного места, «м» — рядом с полем."""
+    """«Название», «Длина» и «Ширина» начинаются с одного места, единица — внутри поля."""
     from PySide6.QtCore import QPoint
 
     window, _panel, _store, _cursor = make_window(qt_app)
@@ -1818,16 +1826,9 @@ def test_sizes_form_fields_share_a_column(qt_app: QApplication) -> None:
     tab = window.sizes
     left = [field.mapTo(tab, QPoint(0, 0)).x() for field in (tab._name, tab._length, tab._width)]
     assert len(set(left)) == 1, left
-
-    caption = [
-        item
-        for item in tab.findChildren(QWidget)
-        if item.property("role") == "muted" and item.text() == "м"
-    ]
-    assert len(caption) == 2
-    unit_x = caption[0].mapTo(tab, QPoint(0, 0)).x()
-    width_x = tab._width.mapTo(tab, QPoint(0, 0)).x()
-    assert 0 < unit_x - width_x < 140
+    assert tab._length.text().endswith(" м")
+    assert tab._width.text().endswith(" м")
+    assert tab._length.width() == tab._width.width()
 
 
 def test_sizes_rows_keep_sizes_in_a_column(qt_app: QApplication) -> None:
@@ -1849,7 +1850,7 @@ def test_sizes_rows_keep_sizes_in_a_column(qt_app: QApplication) -> None:
     sizes = [
         item
         for item in tab.findChildren(QLabel)
-        if item.property("role") == "poseValue" and "×" in item.text()
+        if item.property("role") == "rowSize" and "×" in item.text()
     ]
     assert len(sizes) == len(names)
     assert all(item.alignment() & Qt.AlignmentFlag.AlignRight for item in sizes)
@@ -1876,11 +1877,13 @@ def test_long_name_row_grows_instead_of_overlapping(qt_app: QApplication) -> Non
     for _ in range(4):
         qt_app.processEvents()
     tab = window.sizes
-    rows = [tab._rows_layout.itemAt(index).widget() for index in range(tab._rows_layout.count())]
+    rows = [tab._list.itemWidget(tab._list.item(index)) for index in range(tab._list.count())]
     assert len(rows) == 2
     needed = []
     for row in rows:
-        caption = row.findChildren(QLabel)[0]
+        caption = next(
+            item for item in row.findChildren(QLabel) if item.property("role") == "rowName"
+        )
         needed.append(caption.heightForWidth(caption.width()))
         assert row.height() >= caption.heightForWidth(caption.width()), caption.text()
     assert needed[0] > needed[1], needed
@@ -1902,20 +1905,26 @@ def test_sizes_counter_sits_under_search_field(qt_app: QApplication) -> None:
     assert counter.x() == search.x()
 
 
-def test_sizes_hints_are_lists(qt_app: QApplication) -> None:
-    """Подсказки формы и списка — списком, а счётчик — просто мелкий текст."""
-    from PySide6.QtCore import Qt as QtCore
+def test_sizes_help_hides_behind_info_icon(qt_app: QApplication) -> None:
+    """Справка не висит стеной текста: её показывает ⓘ у заголовка карточки."""
     from PySide6.QtWidgets import QLabel
 
     window, _panel, _store, _cursor = make_window(qt_app)
     tab = window.sizes
-    hints = [item for item in tab.findChildren(QLabel) if item.property("role") == "hint"]
-    lists = [item for item in hints if "<li>" in item.text()]
-    assert len(lists) == 2
-    for hint in lists:
-        assert hint.textFormat() == QtCore.TextFormat.RichText
-    assert tab._empty_label not in lists
+    texts = [item.text() for item in tab.findChildren(QLabel)]
+    assert not [text for text in texts if "<li>" in text]
+    info = tab._form_card._info
+    assert info.text() == ""
+    assert not info.pixmap().isNull()
+    assert info.property("role") == "info"
+    assert info.isVisible() or not tab.isVisible()
+    assert info.cursor().shape() == Qt.CursorShape.WhatsThisCursor
+    assert info.toolTip() == tab.form_hint()
     assert "Название — ключ" in tab.form_hint()
+    form_help, list_help = tab.help_texts()
+    assert form_help == tab.form_hint()
+    assert "Поиск" in list_help
+    assert "Ctrl+Z" in list_help
 
 
 def test_sizes_trash_is_danger_and_pencil_is_not(qt_app: QApplication) -> None:
@@ -1927,7 +1936,7 @@ def test_sizes_trash_is_danger_and_pencil_is_not(qt_app: QApplication) -> None:
     pencil = tab.pencil("Ящик")
     assert trash is not None and pencil is not None
     assert trash.property("severity") == "danger"
-    assert trash.property("role") == "small"
+    assert trash.property("role") == "icon"
     assert pencil.property("severity") is None
     assert trash.width() == pencil.width()
 
@@ -1967,20 +1976,21 @@ def test_settings_hotkey_clear_is_small_danger(qt_app: QApplication) -> None:
     assert clears[0].height() <= change.height()
 
 
-def test_settings_hints_are_lists(qt_app: QApplication) -> None:
-    """Подсказки «Настроек» — списком, с выделенными клавишами и названиями."""
-    from PySide6.QtCore import Qt as QtCore
+def test_settings_help_hides_behind_card_icons(qt_app: QApplication) -> None:
+    """Справка «Настроек» — в ⓘ каждой карточки, а не списком под полями."""
     from PySide6.QtWidgets import QLabel
 
     window, _panel, _store, _cursor = make_window(qt_app)
-    hints = [
-        item for item in window.settings_tab.findChildren(QLabel) if item.property("role") == "hint"
-    ]
-    lists = [item for item in hints if "<li>" in item.text()]
-    assert len(lists) == 3
-    for hint in lists:
-        assert hint.textFormat() == QtCore.TextFormat.RichText
-        assert "<b>" in hint.text()
+    tab = window.settings_tab
+    assert "20–40 мс" in tab._delay_card.hint()
+    assert "Шаг по умолчанию" in tab._value_card.hint()
+    assert "NumLock" in tab._hotkey_card.hint()
+    for card in (tab._delay_card, tab._value_card, tab._hotkey_card):
+        assert card._info.isVisible() or not tab.isVisible()
+        assert card._info.toolTip() == card.hint()
+    assert not [item for item in tab.findChildren(QLabel) if "<li>" in item.text()]
+    # Настройки не отменяются: об этом в справке нечего обещать.
+    assert "Ctrl+Z" not in tab._hotkey_card.hint()
 
 
 def test_window_title_does_not_wrap(qt_app: QApplication) -> None:
@@ -2019,3 +2029,114 @@ def test_window_has_application_icon(qt_app: QApplication) -> None:
     """У окна есть иконка приложения (её рисует map_overlay.ui.appicon)."""
     window, _panel, _settings, _cursor = make_window(qt_app)
     assert not window.windowIcon().isNull()
+
+
+def test_theme_gives_inputs_room_inside_the_frame() -> None:
+    """Текст не липнет к рамке: у полей ввода внутренние отступы 8 × 12."""
+    from map_overlay.ui.theme import APP_QSS
+
+    fields = APP_QSS.split("QLineEdit {", 1)[1].split("}", 1)[0]
+    assert "padding: 8px 12px" in fields
+    spins = APP_QSS.split("QComboBox, QSpinBox, QDoubleSpinBox {", 1)[1].split("}", 1)[0]
+    assert "padding: 8px 12px" in spins
+
+
+def test_sizes_selected_row_is_highlighted_across_full_width(
+    qt_app: QApplication,
+) -> None:
+    """Текущий предмет подсвечен фоном на всю ширину строки, а не галочкой."""
+    from map_overlay.ui.theme import APP_QSS
+    from PySide6.QtWidgets import QAbstractItemView
+
+    library = _library(
+        ObjectSize(name="Ящик", length=2.0, width=1.0),
+        ObjectSize(name="Дверь", length=1.0, width=0.2),
+    ).select("Ящик")
+    window, _panel, _store, _cursor = make_window(qt_app, size_store=FakeSizeStore(library))
+    window.show()
+    window._tabs.setCurrentIndex(1)
+    for _ in range(3):
+        qt_app.processEvents()
+    tab = window.sizes
+    current = tab._list.currentItem()
+    assert current is not None
+    assert current.data(Qt.ItemDataRole.UserRole) == "Ящик"
+    row = tab._list.itemWidget(current)
+    # Строка занимает всю ширину списка: остаётся только зазор между строками.
+    rect = tab._list.visualItemRect(current)
+    assert rect.width() >= tab._list.viewport().width() - 6
+    assert row.width() == rect.width()
+    assert tab._list.selectionMode() == QAbstractItemView.SelectionMode.SingleSelection
+    assert "QListWidget#sizesList::item:selected" in APP_QSS
+    assert "background: rgba(59, 130, 246, 0.18)" in APP_QSS
+
+
+def test_sizes_row_reads_name_first_and_sizes_second(qt_app: QApplication) -> None:
+    """В строке главное — название; габариты — справа и тише; действия не кричат."""
+    from PySide6.QtWidgets import QLabel
+
+    library = _library(ObjectSize(name="Ящик", length=2.0, width=1.0))
+    window, _panel, _store, _cursor = make_window(qt_app, size_store=FakeSizeStore(library))
+    window.show()
+    window._tabs.setCurrentIndex(1)
+    qt_app.processEvents()
+    tab = window.sizes
+    row = tab._list.itemWidget(tab._list.item(0))
+    labels = row.findChildren(QLabel)
+    name = next(item for item in labels if item.property("role") == "rowName")
+    size = next(item for item in labels if item.property("role") == "rowSize")
+    assert name.text() == "Ящик"
+    assert size.text() == "2 × 1 м"
+    assert name.x() < size.x()
+    assert size.x() + size.width() <= row.width()
+
+    ghost = next(item for item in row.findChildren(QPushButton) if item.text() == "Выбрать")
+    assert ghost.property("role") == "ghost"
+    for icon_button in (tab.pencil("Ящик"), tab.trash("Ящик")):
+        assert icon_button is not None
+        assert icon_button.property("role") == "icon"
+        # Иконка — квадрат на прозрачном фоне: подсветка появляется только при наведении.
+        assert icon_button.width() == icon_button.height()
+        assert icon_button.icon().isNull() is False
+
+
+def test_sizes_clear_button_is_a_destructive_outline(qt_app: QApplication) -> None:
+    """«Очистить» — красная контурная кнопка: краснеет при наведении."""
+    from map_overlay.ui.theme import APP_QSS
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    clear = window.sizes._clear_button
+    assert clear.property("role") == "clear"
+    block = APP_QSS.split('QPushButton[role="clear"]:hover {', 1)[1].split("}", 1)[0]
+    assert "#ef4444" in block
+
+
+def test_mini_and_calibration_badge_are_one_pill(qt_app: QApplication) -> None:
+    """«Мини» и бейдж калибровки — пилюли одного вида и одной высоты."""
+    from map_overlay.ui.theme import APP_QSS
+
+    window, _panel, _store, _cursor = make_window(
+        qt_app,
+        settings=Settings(calibration=FULL_CALIBRATION, empty_point=Point(10, 10)),
+    )
+    window.show()
+    qt_app.processEvents()
+    mini = window._mini_button
+    badge = window._calibration_label
+    assert mini.property("role") == "badge"
+    assert abs(mini.height() - badge.height()) <= 1
+    assert 'QPushButton[role="badge"]' in APP_QSS
+
+
+def test_abort_button_stays_visible_but_quiet(qt_app: QApplication) -> None:
+    """«Прервать» видна всегда, но приглушена, пока прерывать нечего."""
+    from map_overlay.ui.theme import APP_QSS
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    abort = window._abort_button
+    assert abort.text() == "Прервать"
+    assert abort.property("role") == "danger"
+    assert not abort.isHidden()
+    assert not abort.isEnabled()
+    disabled = APP_QSS.split('QPushButton[role="danger"]:disabled {', 1)[1].split("}", 1)[0]
+    assert "background: transparent" in disabled

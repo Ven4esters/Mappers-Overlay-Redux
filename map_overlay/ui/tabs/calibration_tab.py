@@ -18,7 +18,6 @@ from map_overlay.ui.widgets import (
     Card,
     ValueField,
     button,
-    hint_label,
     label,
 )
 
@@ -27,17 +26,15 @@ COUNTDOWN_TICK_MS: Final = 1000
 EMPTY_SPOT_KEY: Final = "empty"
 EMPTY_SPOT_LABEL: Final = "Пустое место (для F)"
 
-HINT: Final[tuple[str, ...]] = (
-    "Нажмите <b>«Задать»</b> и за <b>3 секунды</b> наведите курсор точно на цель — оверлей "
-    "запомнит точку.",
-    "<b>«Показать»</b> переводит курсор в сохранённую точку: так проверяют калибровку.",
-    "Точка, которую ещё не задавали, показана прочерком — «Показать» для неё недоступна.",
+HINT = (
+    "«Задать» — наведите курсор точно на цель за 3 секунды, оверлей запомнит точку.\n"
+    "«Показать» переводит курсор в сохранённую точку: так проверяют калибровку.\n"
+    "Точка, которую ещё не задавали, показана прочерком — «Показать» для неё недоступна."
 )
-
-EMPTY_HINT: Final[tuple[str, ...]] = (
-    "Пустое место нужно для <b>«Сохранить F»</b>: оверлей кликает туда, чтобы поле перестало "
-    "быть активным, и нажимает F.",
-    "Все шесть точек и пустое место заданы — бейдж калибровки в шапке становится зелёным.",
+EMPTY_HINT = (
+    "Пустое место нужно для «Сохранить F»: оверлей кликает туда, чтобы поле перестало\n"
+    "быть активным, и нажимает F.\n"
+    "Все шесть точек и пустое место заданы — бейдж калибровки в шапке становится зелёным."
 )
 
 NAME_COLUMN_WIDTH: Final = 150
@@ -81,9 +78,8 @@ class CalibrationTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(SECTION_GAP)
-        layout.addWidget(hint_label(*HINT))
-
-        card = Card("Точки панели LSP")
+        card = Card("Точки панели LSP", hint=f"{HINT}\n{EMPTY_HINT}")
+        self._card = card
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(8)
@@ -112,7 +108,6 @@ class CalibrationTab(QWidget):
         grid.setColumnStretch(4, 1)
         card.add_layout(grid)
         layout.addWidget(card)
-        layout.addWidget(hint_label(*EMPTY_HINT))
         layout.addStretch(1)
         self._refresh_all()
 

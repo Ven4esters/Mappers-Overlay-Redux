@@ -50,7 +50,19 @@ QLabel[role="poseDisplay"] {{
 }}
 QLabel[role="poseDisplay"][empty="true"] {{ color: #4f5c73; }}
 QLabel[role="hint"] {{ color: {MUTED}; font-size: 11px; }}
-QLabel[role="badge"], QLabel[role="badgeOk"] {{
+QLabel[role="info"] {{ background: transparent; }}
+QLabel[role="info"]:hover {{ background: rgba(255, 255, 255, 0.08); border-radius: 7px; }}
+QLabel[role="rowName"] {{
+    font-family: "Consolas", "Cascadia Mono", monospace;
+    font-size: 14px;
+    color: {TEXT};
+}}
+QLabel[role="rowSize"] {{
+    font-family: "Consolas", "Cascadia Mono", monospace;
+    font-size: 13px;
+    color: {MUTED};
+}}
+QLabel[role="badge"], QLabel[role="badgeOk"], QPushButton[role="badge"] {{
     color: {MUTED};
     background: {SURFACE_RAISED};
     border: 1px solid {BORDER};
@@ -58,6 +70,11 @@ QLabel[role="badge"], QLabel[role="badgeOk"] {{
     padding: 3px 9px;
 }}
 QLabel[role="badgeOk"] {{ color: {SUCCESS}; border-color: #235c45; }}
+/* «Мини» — та же пилюля, что и бейдж калибровки: одна высота и один радиус. */
+QPushButton[role="badge"] {{ color: {TEXT}; }}
+QPushButton[role="badge"]:hover {{ background: #243050; border-color: #2c3a55; }}
+QPushButton[role="badge"]:pressed {{ background: #1d2740; }}
+QPushButton[role="badge"]:disabled {{ color: {TEXT_DISABLED}; }}
 QLabel[role="muted"] {{ color: {MUTED}; }}
 QLabel[role="warn"] {{ color: {WARNING}; }}
 QLabel[role="error"] {{ color: {ERROR}; }}
@@ -93,16 +110,64 @@ QPushButton[role="primary"]:disabled {{
     color: #55627a;
 }}
 QPushButton[role="danger"] {{
-    background: transparent;
+    background: rgba(239, 68, 68, 0.16);
     border: 1px solid {DANGER_EDGE};
-    color: {DANGER_TEXT};
+    color: #fecaca;
 }}
-QPushButton[role="danger"]:hover {{ background: rgba(239, 68, 68, 0.12); border-color: {ERROR}; }}
-QPushButton[role="danger"]:pressed {{ background: rgba(239, 68, 68, 0.2); }}
+QPushButton[role="danger"]:hover {{ background: rgba(239, 68, 68, 0.26); border-color: {ERROR}; }}
+QPushButton[role="danger"]:pressed {{ background: rgba(239, 68, 68, 0.34); }}
 QPushButton[role="danger"]:disabled {{
-    color: #5a3a42;
+    color: #4a3a3e;
     border-color: #33222a;
     background: transparent;
+}}
+QPushButton[role="ghost"] {{
+    background: transparent;
+    border: 1px solid transparent;
+    color: {MUTED};
+    padding: 4px 8px;
+    font-size: 12px;
+}}
+QPushButton[role="ghost"]:hover {{ color: {TEXT}; background: rgba(255, 255, 255, 0.06); }}
+QPushButton[role="ghost"]:disabled {{ color: #4b5563; background: transparent; }}
+QPushButton[role="icon"] {{
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 0;
+    border-radius: 8px;
+}}
+QPushButton[role="icon"]:hover {{ background: rgba(255, 255, 255, 0.08); }}
+QPushButton[role="icon"]:disabled {{ background: transparent; }}
+/* Значок удаления: красный рисунок без рамки, красный фон — только при наведении. */
+QPushButton[severity="danger"][role="icon"] {{
+    background: transparent;
+    border: 1px solid transparent;
+}}
+QPushButton[severity="danger"][role="icon"]:hover {{ background: rgba(239, 68, 68, 0.16); }}
+QPushButton[role="clear"] {{
+    background: transparent;
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    color: {DANGER_TEXT};
+}}
+QPushButton[role="clear"]:hover {{
+    border-color: {ERROR};
+    color: #fecaca;
+    background: rgba(239, 68, 68, 0.12);
+}}
+QPushButton[role="clear"]:disabled {{ color: {TEXT_DISABLED}; border-color: #1b2333; }}
+QListWidget#sizesList {{
+    background: transparent;
+    border: none;
+    outline: none;
+}}
+QListWidget#sizesList::item {{
+    border-radius: 8px;
+    margin: 1px 0;
+}}
+QListWidget#sizesList::item:hover {{ background: rgba(255, 255, 255, 0.04); }}
+QListWidget#sizesList::item:selected {{
+    background: rgba(59, 130, 246, 0.18);
+    color: {TEXT};
 }}
 QPushButton[role="small"] {{
     padding: 4px 10px;
@@ -148,7 +213,7 @@ QLineEdit {{
     background: {SURFACE_RAISED};
     border: 1px solid #2c3a55;
     border-radius: 8px;
-    padding: 6px 8px;
+    padding: 8px 12px;
     min-height: 20px;
     selection-background-color: #2563eb;
 }}
@@ -158,7 +223,7 @@ QComboBox, QSpinBox, QDoubleSpinBox {{
     background: {SURFACE_RAISED};
     border: 1px solid #2c3a55;
     border-radius: 8px;
-    padding: 6px 8px;
+    padding: 8px 12px;
     min-height: 20px;
 }}
 QComboBox::drop-down {{ border: none; width: 18px; }}

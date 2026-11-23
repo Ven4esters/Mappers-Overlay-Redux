@@ -3,22 +3,27 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
-from PySide6.QtCore import QLocale, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
-    QDoubleValidator,
     QIcon,
     QPainter,
-    QPalette,
     QPixmap,
     QPolygonF,
     QResizeEvent,
+    QValidator,
 )
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QDoubleSpinBox,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -34,7 +39,7 @@ from map_overlay.domain.sizes import (
     ObjectSize,
     SizeLibrary,
 )
-from map_overlay.errors import AppError, ValidationError
+from map_overlay.errors import AppError
 from map_overlay.ui.theme import DANGER_TEXT
 from map_overlay.ui.widgets import (
     GRID_SPACING,
@@ -42,13 +47,11 @@ from map_overlay.ui.widgets import (
     ROW_SPACING,
     SECTION_GAP,
     Card,
-    bullets,
     button,
-    hint_label,
     label,
 )
 
-SIZE_FIELD_WIDTH = 110
+SIZE_FIELD_WIDTH = 130
 DEFAULT_LENGTH = 2.0
 DEFAULT_WIDTH = 1.0
 # С чего начинается форма: типичный ящик 2 × 1 м — видно, что куда вписывать.
@@ -56,41 +59,30 @@ DEFAULT_WIDTH = 1.0
 SUFFIX = " м"
 SIZE_COLUMN_WIDTH = 96
 # Колонка габаритов в списке: числа «4 × 0.5 м» стоят друг под другом, а не «пляшут».
+ROW_MARGIN_X = 8
+ROW_MARGIN_Y = 6
+# Поля строки списка: подсветка выбранной строки видна по краям, текст не липнет к рамке.
 
-ADD_HINT: tuple[str, ...] = (
-    "Название — ключ: предмет с тем же названием заменяется, регистр не важен.",
-    "Размеры задаются в <b>метрах</b>; дробная часть — через точку или запятую.",
+ADD_HINT = (
+    "Название — ключ: предмет с тем же названием заменяется, регистр не важен.\n"
+    "Размеры задаются в метрах; дробная часть — через точку или запятую."
 )
-EDIT_HINT: tuple[str, ...] = (
-    "Правка «{name}»: измените название, длину или ширину и нажмите "
-    "<b>«Сохранить изменения»</b>.",
-    "<b>«Очистить»</b> возвращает форму в режим добавления и не трогает библиотеку.",
+EDIT_HINT = (
+    "Правка «{name}»: измените название, длину или ширину и нажмите «Сохранить изменения».\n"
+    "«Очистить» возвращает форму в режим добавления и не трогает библиотеку."
 )
-LIST_HINT: tuple[str, ...] = (
-    "<b>«Выбрать»</b> делает предмет текущим: на вкладке «Навигация» его длину, ширину "
-    "и половины можно сразу подставить в шаг.",
-    "<b>Карандаш</b> — правка записи, <b>корзина</b> — удаление из библиотеки.",
-    "Ошиблись? <b>Ctrl+Z</b> отменяет последнюю правку (до 20 действий), "
-    "<b>Ctrl+Y</b> — возвращает.",
+LIST_HINT = (
+    "Поиск находит по любому слову названия и по номеру из диапазона: «стена 01» найдёт\n"
+    "«Стена 01-39», а уточнение запроса сужает выдачу.\n"
+    "«Выбрать» делает предмет текущим: на вкладке «Навигация» его длину, ширину и половины\n"
+    "можно сразу подставить в шаг. Карандаш — правка записи, корзина — удаление.\n"
+    "Шаги отменяются в окне: Ctrl+Z — вернуть предмет, Ctrl+Y — повторить шаг (до 20)."
 )
+ICON_TEXT = "#c3ccdb"
+# Карандаш светлый: палитра окна тёмная только через QSS, поэтому цвет задан явно.
 ICON_PX = 24
 ICON_BUTTON_PX = 30
-# Размер рисунка карандаша; на экране он показывается вдвое мельче."
-
-
-class _Row(QWidget):
-    """Строка списка: высота растёт вместе с переносом длинного названия.
-
-    QVBoxLayout раскладывает строки по ``sizeHint``, а он не знает будущей ширины: без
-    подсказки двухстрочное название рисовалось поверх соседней строки.
-    """
-
-    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - имя из Qt
-        """Пересчитать нужную высоту, когда строка получила ширину."""
-        super().resizeEvent(event)
-        needed = self.heightForWidth(self.width())
-        if needed > 0 and self.minimumHeight() != needed:
-            self.setMinimumHeight(needed)
+# Размер рисунка карандаша; на экране он показывается вдвое мельче.
 
 
 class SizesTab(QWidget):
@@ -109,7 +101,6 @@ class SizesTab(QWidget):
         super().__init__(parent)
         self._library = library
         self._path = path
-        self._rows_layout: QVBoxLayout | None = None
         self._search_engine = NameSearch()
         self._editing: str | None = None
         self._pencils: dict[str, QPushButton] = {}
@@ -130,38 +121,24 @@ class SizesTab(QWidget):
         layout.addStretch(1)
 
     def _build_form(self) -> Card:
-        """Форма: подписи в одной колонке, поля начинаются с одного места."""
-        card = Card("Предмет")
+        """Форма: подписи в одной колонке, единицы измерения — внутри полей."""
+        card = Card("Предмет", hint=ADD_HINT)
+        self._form_card = card
         form = QGridLayout()
         form.setHorizontalSpacing(ROW_SPACING)
         form.setVerticalSpacing(GRID_SPACING)
         self._name = QLineEdit(self)
         self._name.setMaxLength(MAX_NAME_LEN)
         self._name.setPlaceholderText("Название, например «Ящик»")
-        self._length = _size_field(DEFAULT_LENGTH)
-        self._width = _size_field(DEFAULT_WIDTH)
-        rows = (
-            ("Название", self._name, False),
-            ("Длина", self._length, True),
-            ("Ширина", self._width, True),
-        )
-        for row, (title, field, with_suffix) in enumerate(rows):
+        self._length = _size_spin(DEFAULT_LENGTH)
+        self._width = _size_spin(DEFAULT_WIDTH)
+        rows = (("Название", self._name), ("Длина", self._length), ("Ширина", self._width))
+        for row, (title, field) in enumerate(rows):
             caption = label(title, widget_role="muted")
             caption.setWordWrap(False)
             caption.setMinimumWidth(LABEL_COLUMN_WIDTH)
             form.addWidget(caption, row, 0)
-            if with_suffix:
-                # Поле и «м» стоят рядом: единица измерения не уезжает к правому краю.
-                host = QWidget(self)
-                pair = QHBoxLayout(host)
-                pair.setContentsMargins(0, 0, 0, 0)
-                pair.setSpacing(6)
-                pair.addWidget(field)
-                pair.addWidget(label(SUFFIX.strip(), widget_role="muted"))
-                pair.addStretch(1)
-                form.addWidget(host, row, 1)
-            else:
-                form.addWidget(field, row, 1)
+            form.addWidget(field, row, 1)
         form.setColumnStretch(1, 1)
         card.add_layout(form)
 
@@ -175,18 +152,21 @@ class SizesTab(QWidget):
             tooltip="Предмет с таким же названием будет заменён",
         )
         self._add_button.clicked.connect(self._add)
-        self._clear_button = button("Очистить", tooltip="Очистить поля формы")
+        self._clear_button = button(
+            "Очистить",
+            widget_role="clear",
+            tooltip="Очистить поля формы",
+        )
         self._clear_button.clicked.connect(self._clear_form)
         buttons_row.addWidget(self._add_button)
         buttons_row.addWidget(self._clear_button)
         buttons_row.addStretch(1)
         card.add_layout(buttons_row)
-        self._form_hint = hint_label(*ADD_HINT)
-        card.add(self._form_hint)
         return card
 
     def _build_list(self) -> Card:
-        card = Card("Мои предметы")
+        card = Card("Мои предметы", hint=LIST_HINT)
+        self._list_card = card
         self._search = QLineEdit(self)
         self._search.setPlaceholderText("Поиск: слова названия или номер из диапазона")
         self._search.setClearButtonEnabled(True)
@@ -204,12 +184,17 @@ class SizesTab(QWidget):
         search_grid.addWidget(self._empty_label, 1, 1)
         search_grid.setColumnStretch(1, 1)
         card.add_layout(search_grid)
-        host = QWidget(self)
-        self._rows_layout = QVBoxLayout(host)
-        self._rows_layout.setContentsMargins(0, 0, 0, 0)
-        self._rows_layout.setSpacing(8)
-        card.add(host)
-        card.add(hint_label(*LIST_HINT))
+
+        self._list = QListWidget(self)
+        self._list.setObjectName("sizesList")
+        self._list.setFrameShape(QFrame.Shape.NoFrame)
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self._list.setSpacing(2)
+        self._list.setUniformItemSizes(False)
+        card.add(self._list)
         return card
 
     # --- действия ---------------------------------------------------------
@@ -219,8 +204,8 @@ class SizesTab(QWidget):
         try:
             item = ObjectSize(
                 name=self._name.text(),
-                length=_parse_size(self._length, "Длина"),
-                width=_parse_size(self._width, "Ширина"),
+                length=self._length.value(),
+                width=self._width.value(),
             )
             if self._editing is None:
                 library = self._library.with_item(item)
@@ -235,8 +220,8 @@ class SizesTab(QWidget):
 
     def _clear_form(self) -> None:
         self._name.clear()
-        self._length.setText(_text(DEFAULT_LENGTH))
-        self._width.setText(_text(DEFAULT_WIDTH))
+        self._length.setValue(DEFAULT_LENGTH)
+        self._width.setValue(DEFAULT_WIDTH)
         self._editing = None
         self._sync_form_mode()
         self._name.setFocus()
@@ -249,8 +234,8 @@ class SizesTab(QWidget):
         self._editing = item.name
         self._sync_form_mode()
         self._name.setText(item.name)
-        self._length.setText(_text(item.length))
-        self._width.setText(_text(item.width))
+        self._length.setValue(item.length)
+        self._width.setValue(item.width)
         self._name.setFocus()
         self._name.selectAll()
 
@@ -259,13 +244,13 @@ class SizesTab(QWidget):
         if self._editing is None:
             self._add_button.setText("Добавить в библиотеку")
             self._add_button.setToolTip("Предмет с таким же названием будет заменён")
-            self._form_hint.setText(bullets(*ADD_HINT))
+            self._form_card.set_hint(ADD_HINT)
             return
         self._add_button.setText("Сохранить изменения")
         self._add_button.setToolTip(
             "Записать новые название и габариты: порядок в списке и выбранный предмет " "сохранятся"
         )
-        self._form_hint.setText(bullets(*(line.format(name=self._editing) for line in EDIT_HINT)))
+        self._form_card.set_hint(EDIT_HINT.format(name=self._editing))
 
     def _delete(self, name: str) -> None:
         item = self._library.find(name)
@@ -345,8 +330,12 @@ class SizesTab(QWidget):
         return self._add_button.text()
 
     def form_hint(self) -> str:
-        """Подсказка под формой (для тестов)."""
-        return self._form_hint.text()
+        """Справка формы — то, что показывает значок ⓘ (для тестов)."""
+        return self._form_card.hint()
+
+    def help_texts(self) -> tuple[str, str]:
+        """Справка карточек «Предмет» и «Мои предметы» (для тестов)."""
+        return self._form_card.hint(), self._list_card.hint()
 
     def editing_name(self) -> str | None:
         """Название предмета, который сейчас правится (для тестов)."""
@@ -357,13 +346,13 @@ class SizesTab(QWidget):
         self._activate(name)
 
     def fill_form(self, name: str, length: str | float, width: str | float) -> None:
-        """Заполнить форму (для тестов)."""
+        """Заполнить форму (для тестов): числа можно писать строкой, с запятой."""
         self._name.setText(name)
-        self._length.setText(_text(length))
-        self._width.setText(_text(width))
+        _set_size(self._length, length)
+        _set_size(self._width, width)
 
     def form_values(self) -> tuple[str, str, str]:
-        """Значения формы как введены: название, длина, ширина (для тестов)."""
+        """Значения формы как их видит пользователь: название и поля с « м» (для тестов)."""
         return self._name.text(), self._length.text(), self._width.text()
 
     def _visible_items(self) -> list[ObjectSize]:
@@ -379,17 +368,43 @@ class SizesTab(QWidget):
     def _refresh(self, _text: str = "") -> None:
         items = self._visible_items()
         self._empty_label.setText(self._hint(len(items)))
-        if self._rows_layout is None:
-            return
         self._pencils.clear()
         self._trash_buttons.clear()
-        while self._rows_layout.count():
-            entry = self._rows_layout.takeAt(0)
-            widget = entry.widget()
-            if widget is not None:
-                widget.deleteLater()
+        self._list.clear()
         for item in items:
-            self._rows_layout.addWidget(self._row(item))
+            entry = QListWidgetItem(self._list)
+            entry.setData(Qt.ItemDataRole.UserRole, item.name)
+            row = self._row(item)
+            self._list.addItem(entry)
+            self._list.setItemWidget(entry, row)
+            if self._is_active(item):
+                self._list.setCurrentItem(entry)
+        self._resize_rows()
+
+    def _resize_rows(self) -> None:
+        """Высота строки — по её ширине: перенесённое название не наезжает на соседнюю."""
+        width = max(self._list.viewport().width(), 200)
+        for index in range(self._list.count()):
+            entry = self._list.item(index)
+            # Виджет есть у каждой строки: строки создаются вместе с записями списка.
+            row = self._list.itemWidget(entry)
+            height = max(row.sizeHint().height(), row.heightForWidth(width))
+            if entry.sizeHint().height() != height:
+                entry.setSizeHint(QSize(0, height))
+        self._fit_list()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - имя из Qt
+        """При изменении ширины пересчитать высоты строк списка."""
+        super().resizeEvent(event)
+        if hasattr(self, "_list"):
+            self._resize_rows()
+
+    def _fit_list(self) -> None:
+        """Список занимает ровно свою высоту: прокрутка у вкладки, а не внутри списка."""
+        height = 2 * self._list.frameWidth()
+        for index in range(self._list.count()):
+            height += self._list.sizeHintForRow(index) + 2
+        self._list.setFixedHeight(max(height, 44))
 
     def _hint(self, visible: int) -> str:
         """Подсказка над списком: пусто, ничего не найдено или сколько показано."""
@@ -406,33 +421,40 @@ class SizesTab(QWidget):
             return f"Предметов: {total}"
         return f"Найдено: {visible} из {total}{note}"
 
+    def _is_active(self, item: ObjectSize) -> bool:
+        """Этот предмет — текущий (из него берётся шаг)."""
+        active = self._library.active
+        return active is not None and active.casefold() == item.key
+
     def _row(self, item: ObjectSize) -> QWidget:
-        host = _Row(self)
+        """Строка списка: название слева, габариты и кнопки справа."""
+        host = QWidget(self)
         row = QHBoxLayout(host)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
-        active = self._library.active is not None and self._library.active.casefold() == item.key
-        mark = "✓ " if active else ""
-        name = label(f"{mark}{item.name}", widget_role="poseValue")
+        row.setContentsMargins(ROW_MARGIN_X, ROW_MARGIN_Y, ROW_MARGIN_X, ROW_MARGIN_Y)
+        row.setSpacing(10)
+        name = label(item.name, widget_role="rowName")
         name.setWordWrap(True)
+        # Клик по тексту выбирает строку: метка не перехватывает мышь у списка.
+        name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         row.addWidget(name, 1)
         # Габариты — отдельной колонкой справа: числа в списке выстраиваются в столбец.
-        size = label(f"{item.length:g} × {item.width:g} м", widget_role="poseValue")
+        size = label(f"{item.length:g} × {item.width:g} м", widget_role="rowSize")
         size.setWordWrap(False)
         size.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         size.setMinimumWidth(SIZE_COLUMN_WIDTH)
+        size.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         row.addWidget(size)
         choose = button(
             "Выбрать",
-            widget_role="small",
+            widget_role="ghost",
             tooltip="Сделать предмет текущим: его размеры появятся на вкладке «Навигация»",
         )
-        choose.setEnabled(not active)
+        choose.setEnabled(not self._is_active(item))
         choose.clicked.connect(lambda _checked=False, name=item.name: self._activate(name))
         pencil = self._icon_button(
             tooltip="Править название и габариты",
             accessible="Править",
-            icon=_pencil_icon(self.palette().color(QPalette.ColorRole.Text)),
+            icon=_pencil_icon(QColor(ICON_TEXT)),
             name=item.name,
         )
         pencil.clicked.connect(lambda _checked=False, name=item.name: self._begin_edit(name))
@@ -461,7 +483,7 @@ class SizesTab(QWidget):
         danger: bool = False,
     ) -> QPushButton:
         """Кнопка-значок размером с иконку: подпись заменена рисунком и подсказкой."""
-        item = button("", widget_role="small", tooltip=tooltip, danger=danger)
+        item = button("", widget_role="icon", tooltip=tooltip, danger=danger)
         item.setIcon(icon)
         item.setAccessibleName(accessible)
         item.setProperty("item_name", name)
@@ -535,33 +557,52 @@ def _trash_icon(color: QColor) -> QIcon:
     return QIcon(pixmap)
 
 
-def _size_field(value: float) -> QLineEdit:
-    """Поле размера: только ввод с клавиатуры, без стрелок «+» и «−»."""
-    field = QLineEdit()
-    field.setValidator(QDoubleValidator(MIN_SIZE_M, MAX_SIZE_M, SIZE_DECIMALS, field))
-    field.setLocale(QLocale.c())
-    field.setText(_text(value))
-    field.setMaximumWidth(SIZE_FIELD_WIDTH)
-    return field
+class SizeSpin(QDoubleSpinBox):
+    """Поле размера с единицей внутри: «2.5 м».
 
-
-def _text(value: str | float) -> str:
-    """Как показывать размер в поле: число с точкой, без хвостовых нулей."""
-    if isinstance(value, str):
-        return value
-    return f"{rounded(value, SIZE_DECIMALS):g}"
-
-
-def _parse_size(field: QLineEdit, title: str) -> float:
-    """Разобрать поле размера: пустое или нечисловое — понятная ошибка.
-
-    Raises:
-        ValidationError: если число не читается.
+    Единица измерения живёт в тексте поля (``setSuffix``), а не отдельной подписью:
+    сетка не разъезжается, и глаз не прыгает между числом и «м».
+    Запятая принимается наравне с точкой — так размеры пишут в игре.
     """
-    raw = field.text().replace(",", ".").strip()
-    try:
-        return float(raw)
-    except ValueError as exc:
-        raise ValidationError(
-            f"{title} должна быть числом, получено «{field.text().strip()}»"
-        ) from exc
+
+    def __init__(self, value: float, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setDecimals(SIZE_DECIMALS)
+        self.setRange(MIN_SIZE_M, MAX_SIZE_M)
+        self.setSuffix(SUFFIX)
+        self.setSingleStep(0.1)
+        # Стрелки «+» и «−» не нужны: размер вписывают с клавиатуры.
+        self.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.setFixedWidth(SIZE_FIELD_WIDTH)
+        self.setValue(value)
+
+    def validate(self, text: str, position: int) -> QValidator.State:
+        """Разрешить запятую как десятичный разделитель при наборе."""
+        return cast(QValidator.State, super().validate(text.replace(",", "."), position))
+
+    def valueFromText(self, text: str) -> float:  # noqa: N802 - имя из Qt
+        """Прочитать «2,5 м» и «2.5 м» одинаково."""
+        raw = text.replace(SUFFIX, "").replace(",", ".").strip()
+        try:
+            return float(raw)
+        except ValueError:
+            return self.value()
+
+    def textFromValue(self, value: float) -> str:  # noqa: N802 - имя из Qt
+        """Показать число без хвостовых нулей: «2 м», а не «2.000 м»."""
+        return f"{rounded(value, SIZE_DECIMALS):g}"
+
+
+def _size_spin(value: float) -> SizeSpin:
+    """Поле размера формы (QDoubleSpinBox с единицей внутри)."""
+    return SizeSpin(value)
+
+
+def _set_size(field: SizeSpin, value: str | float) -> None:
+    """Заполнить поле размера из теста или кода: строка может быть с запятой."""
+    if isinstance(value, str):
+        field.lineEdit().setText(f"{value}{SUFFIX}")
+        field.interpretText()
+        return
+    field.setValue(value)

@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from typing import Final
 
-from PySide6.QtCore import QLocale, Qt, Signal
+from PySide6.QtCore import QLocale, Signal
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QPushButton,
     QVBoxLayout,
@@ -47,19 +46,14 @@ SIZE_COMBO_CHARS: Final = 14
 # Сколько символов названия гарантированно видно в списке предметов.
 NO_SIZE_TEXT: Final = "— не выбран —"
 STEP_DECIMALS: Final = 3
-_HINTS: Final[tuple[str, ...]] = (
-    "<ul style='margin:0; padding-left:18px;'>"
-    "<li>Одна стрелка — один шаг; то же самое на клавишах <b>Num 8/2/4/6</b> "
-    "и <b>Num 7/9/1/3</b>.</li>"
-    "<li>Зажмите клавишу — шаги идут друг за другом, отпустите — движение остановится.</li>"
-    "</ul>",
-    "<ul style='margin:0; padding-left:18px;'>"
-    "<li>Одно нажатие <b>Alt</b> включает режим высоты: <b>Num 8</b> — вверх, "
-    "<b>Num 2</b> — вниз (при <b>RY ≠ 0</b> шаг идёт в плоскости X/Z).</li>"
-    "<li>Остальные клавиши не меняются: <b>Num 4/6</b> — по горизонтали, "
-    "диагонали — по наклону предмета.</li>"
-    "<li>Держать <b>Alt</b> не нужно: пока он зажат, игра не применяет правки панели.</li>"
-    "</ul>",
+_HINTS: Final = (
+    "Одна стрелка — один шаг; то же самое на клавишах Num 8/2/4/6 и Num 7/9/1/3.\n"
+    "Зажмите клавишу — шаги идут друг за другом, отпустите — движение остановится.\n"
+    "Одно нажатие Alt включает режим высоты: Num 8 — вверх, Num 2 — вниз\n"
+    "(при RY ≠ 0 шаг идёт в плоскости X/Z).\n"
+    "Остальные клавиши не меняются: Num 4/6 — по горизонтали, диагонали — по наклону\n"
+    "предмета.\n"
+    "Держать Alt не нужно: пока он зажат, игра не применяет правки панели."
 )
 # Подсказки под крестовиной — списком с выделенными клавишами: их читают в работе,
 # поэтому длинный абзац здесь неудобен.
@@ -89,7 +83,8 @@ class MovementTab(QWidget):
         layout.setSpacing(SECTION_GAP)
         self._pose_card = self._build_pose_card()
         layout.addWidget(self._pose_card)
-        layout.addWidget(self._build_move_card(default_step))
+        self._move_card = self._build_move_card(default_step)
+        layout.addWidget(self._move_card)
         self._warning = label("", widget_role="warn")
         self._warning.hide()
         layout.addWidget(self._warning)
@@ -118,7 +113,7 @@ class MovementTab(QWidget):
 
     def _build_move_card(self, default_step: float) -> Card:
         """Карточка сдвига: крестовина, шаг, режим высоты и подсказки."""
-        card = Card("Сдвиг предмета")
+        card = Card("Сдвиг предмета", hint=_HINTS)
         self._pad = DirectionPad(self)
         self._pad.direction_clicked.connect(self._request_move)
         card.add(self._pad)
@@ -127,12 +122,6 @@ class MovementTab(QWidget):
         card.add(self._picker)
         card.add(self._size_info)
         card.add_layout(self._build_mode_row())
-        self._hint_labels: list[QLabel] = []
-        for text in _HINTS:
-            hint = label(text, widget_role="muted")
-            hint.setTextFormat(Qt.TextFormat.RichText)
-            self._hint_labels.append(hint)
-            card.add(hint)
         return card
 
     def _build_step_row(self, default_step: float) -> QHBoxLayout:
@@ -250,8 +239,6 @@ class MovementTab(QWidget):
         не помещались в узкое окно, и крестовина обрезалась справа.
         """
         self._pose_card.setVisible(not enabled)
-        for hint in self._hint_labels:
-            hint.setVisible(not enabled)
         # Поиск и выбор предмета прячутся целиком: в мини-версии нечего искать — она про то,
         # чтобы двигать предмет стрелками, а выбор предмета задаёт шаг.
         self._picker.setVisible(not enabled)

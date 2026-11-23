@@ -100,9 +100,11 @@ class MainWindow(QMainWindow):
         self._session: MappingSession | None = None
         self._pose: Pose | None = None
         self._learning: Action | None = None
-        # История правок: Ctrl+Z отменяет последние 20 изменений данных (ADR-0041).
+        # История шагов: Ctrl+Z возвращает предмет на место до шага (ADR-0041).
         self._history = History()
-        self._restoring = False
+        self._pending_kind: str | None = None
+        self._pending_change: Change | None = None
+        self._last_request: tuple[Direction, float, bool] | None = None
         self._runner = TaskRunner(synchronous=synchronous_tasks, parent=self)
         self._router = HotkeyRouter(context.settings.hotkeys)
         self._busy_text = ""
@@ -255,9 +257,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._version_label)
         # «Мини» стоит рядом с названием, а не у правого края: там она читалась как кнопка
         # системного заголовка окна и спорила с бейджем калибровки.
+        # Пилюля того же вида, что и бейдж калибровки: одинаковая высота и скругление.
         self._mini_button = button(
             "Мини",
-            widget_role="small",
+            widget_role="badge",
             tooltip="Свернуть окно до крестовины и шага",
         )
         self._mini_button.clicked.connect(self.toggle_mini)
@@ -509,6 +512,7 @@ class MainWindow(QMainWindow):
         """Забыть координаты: после сбоя двигаться от них нельзя."""
         if self._pose is None:
             return
+        self._history.clear()
         logger.warning("%s — координаты сброшены, нужен новый «Считать»", reason)
         self._pose = None
         self.movement.set_pose(None)
@@ -525,10 +529,8 @@ class MainWindow(QMainWindow):
     def _sizes_changed(self, library: object) -> None:
         """Сохранить библиотеку размеров и обновить список предметов."""
         candidate = cast(SizeLibrary, library)
-        previous = self._context.sizes
         if not self._apply_library(candidate):
             return
-        self._remember_library(self._library_change_label(previous, candidate), previous, candidate)
         active = candidate.active_item
         suffix = f", выбран «{active.name}»" if active is not None else ""
         self._set_status(f"Размеры: предметов {len(candidate.items)}{suffix}", STATUS_OK)
@@ -548,23 +550,6 @@ class MainWindow(QMainWindow):
         self.movement.set_sizes(library)
         return True
 
-    def _library_change_label(self, before: SizeLibrary, after: SizeLibrary) -> str:
-        """Название правки для строки состояния: что именно изменилось в библиотеке."""
-        old_names = {item.name for item in before.items}
-        new_names = {item.name for item in after.items}
-        added = new_names - old_names
-        removed = old_names - new_names
-        if added and not removed:
-            return f"добавление «{sorted(added)[0]}»"
-        if removed and not added:
-            return f"удаление «{sorted(removed)[0]}»"
-        if added and removed:
-            return f"правка «{sorted(added)[0]}»"
-        active = after.active_item
-        if active is not None:
-            return f"выбор «{active.name}»"
-        return "снятие выбора предмета"
-
     def _size_selected(self, name: object) -> None:
         """Запомнить выбранный предмет: из него берётся шаг."""
         selected = cast("str | None", name)
@@ -578,7 +563,6 @@ class MainWindow(QMainWindow):
         if not self._apply_library(library):
             self.movement.set_sizes(previous)
             return
-        self._remember_library(self._library_change_label(previous, library), previous, library)
         active = library.active_item
         if active is None:
             self._set_status("Предмет не выбран: шаг задаётся вручную.")
@@ -641,6 +625,7 @@ class MainWindow(QMainWindow):
         if tilt and selected in (Direction.FORWARD, Direction.BACK):
             suffix = " (вверх)" if selected is Direction.FORWARD else " (вниз)"
         self._begin_busy(f"Шаг {selected.label} на {step:g} м{suffix}…")
+        self._last_request = (selected, step, tilt)
         self._runner.submit(
             lambda: session.step(selected, step, tilt=tilt),
             on_success=self._moved,
@@ -651,6 +636,8 @@ class MainWindow(QMainWindow):
 
     def _captured(self, result: object) -> None:
         self._set_busy(False)
+        # Новый «Считать» начинает новый отрезок: отменять шаги от прежних координат нельзя.
+        self._history.clear()
         pose = cast(Pose, result)
         self._pose = pose
         self.movement.set_pose(pose)
@@ -671,10 +658,64 @@ class MainWindow(QMainWindow):
             deltas = f"{deltas} · ΔZ {format_delta(step_result.delta_z)}"
         if step_result.tilted:
             slope = " · Alt: вверх/вниз"
+        prefix = self._commit_history(step_result)
         self._set_status(
-            f"Шаг: {deltas} → {pose_text(step_result.pose)} · записано: {written}{slope}",
+            f"{prefix}Шаг: {deltas} → {pose_text(step_result.pose)} · записано: {written}{slope}",
             STATUS_OK,
         )
+
+    def _commit_history(self, step_result: StepResult) -> str:
+        """Закрепить отмену/повтор или запомнить новый шаг; вернуть префикс для статуса."""
+        kind = self._pending_kind
+        change = self._pending_change
+        self._pending_kind = None
+        self._pending_change = None
+        request = self._last_request
+        self._last_request = None
+        if kind == "undo" and change is not None:
+            self._history.commit_undo()
+            logger.info("Отменён шаг: %s", change.label)
+            return f"Отменён {change.label}. "
+        if kind == "redo" and change is not None:
+            self._history.commit_redo()
+            logger.info("Повторён шаг: %s", change.label)
+            return f"Повторён {change.label}. "
+        if request is None:
+            return ""
+        direction, step, tilt = request
+        self._history.record(
+            Change(
+                self._step_label(direction, step, tilt=tilt),
+                lambda: self._restore_pose(step_result.previous),
+                lambda: self._repeat_step(direction, step, tilt=tilt),
+            )
+        )
+        return ""
+
+    def _step_label(self, direction: Direction, step: float, *, tilt: bool = False) -> str:
+        """Название шага для строки состояния: «шаг «Вперёд» на 0.5 м»."""
+        suffix = " (высота)" if tilt else ""
+        return f"шаг «{direction.label}» на {step:g} м{suffix}"
+
+    def _restore_pose(self, pose: Pose) -> bool:
+        """Отменить шаг: вернуть координаты, записанные до него."""
+        if not self._check_step_ready("отменять шаг"):
+            return False
+        session = self._session
+        if session is None:
+            return False
+        self._begin_busy("Отменяю шаг: возвращаю координаты…")
+        self._runner.submit(
+            lambda: session.restore(pose),
+            on_success=self._moved,
+            on_error=self._failed,
+            label="отмена шага",
+        )
+        return True
+
+    def _repeat_step(self, direction: Direction, step: float, *, tilt: bool = False) -> bool:
+        """Повторить шаг: тот же сдвиг от текущей позы."""
+        return self._move(direction, step, tilt=tilt)
 
     def _confirmed(self, _result: object) -> None:
         self._set_busy(False)
@@ -684,6 +725,10 @@ class MainWindow(QMainWindow):
         logger.warning("Действие не выполнено: %s", message)
         self._stop_hold()
         self._set_busy(False)
+        # Неудачный шаг не попадает в историю и не сдвигает стопки: отменять нечего.
+        self._pending_kind = None
+        self._pending_change = None
+        self._last_request = None
         if self._session is not None and self._session.pose is None:
             self._drop_pose(message)
             message = f"{message}. Нажмите «Считать» и повторите"
@@ -899,15 +944,13 @@ class MainWindow(QMainWindow):
         if vk == VK_ESCAPE:
             self._set_status("Назначение клавиши отменено")
             return
-        previous = self._context.settings
         try:
-            settings = previous.with_hotkey(action, vk)
+            settings = self._context.settings.with_hotkey(action, vk)
         except ConfigError as exc:
             self._set_status(str(exc), STATUS_ERROR)
             return
         if not self._apply_settings(settings):
             return
-        self._remember_settings(f"клавиша «{action.label}»", previous, settings)
         self._set_status(f"Клавиша {key_name(vk)} назначена на «{action.label}»", STATUS_OK)
         if vk in COMMON_GAME_KEYS:
             self._set_status(
@@ -918,15 +961,13 @@ class MainWindow(QMainWindow):
 
     def _clear_hotkey(self, action: object) -> None:
         selected = cast(Action, action)
-        previous = self._context.settings
         try:
-            settings = previous.with_hotkey(selected, None)
+            settings = self._context.settings.with_hotkey(selected, None)
         except ConfigError as exc:
             self._set_status(str(exc), STATUS_ERROR)
             return
         if not self._apply_settings(settings):
             return
-        self._remember_settings(f"снятие клавиши «{selected.label}»", previous, settings)
         self._set_status(f"Клавиша для «{selected.label}» снята")
 
     def _apply_hotkeys(self, hotkeys: Mapping[Action, int | None]) -> None:
@@ -943,113 +984,71 @@ class MainWindow(QMainWindow):
         """История правок (Ctrl+Z / Ctrl+Y): нужна строке состояния и тестам."""
         return self._history
 
-    def _remember_settings(self, label: str, before: Settings, after: Settings) -> None:
-        """Запомнить правку настроек: отмена вернёт прежний файл целиком."""
-        if self._restoring or before == after:
-            return
-        self._history.record(
-            Change(
-                label,
-                lambda: self._restore_settings(before),
-                lambda: self._restore_settings(after),
-            )
-        )
-
-    def _remember_library(self, label: str, before: SizeLibrary, after: SizeLibrary) -> None:
-        """Запомнить правку библиотеки размеров."""
-        if self._restoring or before == after:
-            return
-        self._history.record(
-            Change(
-                label,
-                lambda: self._restore_library(before),
-                lambda: self._restore_library(after),
-            )
-        )
-
-    def _restore_settings(self, settings: Settings) -> None:
-        """Вернуть сохранённые настройки; сбой записи поднимает ошибку.
-
-        Raises:
-            ConfigError: если файл не записался — тогда действие остаётся в истории.
-        """
-        if not self._apply_settings(settings, refresh_inputs=True):
-            message = "Не удалось записать настройки при отмене"
-            raise ConfigError(message)
-
-    def _restore_library(self, library: SizeLibrary) -> None:
-        """Вернуть сохранённую библиотеку размеров.
-
-        Raises:
-            ConfigError: если файл не записался.
-        """
-        if not self._apply_library(library):
-            message = "Не удалось записать библиотеку размеров при отмене"
-            raise ConfigError(message)
-
     def undo(self) -> bool:
-        """Отменить последнее действие (Ctrl+Z).
+        """Отменить последний шаг: вернуть предмет туда, где он стоял (Ctrl+Z).
 
         Returns:
-            ``True``, если что-то отменено.
+            ``True``, если задача поставлена; итог записи придёт колбэком шага.
         """
         self._stop_hold()
-        if not self._history.can_undo:
-            self._set_status("Отменять нечего: история правок пуста.", STATUS_WARN)
+        ready = self._check_step_ready("отменять шаг")
+        if not ready:
             return False
-        self._restoring = True
-        try:
-            label = self._history.undo()
-        except ConfigError as exc:
-            self._restoring = False
-            self._set_status(str(exc), STATUS_ERROR)
+        change = self._history.peek_undo()
+        if change is None:
+            self._set_status("Отменять нечего: шагов после «Считать» не было.", STATUS_WARN)
             return False
-        finally:
-            self._restoring = False
-        if label is None:
+        # Задачу ставим после того, как запомнили, что это отмена: при синхронном
+        # выполнении колбэк шага придёт прямо из change.undo().
+        self._pending_kind = "undo"
+        self._pending_change = change
+        if not change.undo():
+            self._pending_kind = None
+            self._pending_change = None
             return False
-        note("отменено: %s", label)
-        self._set_status(f"Отменено: {label}. Вернуть — Ctrl+Y.", STATUS_OK)
+        note("отмена шага: %s", change.label)
         return True
 
     def redo(self) -> bool:
-        """Вернуть отменённое действие (Ctrl+Y).
+        """Повторить отменённый шаг (Ctrl+Y).
+
+        Шаг повторяется тем же направлением, шагом и режимом высоты: сдвиг считается
+        от текущей позы, поэтому предмет встаёт туда же, где стоял.
 
         Returns:
-            ``True``, если что-то вернулось.
+            ``True``, если задача поставлена.
         """
         self._stop_hold()
-        if not self._history.can_redo:
-            self._set_status("Возвращать нечего: отменённых действий нет.", STATUS_WARN)
+        ready = self._check_step_ready("повторять шаг")
+        if not ready:
             return False
-        self._restoring = True
-        try:
-            label = self._history.redo()
-        except ConfigError as exc:
-            self._restoring = False
-            self._set_status(str(exc), STATUS_ERROR)
+        change = self._history.peek_redo()
+        if change is None:
+            self._set_status("Повторять нечего: отменённых шагов нет.", STATUS_WARN)
             return False
-        finally:
-            self._restoring = False
-        if label is None:
+        self._pending_kind = "redo"
+        self._pending_change = change
+        if not change.redo():
+            self._pending_kind = None
+            self._pending_change = None
             return False
-        note("возвращено: %s", label)
-        self._set_status(f"Возвращено: {label}.", STATUS_OK)
+        note("повтор шага: %s", change.label)
         return True
 
-    def _calibration_change_label(self, before: Settings, after: Settings) -> str:
-        """Название правки калибровки: какое поле изменилось."""
-        changed = [
-            field
-            for field in PANEL_ORDER
-            if before.calibration.get(field) != after.calibration.get(field)
-        ]
-        if len(changed) == 1:
-            return f"точка поля {changed[0].label}"
-        return "точки калибровки"
+    def _check_step_ready(self, what: str) -> bool:
+        """Можно ли сейчас ставить шаг (в том числе отмену): не занято и есть координаты."""
+        if self._runner.is_busy():
+            self._set_status(f"Дождитесь окончания действия: {what} пока нельзя.", STATUS_WARN)
+            return False
+        if self._session is None or self._session.pose is None or self._pose is None:
+            self._set_status(
+                f"Сначала нажмите «Считать»: без координат {what} нечего.", STATUS_WARN
+            )
+            return False
+        return True
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - имя из Qt
-        """Ctrl+Z отменяет, Ctrl+Y (или Ctrl+Shift+Z) возвращает правку."""
+        """Ctrl+Z отменяет шаг, Ctrl+Y (или Ctrl+Shift+Z) повторяет его."""
         if self._undo_shortcut(event):
             event.accept()
             return
@@ -1058,7 +1057,7 @@ class MainWindow(QMainWindow):
     def _undo_shortcut(self, event: QKeyEvent) -> bool:
         """Разобрать клавишу отмены; ``False`` — не наша, пусть обрабатывает Qt.
 
-        В полях ввода Ctrl+Z правит набранный текст, а не историю окна: там своя отмена.
+        В полях ввода Ctrl+Z правит набранный текст, а не шаги предмета: там своя отмена.
         """
         if self._learning is not None:
             return False
@@ -1122,21 +1121,19 @@ class MainWindow(QMainWindow):
     def _reset_session(self) -> None:
         self._session = None
         self._pose = None
+        self._history.clear()
         self.movement.set_pose(None)
         self.movement.set_warning("")
 
     def _calibration_changed(self, points: object) -> None:
         calibration = cast("Mapping[Field, Point]", points)
-        previous = self._context.settings
         try:
-            updated = previous.with_calibration(calibration)
+            updated = self._context.settings.with_calibration(calibration)
         except ConfigError as exc:
             self._set_status(str(exc), STATUS_ERROR)
             return
         if not self._apply_settings(updated):
             return
-        label = self._calibration_change_label(previous, updated)
-        self._remember_settings(label, previous, updated)
         missing = self._context.settings.missing_points()
         if missing:
             titles = ", ".join(field.label for field in missing)
@@ -1146,16 +1143,13 @@ class MainWindow(QMainWindow):
 
     def _empty_point_changed(self, point: object) -> None:
         selected = cast("Point | None", point)
-        previous = self._context.settings
         try:
-            updated = previous.with_empty_point(selected)
+            updated = self._context.settings.with_empty_point(selected)
         except ConfigError as exc:
             self._set_status(str(exc), STATUS_ERROR)
             return
         if not self._apply_settings(updated):
             return
-        label = "точка пустого места" if selected is not None else "снятие точки пустого места"
-        self._remember_settings(label, previous, updated)
         if selected is None:
             self._set_status("Точка пустого места снята: «Сохранить F» недоступно", STATUS_WARN)
         else:
@@ -1163,18 +1157,12 @@ class MainWindow(QMainWindow):
 
     def _settings_saved(self, settings: object) -> None:
         new_settings = cast(Settings, settings)
-        previous = self._context.settings
         if not self._apply_settings(new_settings):
             return
-        self._remember_settings("настройки", previous, new_settings)
         self._set_status("Настройки сохранены. Нажмите «Считать» заново.", STATUS_OK)
 
-    def _apply_settings(self, settings: Settings, *, refresh_inputs: bool = False) -> bool:
+    def _apply_settings(self, settings: Settings) -> bool:
         """Записать настройки и показать их во всех местах окна.
-
-        ``refresh_inputs`` переписывает поля формы: так делает отмена, а при обычном
-        сохранении поля уже содержат эти значения, и трогать их незачем (иначе введённое,
-        но не сохранённое пропало бы при правке калибровки).
 
         Returns:
             ``True``, если файл записался; иначе в строке состояния уже ошибка.
@@ -1188,10 +1176,7 @@ class MainWindow(QMainWindow):
         self.movement.set_default_step(settings.default_step)
         self.calibration.set_points(settings.calibration)
         self.calibration.set_empty_point(settings.empty_point)
-        if refresh_inputs:
-            self.settings_tab.show_settings(settings)
-        else:
-            self.settings_tab.set_base_settings(settings)
+        self.settings_tab.set_base_settings(settings)
         self._apply_hotkeys(settings.hotkeys)
         self._refresh_header()
         return True

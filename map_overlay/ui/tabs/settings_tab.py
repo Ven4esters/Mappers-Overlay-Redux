@@ -31,7 +31,6 @@ from map_overlay.ui.widgets import (
     SECTION_GAP,
     Card,
     button,
-    hint_label,
     label,
 )
 
@@ -44,19 +43,18 @@ DELAY_LABEL_WIDTH = 116
 # Колонка подписей задержек: поля в левой и правой половине начинаются с одного места.
 VALUE_LABEL_WIDTH = 150
 
-DELAY_HINT: tuple[str, ...] = (
-    "Каждое поле — пауза после своего действия: клика, выделения, копирования, вставки.",
-    "Если панель не успевает принять значения, увеличьте задержки на <b>20–40 мс</b>.",
+DELAY_HINT = (
+    "Каждое поле — пауза после своего действия: клика, выделения, копирования, вставки.\n"
+    "Если панель не успевает принять значения, увеличьте задержки на 20–40 мс."
 )
-VALUE_HINT: tuple[str, ...] = (
-    "Знаков после запятой — сколько цифр оверлей вставляет в панель.",
-    "Шаг по умолчанию подставляется в поле <b>«Шаг»</b> при запуске и после «Считать».",
+VALUE_HINT = (
+    "Знаков после запятой — сколько цифр оверлей вставляет в панель.\n"
+    "Шаг по умолчанию подставляется в поле «Шаг» при запуске и после «Считать»."
 )
-HOTKEY_HINT: tuple[str, ...] = (
-    "Клавиши забираются у игры; цифровому блоку нужен включённый <b>NumLock</b>.",
-    "Игра не получает клавиатуру? Снимите галочку — перехват выключится сразу.",
-    "<b>«Изменить»</b> назначает новую клавишу, <b>«✕»</b> снимает привязку.",
-    "Правки отменяются <b>Ctrl+Z</b> и возвращаются <b>Ctrl+Y</b> — до 20 действий.",
+HOTKEY_HINT = (
+    "Клавиши забираются у игры; цифровому блоку нужен включённый NumLock.\n"
+    "Игра не получает клавиатуру? Снимите галочку — перехват выключится сразу.\n"
+    "«Изменить» назначает новую клавишу, «✕» снимает привязку."
 )
 
 
@@ -102,7 +100,8 @@ class SettingsTab(QWidget):
         layout.addStretch(1)
 
     def _build_delays(self, settings: Settings) -> QWidget:
-        card = Card("Задержки обмена с панелью")
+        card = Card("Задержки обмена с панелью", hint=DELAY_HINT)
+        self._delay_card = card
         self._click = _delay_spin(settings.delays.click)
         self._select = _delay_spin(settings.delays.select)
         self._copy = _delay_spin(settings.delays.copy)
@@ -125,11 +124,11 @@ class SettingsTab(QWidget):
             grid.addWidget(widget, row, column * 2 + 1)
         grid.setColumnStretch(3, 1)
         card.add_layout(grid)
-        card.add(hint_label(*DELAY_HINT))
         return card
 
     def _build_values(self, settings: Settings) -> QWidget:
-        card = Card("Значения")
+        card = Card("Значения", hint=VALUE_HINT)
+        self._value_card = card
         self._decimals = QSpinBox(self)
         self._decimals.setRange(MIN_DECIMALS, MAX_DECIMALS)
         self._decimals.setValue(settings.decimals)
@@ -157,11 +156,11 @@ class SettingsTab(QWidget):
         grid.addWidget(self._verify, 2, 0, 1, 2)
         grid.setColumnStretch(2, 1)
         card.add_layout(grid)
-        card.add(hint_label(*VALUE_HINT))
         return card
 
     def _build_hotkeys(self, settings: Settings) -> QWidget:
-        card = Card("Горячие клавиши")
+        card = Card("Горячие клавиши", hint=HOTKEY_HINT)
+        self._hotkey_card = card
         self._hotkeys_enabled = QCheckBox("Перехватывать клавиши у игры")
         self._hotkeys_enabled.setChecked(True)
         self._hotkeys_enabled.setToolTip(
@@ -174,7 +173,6 @@ class SettingsTab(QWidget):
         self._num_lock_warning.hide()
         card.add(self._num_lock_warning)
         card.add_layout(self._build_hotkey_grid(settings))
-        card.add(hint_label(*HOTKEY_HINT))
         return card
 
     def _build_hotkey_grid(self, settings: Settings) -> QGridLayout:
@@ -242,20 +240,6 @@ class SettingsTab(QWidget):
             verify_writes=self._verify.isChecked(),
             default_step=self._default_step.value(),
         )
-
-    def show_settings(self, settings: Settings) -> None:
-        """Показать настройки в полях формы: нужно после отмены правки (Ctrl+Z)."""
-        for widget, value in (
-            (self._click, settings.delays.click),
-            (self._select, settings.delays.select),
-            (self._copy, settings.delays.copy),
-            (self._paste, settings.delays.paste),
-        ):
-            widget.setValue(value)
-        self._decimals.setValue(settings.decimals)
-        self._default_step.setValue(settings.default_step)
-        self._verify.setChecked(settings.verify_writes)
-        self.set_base_settings(settings)
 
     def set_base_settings(self, settings: Settings) -> None:
         """Обновить основу: калибровка и клавиши меняются на других вкладках."""

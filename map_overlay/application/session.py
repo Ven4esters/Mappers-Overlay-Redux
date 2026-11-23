@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from map_overlay.application.ports import PanelAutomation
 from map_overlay.application.writer import PoseWriter
@@ -210,6 +210,45 @@ class MappingSession:
             direction.label,
             step,
             suffix,
+            ", ".join(field.label for field in written) or "ничего",
+        )
+        return result
+
+    def restore(self, pose: Pose) -> StepResult:
+        """Вернуть предмет к сохранённой позе — так работает отмена шага (Ctrl+Z).
+
+        Меняются только координаты: углы остаются текущими, потому что шаг их не меняет,
+        а отменяется именно сдвиг. Координаты берутся из сохранённой позы, а не считаются
+        обратным шагом: так в панель уходят ровно те числа, что были до шага.
+
+        Raises:
+            PoseNotCapturedError: если поза ещё не считана.
+            NotCalibratedError: если калибровка неполная.
+        """
+        self.ensure_calibrated()
+        if self._pose is None:
+            raise PoseNotCapturedError(
+                "Сначала нажмите «Считать»: оверлей не знает текущих координат"
+            )
+        current = self._pose
+        target = replace(current, x=pose.x, y=pose.y, z=pose.z)
+        self._panel.reset_cancel()
+        note(
+            "возврат координат: от %s к %s",
+            _pose_text(current),
+            _pose_text(target),
+        )
+        try:
+            with timed("возврат координат"):
+                written = self._writer.write_changes(current, target)
+        except PANEL_TROUBLE as exc:
+            logger.warning("Возврат координат не удался, координаты забыты: %s", exc)
+            self._invalidate()
+            raise
+        result = StepResult(previous=current, pose=target, written=written, tilted=False)
+        self._pose = target
+        logger.info(
+            "Координаты возвращены: записаны %s",
             ", ".join(field.label for field in written) or "ничего",
         )
         return result
