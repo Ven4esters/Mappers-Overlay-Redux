@@ -1332,3 +1332,97 @@ def test_search_distinguishes_number_padding(qt_app: QApplication) -> None:
     assert window.sizes.row_names() == ["Стена 001-10"]
     window.sizes.press_search("Стена 1")
     assert window.sizes.row_names() == ["Стена 1-10"]
+
+
+def test_pencil_puts_item_into_edit_mode(qt_app: QApplication) -> None:
+    """Карандаш в строке берёт название и габариты в форму и включает правку."""
+    store = FakeSizeStore(_library(ObjectSize("Ящик", 2.0, 1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    assert window.sizes.pencil("Ящик") is not None
+    assert not window.sizes.pencil("Ящик").icon().isNull()
+    window.sizes.press_pencil("Ящик")
+    assert window.sizes.editing_name() == "Ящик"
+    assert window.sizes.form_values() == ("Ящик", "2", "1")
+    assert window.sizes.add_button_text() == "Сохранить изменения"
+    assert "Правка «Ящик»" in window.sizes.form_hint()
+
+
+def test_pencil_saves_new_name_and_sizes(qt_app: QApplication) -> None:
+    """Правка меняет название и габариты, запись остаётся на своём месте."""
+    store = FakeSizeStore(_library(ObjectSize("Ящик", 2.0, 1.0), ObjectSize("Бочка", 1.0, 1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_pencil("Ящик")
+    window.sizes.fill_form("Ящик XL", 3.0, 1.5)
+    window.sizes.press_add()
+    assert [item.name for item in store.library.items] == ["Ящик XL", "Бочка"]
+    assert store.library.find("Ящик XL") == ObjectSize("Ящик XL", 3.0, 1.5)
+    assert store.saved
+    assert window.sizes.row_names() == ["Ящик XL", "Бочка"]
+    assert window.sizes.editing_name() is None
+    assert window.sizes.add_button_text() == "Добавить в библиотеку"
+
+
+def test_pencil_keeps_active_item_selected(qt_app: QApplication) -> None:
+    """Переименование выбранного предмета не сбрасывает выбор."""
+    store = FakeSizeStore(_library(ObjectSize("Ящик", 2.0, 1.0), active="Ящик"))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_pencil("Ящик")
+    window.sizes.fill_form("Ящик XL", 2.5, 1.0)
+    window.sizes.press_add()
+    assert store.library.active == "Ящик XL"
+    assert "Ящик XL" in window.sizes.row_names()[0]
+
+
+def test_pencil_rejects_name_of_another_item(qt_app: QApplication) -> None:
+    """Переименовать в занятое название нельзя: записи не сливаются молча."""
+    store = FakeSizeStore(_library(ObjectSize("Ящик", 2.0, 1.0), ObjectSize("Бочка", 1.0, 1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_pencil("Ящик")
+    window.sizes.fill_form("Бочка", 2.0, 1.0)
+    window.sizes.press_add()
+    assert [item.name for item in store.library.items] == ["Ящик", "Бочка"]
+    assert "уже есть в библиотеке" in window.status_text()
+    assert window.sizes.editing_name() == "Ящик"
+    assert window.sizes.add_button_text() == "Сохранить изменения"
+
+
+def test_clear_leaves_edit_mode(qt_app: QApplication) -> None:
+    store = FakeSizeStore(_library(ObjectSize("Ящик", 2.0, 1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_pencil("Ящик")
+    window.sizes.press_clear()
+    assert window.sizes.editing_name() is None
+    assert window.sizes.add_button_text() == "Добавить в библиотеку"
+    assert window.sizes.form_values()[0] == ""
+
+
+def test_plain_add_still_adds_new_item_after_edit(qt_app: QApplication) -> None:
+    """После сохранения правки форма снова добавляет, а не переименовывает."""
+    store = FakeSizeStore(_library(ObjectSize("Ящик", 2.0, 1.0)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_pencil("Ящик")
+    window.sizes.press_add()
+    window.sizes.fill_form("Бочка", 1.0, 1.0)
+    window.sizes.press_add()
+    assert [item.name for item in store.library.items] == ["Ящик", "Бочка"]
+
+
+def test_search_number_without_padding_falls_back(qt_app: QApplication) -> None:
+    """«Стена 1» находит «01-39», когда точной записи нет, и говорит об этом."""
+    store = FakeSizeStore(_library(ObjectSize("Стена 01-39", 2.9, 2.7)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_search("Стена 1")
+    assert window.sizes.row_names() == ["Стена 01-39"]
+    assert "без учёта нулей" in window.sizes.list_hint()
+
+
+def test_search_exact_padding_still_wins(qt_app: QApplication) -> None:
+    """Если точная запись есть, запасное сравнение не подмешивает лишние строки."""
+    names = ["Стена 01-10", "Стена 1-10"]
+    store = FakeSizeStore(_library(*(ObjectSize(name, 2.9, 2.7) for name in names)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    window.sizes.press_search("Стена 01")
+    assert window.sizes.row_names() == ["Стена 01-10"]
+    assert "без учёта нулей" not in window.sizes.list_hint()
+    window.sizes.press_search("Стена 1")
+    assert window.sizes.row_names() == ["Стена 1-10"]

@@ -167,6 +167,29 @@ class SizeLibrary:
             active = item.name
         return SizeLibrary(items=tuple(items), active=active)
 
+    def replace(self, old_name: str, item: ObjectSize) -> SizeLibrary:
+        """Заменить предмет, разрешив сменить название (правка записи).
+
+        Порядок предметов сохраняется, выбранный предмет остаётся выбранным под новым
+        названием. Если новое название занято другим предметом — это ошибка: иначе две
+        записи молча слились бы в одну.
+
+        Raises:
+            ValidationError: если старого предмета нет в библиотеке.
+            ConfigError: если новое название уже занято другим предметом.
+        """
+        key = old_name.strip().casefold()
+        if not any(existing.key == key for existing in self.items):
+            raise ValidationError(f"Предмета «{old_name.strip()}» нет в библиотеке")
+        clash = self.find(item.name)
+        if clash is not None and clash.key != key:
+            raise ConfigError(f"Предмет «{clash.name}» уже есть в библиотеке")
+        items = [item if existing.key == key else existing for existing in self.items]
+        active = self.active
+        if active is not None and active.casefold() == key:
+            active = item.name
+        return SizeLibrary(items=tuple(items), active=active)
+
     def without(self, name: str) -> SizeLibrary:
         """Удалить предмет по названию; выбранный предмет при удалении сбрасывается."""
         key = name.strip().casefold()

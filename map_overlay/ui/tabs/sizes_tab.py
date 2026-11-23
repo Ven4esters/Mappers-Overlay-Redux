@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QLocale, Signal
-from PySide6.QtGui import QDoubleValidator
+from PySide6.QtCore import QLocale, QPointF, Qt, Signal
+from PySide6.QtGui import QColor, QDoubleValidator, QIcon, QPainter, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -33,6 +34,18 @@ DEFAULT_WIDTH = 1.0
 
 SUFFIX = " м"
 
+ADD_HINT = (
+    "Название — ключ: предмет с тем же названием заменяется, регистр не важен. "
+    "Размеры задаются в метрах, дробная часть — через точку или запятую."
+)
+EDIT_HINT = (
+    "Правка «{name}»: измените название, длину или ширину и нажмите «Сохранить "
+    "изменения». «Очистить» вернёт форму в режим добавления."
+)
+PENCIL_ICON_PX = 24
+PENCIL_BUTTON_PX = 30
+# Размер рисунка карандаша; на экране он показывается вдвое мельче."
+
 
 class SizesTab(QWidget):
     """Добавление, правка и удаление предметов с габаритами."""
@@ -52,6 +65,9 @@ class SizesTab(QWidget):
         self._path = path
         self._rows_layout: QVBoxLayout | None = None
         self._indexes: dict[str, SearchIndex] = {}
+        self._editing: str | None = None
+        self._pencils: dict[str, QPushButton] = {}
+        self._loose_search = False
         self._build()
         self._refresh()
 
@@ -97,18 +113,13 @@ class SizesTab(QWidget):
             tooltip="Предмет с таким же названием будет заменён",
         )
         self._add_button.clicked.connect(self._add)
-        clear = button("Очистить", tooltip="Очистить поля формы")
-        clear.clicked.connect(self._clear_form)
+        self._clear_button = button("Очистить", tooltip="Очистить поля формы")
+        self._clear_button.clicked.connect(self._clear_form)
         size_row.addWidget(self._add_button)
-        size_row.addWidget(clear)
+        size_row.addWidget(self._clear_button)
         card.add_layout(size_row)
-        card.add(
-            label(
-                "Название — ключ: предмет с тем же названием заменяется, регистр не важен. "
-                "Размеры задаются в метрах, дробная часть — через точку или запятую.",
-                widget_role="muted",
-            )
-        )
+        self._form_hint = label(ADD_HINT, widget_role="muted")
+        card.add(self._form_hint)
         return card
 
     def _build_list(self) -> Card:
@@ -141,25 +152,60 @@ class SizesTab(QWidget):
     # --- действия ---------------------------------------------------------
 
     def _add(self) -> None:
+        """Добавить предмет или сохранить правку уже существующего."""
         try:
             item = ObjectSize(
                 name=self._name.text(),
                 length=_parse_size(self._length, "Длина"),
                 width=_parse_size(self._width, "Ширина"),
             )
-            library = self._library.with_item(item)
+            if self._editing is None:
+                library = self._library.with_item(item)
+            else:
+                library = self._library.replace(self._editing, item)
         except AppError as exc:
             self.status_message.emit(str(exc))
             return
+        self._editing = None
+        self._sync_form_mode()
         self.library_changed.emit(library)
 
     def _clear_form(self) -> None:
         self._name.clear()
         self._length.setText(_text(DEFAULT_LENGTH))
         self._width.setText(_text(DEFAULT_WIDTH))
+        self._editing = None
+        self._sync_form_mode()
         self._name.setFocus()
 
+    def _begin_edit(self, name: str) -> None:
+        """Взять предмет в правку: название и габариты в поля, кнопка — «Сохранить»."""
+        item = self._library.find(name)
+        if item is None:
+            return
+        self._editing = item.name
+        self._sync_form_mode()
+        self._name.setText(item.name)
+        self._length.setText(_text(item.length))
+        self._width.setText(_text(item.width))
+        self._name.setFocus()
+        self._name.selectAll()
+
+    def _sync_form_mode(self) -> None:
+        """Показать, в каком режиме форма: добавление или правка записи."""
+        if self._editing is None:
+            self._add_button.setText("Добавить в библиотеку")
+            self._add_button.setToolTip("Предмет с таким же названием будет заменён")
+            self._form_hint.setText(ADD_HINT)
+            return
+        self._add_button.setText("Сохранить изменения")
+        self._add_button.setToolTip(
+            "Записать новые название и габариты: порядок в списке и выбранный предмет " "сохранятся"
+        )
+        self._form_hint.setText(EDIT_HINT.format(name=self._editing))
+
     def _edit(self, name: str) -> None:
+        """Перенести габариты предмета в поля (кнопка «В форму»), не меняя запись."""
         item = self._library.find(name)
         if item is None:
             return
@@ -185,6 +231,9 @@ class SizesTab(QWidget):
         """Показать новую библиотеку (после сохранения или удаления)."""
         self._library = library
         self._indexes.clear()
+        if self._editing is not None and library.find(self._editing) is None:
+            self._editing = None
+            self._sync_form_mode()
         self._refresh()
 
     def library(self) -> SizeLibrary:
@@ -211,13 +260,39 @@ class SizesTab(QWidget):
         """Нажать «Добавить в библиотеку» (для тестов)."""
         self._add_button.click()
 
+    def press_clear(self) -> None:
+        """Нажать «Очистить» — выйти из правки и обнулить поля (для тестов)."""
+        self._clear_button.click()
+
     def press_delete(self, name: str) -> None:
         """Удалить предмет по названию (для тестов и окна)."""
         self._delete(name)
 
     def press_edit(self, name: str) -> None:
-        """Перенести предмет в форму (для тестов)."""
+        """Перенести габариты предмета в форму (для тестов)."""
         self._edit(name)
+
+    def press_pencil(self, name: str) -> None:
+        """Нажать карандаш в строке предмета — взять запись в правку (для тестов)."""
+        item = self._pencils.get(name)
+        if item is not None:
+            item.click()
+
+    def pencil(self, name: str) -> QPushButton | None:
+        """Кнопка-карандаш строки (для тестов)."""
+        return self._pencils.get(name)
+
+    def add_button_text(self) -> str:
+        """Надпись на главной кнопке формы (для тестов)."""
+        return self._add_button.text()
+
+    def form_hint(self) -> str:
+        """Подсказка под формой (для тестов)."""
+        return self._form_hint.text()
+
+    def editing_name(self) -> str | None:
+        """Название предмета, который сейчас правится (для тестов)."""
+        return self._editing
 
     def press_select(self, name: str) -> None:
         """Сделать предмет текущим (для тестов)."""
@@ -240,9 +315,21 @@ class SizesTab(QWidget):
         а номер из запроса — по диапазону: «Стена 05» найдёт «…, 01-39».
         """
         words = parse_query(self._search.text())
+        self._loose_search = False
         if not words:
             return list(self._library.items)
-        return [item for item in self._library.items if self._index(item).matches(words)]
+        found = [item for item in self._library.items if self._index(item).matches(words)]
+        if found or not any(word.isdigit() for word in words):
+            return found
+        # Точно записанных номеров не нашлось: сравниваем номера по значению, чтобы
+        # «Стена 1» всё-таки нашла запись с диапазоном «01-39».
+        found = [
+            item
+            for item in self._library.items
+            if self._index(item).matches(words, ignore_padding=True)
+        ]
+        self._loose_search = bool(found)
+        return found
 
     def _index(self, item: ObjectSize) -> SearchIndex:
         """Разобранное название предмета: считаем один раз до смены библиотеки."""
@@ -257,6 +344,7 @@ class SizesTab(QWidget):
         self._empty_label.setText(self._hint(len(items)))
         if self._rows_layout is None:
             return
+        self._pencils.clear()
         while self._rows_layout.count():
             entry = self._rows_layout.takeAt(0)
             widget = entry.widget()
@@ -274,9 +362,10 @@ class SizesTab(QWidget):
         if not visible:
             return f"Ничего не найдено по запросу «{self._search.text().strip()}»"
         total = len(self._library.items)
-        if visible == total:
+        note = " · номер совпал без учёта нулей" if self._loose_search else ""
+        if visible == total and not note:
             return f"Предметов: {total}"
-        return f"Найдено: {visible} из {total}"
+        return f"Найдено: {visible} из {total}{note}"
 
     def _row(self, item: ObjectSize) -> QWidget:
         host = QWidget(self)
@@ -295,12 +384,56 @@ class SizesTab(QWidget):
         choose.clicked.connect(lambda _checked=False, name=item.name: self._activate(name))
         edit = button("В форму", widget_role="small", tooltip="Перенести значения в поля выше")
         edit.clicked.connect(lambda _checked=False, name=item.name: self._edit(name))
+        pencil = button("", widget_role="small", tooltip="Править название и габариты")
+        pencil.setIcon(_pencil_icon(self.palette().color(QPalette.ColorRole.Text)))
+        pencil.setAccessibleName("Править")
+        pencil.setProperty("item_name", item.name)
+        pencil.setFixedSize(PENCIL_BUTTON_PX, PENCIL_BUTTON_PX)
+        pencil.clicked.connect(lambda _checked=False, name=item.name: self._begin_edit(name))
         remove = button("Удалить", widget_role="small", tooltip="Убрать предмет из библиотеки")
         remove.clicked.connect(lambda _checked=False, name=item.name: self._delete(name))
         row.addWidget(choose)
         row.addWidget(edit)
+        row.addWidget(pencil)
         row.addWidget(remove)
+        self._pencils[item.name] = pencil
         return host
+
+
+def _pencil_icon(color: QColor) -> QIcon:
+    """Нарисовать карандаш: иконка не зависит от шрифтов и значков системы."""
+    size = PENCIL_ICON_PX
+    # Рисуем в логических точках: pixmap с devicePixelRatio 2 сам удвоит разрешение для
+    # экранов HiDPI. Дополнительный масштаб здесь не нужен — иначе рисунок обрежется.
+    pixmap = QPixmap(size * 2, size * 2)
+    pixmap.setDevicePixelRatio(2.0)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(color)
+    scale = size / 24.0
+    body = QPolygonF(
+        [
+            QPointF(3.0 * scale, 17.25 * scale),
+            QPointF(3.0 * scale, 21.0 * scale),
+            QPointF(6.75 * scale, 21.0 * scale),
+            QPointF(17.81 * scale, 9.94 * scale),
+            QPointF(14.06 * scale, 6.19 * scale),
+        ]
+    )
+    cap = QPolygonF(
+        [
+            QPointF(20.71 * scale, 7.04 * scale),
+            QPointF(16.96 * scale, 3.29 * scale),
+            QPointF(15.13 * scale, 5.13 * scale),
+            QPointF(18.88 * scale, 8.88 * scale),
+        ]
+    )
+    painter.drawPolygon(body)
+    painter.drawPolygon(cap)
+    painter.end()
+    return QIcon(pixmap)
 
 
 def _size_field(value: float) -> QLineEdit:

@@ -20,6 +20,19 @@ CRATE = ObjectSize(name="Ящик", length=2.0, width=1.0)
 PALLET = ObjectSize(name="Паллета", length=1.2, width=0.8)
 
 
+def _item(name: str, length: float = 2.0, width: float = 1.0) -> ObjectSize:
+    """Предмет для проверок правки: название и габариты по умолчанию."""
+    return ObjectSize(name=name, length=length, width=width)
+
+
+def _library(*items: ObjectSize, active: str | None = None) -> SizeLibrary:
+    """Библиотека из предметов с необязательным выбранным."""
+    library = SizeLibrary()
+    for item in items:
+        library = library.with_item(item)
+    return library if active is None else library.select(active)
+
+
 def test_name_is_stripped() -> None:
     assert ObjectSize(name="  Ящик  ", length=1.0, width=1.0).name == "Ящик"
 
@@ -184,3 +197,43 @@ def test_from_dict_rejects_duplicates() -> None:
     ]
     with pytest.raises(ConfigError, match="дважды"):
         SizeLibrary.from_dict({"items": entries})
+
+
+def test_replace_renames_item_and_keeps_order() -> None:
+    library = _library(_item("Ящик"), _item("Паллета"), _item("Бочка"))
+    updated = library.replace("Паллета", _item("Паллета EU", 1.2, 0.8))
+    assert [item.name for item in updated.items] == ["Ящик", "Паллета EU", "Бочка"]
+    assert updated.find("Паллета EU") == ObjectSize("Паллета EU", 1.2, 0.8)
+
+
+def test_replace_changes_only_sizes() -> None:
+    library = _library(_item("Ящик"), active="Ящик")
+    updated = library.replace("Ящик", _item("ящик", 3.0, 1.5))
+    assert [item.name for item in updated.items] == ["ящик"]
+    assert updated.active == "ящик"
+    assert updated.find("Ящик") == ObjectSize("ящик", 3.0, 1.5)
+
+
+def test_replace_keeps_active_item_under_new_name() -> None:
+    library = _library(_item("Ящик"), _item("Бочка"), active="Ящик")
+    updated = library.replace("Ящик", _item("Ящик XL", 3.0, 2.0))
+    assert updated.active == "Ящик XL"
+    assert updated.active_item == ObjectSize("Ящик XL", 3.0, 2.0)
+
+
+def test_replace_other_item_does_not_touch_active() -> None:
+    library = _library(_item("Ящик"), _item("Бочка"), active="Бочка")
+    updated = library.replace("Ящик", _item("Ящик XL"))
+    assert updated.active == "Бочка"
+
+
+def test_replace_rejects_name_taken_by_another_item() -> None:
+    library = _library(_item("Ящик"), _item("Бочка"))
+    with pytest.raises(ConfigError):
+        library.replace("Ящик", _item("Бочка"))
+
+
+def test_replace_rejects_unknown_item() -> None:
+    library = _library(_item("Ящик"))
+    with pytest.raises(ValidationError):
+        library.replace("Стол", _item("Стол"))

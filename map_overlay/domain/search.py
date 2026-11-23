@@ -20,6 +20,10 @@
 Номер из запроса сравнивается с номерами названия точно, поэтому «Стена 01» найдёт
 `01-39` и не найдёт `001-10`.
 
+Если точных совпадений нет вовсе, номер сравнивается по значению: «Стена 1» всё-таки
+найдёт `01-39` (см. ``matches(..., ignore_padding=True)``). Точная запись всегда в
+приоритете: «Стена 01» покажет `01-10` и не подмешает `1-10`.
+
 Звёздочка в запросе — «дальше любое»: она игнорируется, но не мешает: «Стена March *»
 находит то же, что «Стена March».
 """
@@ -94,14 +98,25 @@ class SearchIndex:
     numbers: frozenset[str]
     """Номера названия как есть: `01`, `001`, `1` — разные записи разных диапазонов."""
 
+    values: frozenset[int]
+    """Те же номера по значению: `01`, `1` → `1`. Нужны для запасного сравнения."""
+
     text: str
     """Название основами через пробел: по нему ищется часть слова («стен» → «Стена»)."""
 
-    def matches(self, words: tuple[str, ...]) -> bool:
-        """Подходит ли предмет под слова запроса (все слова должны найтись)."""
+    def matches(self, words: tuple[str, ...], *, ignore_padding: bool = False) -> bool:
+        """Подходит ли предмет под слова запроса (все слова должны найтись).
+
+        Args:
+            words: слова запроса из :func:`parse_query`.
+            ignore_padding: сравнивать номера по значению, а не по записи: «1» тогда
+                совпадёт с `01`. Включается только как запасной вариант, когда точных
+                совпадений нет.
+        """
         for word in words:
             if word.isdigit():
-                if word not in self.numbers:
+                known = self.values if ignore_padding else self.numbers
+                if (int(word) if ignore_padding else word) not in known:
                     return False
             elif stem(word) not in self.text:
                 return False
@@ -138,6 +153,7 @@ def build_index(name: str) -> SearchIndex:
     return SearchIndex(
         stems=frozenset(stems),
         numbers=frozenset(numbers),
+        values=frozenset(int(number) for number in numbers),
         text=" ".join(sorted(stems)),
     )
 

@@ -155,7 +155,8 @@ def test_semicolon_separates_synonyms() -> None:
 
 
 def test_empty_query_matches_everything() -> None:
-    assert SearchIndex(stems=frozenset(), numbers=frozenset(), text="").matches(parse_query(""))
+    empty = SearchIndex(stems=frozenset(), numbers=frozenset(), values=frozenset(), text="")
+    assert empty.matches(parse_query(""))
 
 
 def test_reversed_range_in_name() -> None:
@@ -166,3 +167,22 @@ def test_unexpanded_range_is_found_as_text() -> None:
     name = f"Стена 1-{RANGE_LIMIT + 5}"
     assert matches(name, name)
     assert not matches(name, "Стена 500")
+
+
+def test_loose_number_ignores_leading_zeros() -> None:
+    """Запасной вариант: «Стена 1» находит запись с диапазоном «01-39»."""
+    index = build_index(WALL)
+    assert not index.matches(parse_query("Стена 1"))
+    assert index.matches(parse_query("Стена 1"), ignore_padding=True)
+    assert index.matches(parse_query("Стена 05"), ignore_padding=True)
+
+
+def test_loose_number_still_rejects_foreign_number() -> None:
+    index = build_index(WALL)
+    assert not index.matches(parse_query("Стена 40"), ignore_padding=True)
+    assert not index.matches(parse_query("Стена 0"), ignore_padding=True)
+
+
+def test_loose_number_does_not_match_missing_word() -> None:
+    index = build_index(WALL)
+    assert not index.matches(parse_query("Стена Склад 1"), ignore_padding=True)
