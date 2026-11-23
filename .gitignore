@@ -5,7 +5,7 @@ build/
 dist/
 *.spec
 # Наш spec — часть сборки: по нему build_exe.bat собирает exe со словарём лемм.
-!MapOverlayRedux.spec
+!MappersOverlayRedux.spec
 logs/
 config/
 .pytest_cache/

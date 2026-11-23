@@ -115,7 +115,7 @@ class MainWindow(QMainWindow):
             self._check_num_lock()
 
     def _build(self) -> None:
-        self.setWindowTitle(f"Map Overlay Redux {__version__}")
+        self.setWindowTitle(f"Mapper's Overlay Redux {__version__}")
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         # Окно не отбирает фокус у игры при запуске: клавиатура остаётся у игры.
@@ -227,7 +227,7 @@ class MainWindow(QMainWindow):
         header = QWidget(parent)
         layout = QHBoxLayout(header)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(label("Map Overlay Redux", widget_role="appTitle"))
+        layout.addWidget(label("Mapper's Overlay Redux", widget_role="appTitle"))
         layout.addWidget(label(f"v{__version__}", widget_role="muted"))
         layout.addStretch(1)
         self._calibration_label = label("", widget_role="muted")

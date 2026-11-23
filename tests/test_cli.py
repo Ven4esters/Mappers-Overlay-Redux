@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
-from map_overlay.main import main
+from map_overlay.main import APP_NAME, main
+from map_overlay.paths import HOME_ENV, LEGACY_HOME_ENV, application_dir
 
 
 def test_check_only_prints_summary(
@@ -15,7 +16,7 @@ def test_check_only_prints_summary(
     monkeypatch.setenv("MAP_OVERLAY_HOME", str(tmp_path))
     assert main(["--check-only"]) == 0
     output = capsys.readouterr().out
-    assert "Map Overlay Redux" in output
+    assert "Mapper's Overlay Redux" in output
     assert "Калибровка: 0/6" in output
     assert (tmp_path / "logs" / "overlay.log").exists()
 
@@ -91,3 +92,25 @@ def test_check_only_reports_broken_sizes(
     (config_dir / "sizes.json").write_text("{сломано", encoding="utf-8")
     assert main(["--check-only"]) == 2
     assert "Размеры предметов не читаются" in capsys.readouterr().out
+
+
+def test_application_name_is_mappers_overlay() -> None:
+    """Название приложения — «Mapper's Overlay Redux» (переименовано в 1.12.0)."""
+    assert APP_NAME == "Mapper's Overlay Redux"
+
+
+def test_home_environment_variable_renamed_with_legacy_support(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Новое имя переменной работает, старое тоже читается — профили не ломаются."""
+    assert HOME_ENV == "MAPPERS_OVERLAY_HOME"
+    assert LEGACY_HOME_ENV == "MAP_OVERLAY_HOME"
+    new_dir = tmp_path / "новый"
+    old_dir = tmp_path / "старый"
+    monkeypatch.setenv(HOME_ENV, str(new_dir))
+    assert application_dir() == new_dir.resolve()
+    monkeypatch.delenv(HOME_ENV)
+    monkeypatch.setenv(LEGACY_HOME_ENV, str(old_dir))
+    assert application_dir() == old_dir.resolve()
+    monkeypatch.setenv(HOME_ENV, str(new_dir))
+    assert application_dir() == new_dir.resolve()

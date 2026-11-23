@@ -2,6 +2,29 @@
 
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии — SemVer.
 
+## [1.12.0] — 2026-11-19
+
+### Изменено
+
+- **Приложение переименовано: Map Overlay Redux → Mapper's Overlay Redux** (ADR-0034).
+  Название в окне, заголовке окна, `--check-only`, `--help`, журналах, README и документации.
+- Сборка: `MappersOverlayRedux.spec` → `dist\MappersOverlayRedux\MappersOverlayRedux.exe`.
+  Прежние папки `dist\MapOverlayRedux` не используются — новый exe ставится рядом с `config`
+  и `logs` так же, как раньше.
+- Пакет Python и wheel называются `mappers-overlay-redux`. Модуль `map_overlay` и
+  `MAP_OVERLAY_HOME`-профили не переименовывались на уровне кода.
+- Переменная окружения для профиля: `MAPPERS_OVERLAY_HOME`; прежняя `MAP_OVERLAY_HOME`
+  по-прежнему читается, поэтому готовые переносимые профили и ярлыки не ломаются.
+
+### Не менялось
+
+- Формат `config/sizes.json` и `config/settings.json`, формулы направлений, калибровка,
+  журналирование. Папки `config` и `logs` те же — данные не переезжают.
+
+### Примечание
+
+- Записи этого журнала до 1.12.0 используют прежнее название: это история, её не правим.
+
 ## [1.11.0] — 2026-11-19
 
 ### Добавлено

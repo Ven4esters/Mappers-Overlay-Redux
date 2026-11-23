@@ -1,4 +1,4 @@
-"""Подготовка окружения и запуск Map Overlay Redux.
+"""Подготовка окружения и запуск Mapper's Overlay Redux.
 
 Скрипт создаёт ``.venv``, ставит зависимости из ``requirements.txt`` (только если они
 изменились) и запускает ``main.py``. Журнал установки — ``logs/setup.log``.
@@ -107,7 +107,7 @@ def run_app(extra_args: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Точка входа скрипта подготовки."""
-    parser = argparse.ArgumentParser(description="Подготовка окружения Map Overlay Redux")
+    parser = argparse.ArgumentParser(description="Подготовка окружения Mapper's Overlay Redux")
     parser.add_argument("--setup-only", action="store_true", help="только подготовить окружение")
     known, extra = parser.parse_known_args(argv)
     if not check_python() or not ensure_venv() or not install_requirements():

@@ -1,7 +1,8 @@
 """Пути приложения: настройки, журналы, корень проекта.
 
 Для тестов и портативных сборок корень можно переопределить переменной окружения
-``MAP_OVERLAY_HOME``.
+``MAPPERS_OVERLAY_HOME``. Прежнее имя ``MAP_OVERLAY_HOME`` тоже читается — чтобы старые
+ярлыки и переносимые профили продолжали работать после переименования приложения.
 """
 
 from __future__ import annotations
@@ -11,7 +12,9 @@ import sys
 from pathlib import Path
 from typing import Final
 
-HOME_ENV: Final = "MAP_OVERLAY_HOME"
+HOME_ENV: Final = "MAPPERS_OVERLAY_HOME"
+LEGACY_HOME_ENV: Final = "MAP_OVERLAY_HOME"
+# Прежнее имя переменной окружения: поддерживаем, чтобы не ломать готовые профили.
 CONFIG_FILE: Final = "settings.json"
 SIZES_FILE: Final = "sizes.json"
 LOG_FILE: Final = "overlay.log"
@@ -20,7 +23,7 @@ CRASH_FILE: Final = "crash.log"
 
 def application_dir() -> Path:
     """Папка, рядом с которой лежат ``config`` и ``logs``."""
-    override = os.environ.get(HOME_ENV)
+    override = os.environ.get(HOME_ENV) or os.environ.get(LEGACY_HOME_ENV)
     if override:
         return Path(override).expanduser().resolve()
     if getattr(sys, "frozen", False):

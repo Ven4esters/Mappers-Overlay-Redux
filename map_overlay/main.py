@@ -1,4 +1,4 @@
-"""Точка входа Map Overlay Redux."""
+"""Точка входа Mapper's Overlay Redux."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from map_overlay.ui.window import MainWindow
 
 logger = logging.getLogger(__name__)
 
-APP_NAME = "Map Overlay Redux"
+APP_NAME = "Mapper's Overlay Redux"
 
 
 def main(argv: Sequence[str] | None = None) -> int:

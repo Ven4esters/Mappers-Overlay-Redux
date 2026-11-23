@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Сборка MapOverlayRedux.exe (PyInstaller).
+"""Сборка MappersOverlayRedux.exe (PyInstaller).
 
 Кроме кода в exe обязан попасть словарь лемм `map_overlay/data/lemmas.json`:
 без него поиск по библиотеке размеров работает только по окончаниям слов.
@@ -32,7 +32,7 @@ exe = EXE(  # noqa: F821
     a.scripts,
     [],
     exclude_binaries=True,
-    name="MapOverlayRedux",
+    name="MappersOverlayRedux",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -51,5 +51,5 @@ coll = COLLECT(  # noqa: F821
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="MapOverlayRedux",
+    name="MappersOverlayRedux",
 )

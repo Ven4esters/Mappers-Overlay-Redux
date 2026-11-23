@@ -169,7 +169,7 @@ def test_read_book_works_from_any_directory(
 
 def test_spec_includes_dictionary_in_build() -> None:
     """Сборка exe идёт по spec-файлу, и словарь в нём перечислен явно."""
-    spec = (DATA.parent.parent.parent / "MapOverlayRedux.spec").read_text(encoding="utf-8")
+    spec = (DATA.parent.parent.parent / "MappersOverlayRedux.spec").read_text(encoding="utf-8")
     assert "map_overlay/data" in spec
     assert "lemmas.json" in spec
     assert "SystemExit" in spec
@@ -177,7 +177,7 @@ def test_spec_includes_dictionary_in_build() -> None:
 
 def test_build_script_uses_spec_and_checks_dictionary() -> None:
     script = (DATA.parent.parent.parent / "build_exe.bat").read_text(encoding="utf-8")
-    assert "MapOverlayRedux.spec" in script
+    assert "MappersOverlayRedux.spec" in script
     assert "lemmas.json" in script
 
 

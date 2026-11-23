@@ -64,11 +64,11 @@ New, 01-39»), и опечатки вида «Cтена» (латинская `C
 
 PyInstaller собирает только импортированный код, JSON сам в сборку не попадёт. Поэтому:
 
-1. добавлен `MapOverlayRedux.spec`, где данные перечислены явно:
+1. добавлен `MappersOverlayRedux.spec` (до 1.12.0 — `MapOverlayRedux.spec`), где данные перечислены явно:
    `datas=[("map_overlay/data/lemmas.json", "map_overlay/data")]`; если файла нет — сборка
    останавливается с понятным сообщением;
 2. `build_exe.bat` собирает **по spec** и после сборки проверяет, что файл лежит в
-   `dist\MapOverlayRedux` (в PyInstaller 6 — внутри `_internal`); проверка есть, потому что
+   `dist\MappersOverlayRedux` (в PyInstaller 6 — внутри `_internal`); проверка есть, потому что
    отсутствие словаря не ломает запуск и прошло бы незамеченным;
 3. `pyproject.toml` объявляет `[tool.setuptools.package-data]` — словарь попадает и в
    wheel;
