@@ -5,7 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QLocale, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QDoubleValidator, QIcon, QPainter, QPalette, QPixmap, QPolygonF
+from PySide6.QtGui import (
+    QColor,
+    QDoubleValidator,
+    QIcon,
+    QPainter,
+    QPalette,
+    QPixmap,
+    QPolygonF,
+    QResizeEvent,
+)
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -61,10 +70,27 @@ LIST_HINT: tuple[str, ...] = (
     "<b>«Выбрать»</b> делает предмет текущим: на вкладке «Навигация» его длину, ширину "
     "и половины можно сразу подставить в шаг.",
     "<b>Карандаш</b> — правка записи, <b>корзина</b> — удаление из библиотеки.",
+    "Ошиблись? <b>Ctrl+Z</b> отменяет последнюю правку (до 20 действий), "
+    "<b>Ctrl+Y</b> — возвращает.",
 )
 ICON_PX = 24
 ICON_BUTTON_PX = 30
 # Размер рисунка карандаша; на экране он показывается вдвое мельче."
+
+
+class _Row(QWidget):
+    """Строка списка: высота растёт вместе с переносом длинного названия.
+
+    QVBoxLayout раскладывает строки по ``sizeHint``, а он не знает будущей ширины: без
+    подсказки двухстрочное название рисовалось поверх соседней строки.
+    """
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - имя из Qt
+        """Пересчитать нужную высоту, когда строка получила ширину."""
+        super().resizeEvent(event)
+        needed = self.heightForWidth(self.width())
+        if needed > 0 and self.minimumHeight() != needed:
+            self.setMinimumHeight(needed)
 
 
 class SizesTab(QWidget):
@@ -181,7 +207,7 @@ class SizesTab(QWidget):
         host = QWidget(self)
         self._rows_layout = QVBoxLayout(host)
         self._rows_layout.setContentsMargins(0, 0, 0, 0)
-        self._rows_layout.setSpacing(4)
+        self._rows_layout.setSpacing(8)
         card.add(host)
         card.add(hint_label(*LIST_HINT))
         return card
@@ -381,7 +407,7 @@ class SizesTab(QWidget):
         return f"Найдено: {visible} из {total}{note}"
 
     def _row(self, item: ObjectSize) -> QWidget:
-        host = QWidget(self)
+        host = _Row(self)
         row = QHBoxLayout(host)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)

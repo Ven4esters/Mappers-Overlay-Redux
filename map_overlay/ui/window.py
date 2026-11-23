@@ -8,19 +8,24 @@ from collections.abc import Mapping
 from typing import cast
 
 from PySide6.QtCore import QEvent, Qt, QTimer
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QScrollArea,
     QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from map_overlay import __version__, diagnostics
+from map_overlay.application.history import Change, History
 from map_overlay.application.hotkeys import HotkeyRouter
 from map_overlay.application.session import MappingSession, StepResult
 from map_overlay.config import Settings
@@ -95,6 +100,9 @@ class MainWindow(QMainWindow):
         self._session: MappingSession | None = None
         self._pose: Pose | None = None
         self._learning: Action | None = None
+        # История правок: Ctrl+Z отменяет последние 20 изменений данных (ADR-0041).
+        self._history = History()
+        self._restoring = False
         self._runner = TaskRunner(synchronous=synchronous_tasks, parent=self)
         self._router = HotkeyRouter(context.settings.hotkeys)
         self._busy_text = ""
@@ -517,29 +525,60 @@ class MainWindow(QMainWindow):
     def _sizes_changed(self, library: object) -> None:
         """Сохранить библиотеку размеров и обновить список предметов."""
         candidate = cast(SizeLibrary, library)
-        try:
-            self._context.save_sizes(candidate)
-        except ConfigError as exc:
-            self._set_status(str(exc), STATUS_ERROR)
+        previous = self._context.sizes
+        if not self._apply_library(candidate):
             return
-        self.sizes.set_library(candidate)
-        self.movement.set_sizes(candidate)
+        self._remember_library(self._library_change_label(previous, candidate), previous, candidate)
         active = candidate.active_item
         suffix = f", выбран «{active.name}»" if active is not None else ""
         self._set_status(f"Размеры: предметов {len(candidate.items)}{suffix}", STATUS_OK)
 
+    def _apply_library(self, library: SizeLibrary) -> bool:
+        """Записать библиотеку в файл и показать её в обеих вкладках.
+
+        Returns:
+            ``True``, если файл записался; иначе в строке состояния уже ошибка.
+        """
+        try:
+            self._context.save_sizes(library)
+        except ConfigError as exc:
+            self._set_status(str(exc), STATUS_ERROR)
+            return False
+        self.sizes.set_library(library)
+        self.movement.set_sizes(library)
+        return True
+
+    def _library_change_label(self, before: SizeLibrary, after: SizeLibrary) -> str:
+        """Название правки для строки состояния: что именно изменилось в библиотеке."""
+        old_names = {item.name for item in before.items}
+        new_names = {item.name for item in after.items}
+        added = new_names - old_names
+        removed = old_names - new_names
+        if added and not removed:
+            return f"добавление «{sorted(added)[0]}»"
+        if removed and not added:
+            return f"удаление «{sorted(removed)[0]}»"
+        if added and removed:
+            return f"правка «{sorted(added)[0]}»"
+        active = after.active_item
+        if active is not None:
+            return f"выбор «{active.name}»"
+        return "снятие выбора предмета"
+
     def _size_selected(self, name: object) -> None:
         """Запомнить выбранный предмет: из него берётся шаг."""
         selected = cast("str | None", name)
+        previous = self._context.sizes
         try:
-            library = self._context.sizes.select(selected)
-            self._context.save_sizes(library)
-        except (ConfigError, ValidationError) as exc:
+            library = previous.select(selected)
+        except ValidationError as exc:
             self._set_status(str(exc), STATUS_ERROR)
-            self.movement.set_sizes(self._context.sizes)
+            self.movement.set_sizes(previous)
             return
-        self.sizes.set_library(library)
-        self.movement.set_sizes(library)
+        if not self._apply_library(library):
+            self.movement.set_sizes(previous)
+            return
+        self._remember_library(self._library_change_label(previous, library), previous, library)
         active = library.active_item
         if active is None:
             self._set_status("Предмет не выбран: шаг задаётся вручную.")
@@ -860,13 +899,15 @@ class MainWindow(QMainWindow):
         if vk == VK_ESCAPE:
             self._set_status("Назначение клавиши отменено")
             return
+        previous = self._context.settings
         try:
-            settings = self._context.settings.with_hotkey(action, vk)
-            self._context.save_settings(settings)
+            settings = previous.with_hotkey(action, vk)
         except ConfigError as exc:
             self._set_status(str(exc), STATUS_ERROR)
             return
-        self._apply_hotkeys(settings.hotkeys)
+        if not self._apply_settings(settings):
+            return
+        self._remember_settings(f"клавиша «{action.label}»", previous, settings)
         self._set_status(f"Клавиша {key_name(vk)} назначена на «{action.label}»", STATUS_OK)
         if vk in COMMON_GAME_KEYS:
             self._set_status(
@@ -877,13 +918,15 @@ class MainWindow(QMainWindow):
 
     def _clear_hotkey(self, action: object) -> None:
         selected = cast(Action, action)
+        previous = self._context.settings
         try:
-            settings = self._context.settings.with_hotkey(selected, None)
-            self._context.save_settings(settings)
+            settings = previous.with_hotkey(selected, None)
         except ConfigError as exc:
             self._set_status(str(exc), STATUS_ERROR)
             return
-        self._apply_hotkeys(settings.hotkeys)
+        if not self._apply_settings(settings):
+            return
+        self._remember_settings(f"снятие клавиши «{selected.label}»", previous, settings)
         self._set_status(f"Клавиша для «{selected.label}» снята")
 
     def _apply_hotkeys(self, hotkeys: Mapping[Action, int | None]) -> None:
@@ -893,6 +936,145 @@ class MainWindow(QMainWindow):
             bound_keys=self._router.bound_keys, learning=self._learning is not None
         )
         self.settings_tab.set_hotkeys(hotkeys)
+
+    # --- история правок ---------------------------------------------------
+
+    def history(self) -> History:
+        """История правок (Ctrl+Z / Ctrl+Y): нужна строке состояния и тестам."""
+        return self._history
+
+    def _remember_settings(self, label: str, before: Settings, after: Settings) -> None:
+        """Запомнить правку настроек: отмена вернёт прежний файл целиком."""
+        if self._restoring or before == after:
+            return
+        self._history.record(
+            Change(
+                label,
+                lambda: self._restore_settings(before),
+                lambda: self._restore_settings(after),
+            )
+        )
+
+    def _remember_library(self, label: str, before: SizeLibrary, after: SizeLibrary) -> None:
+        """Запомнить правку библиотеки размеров."""
+        if self._restoring or before == after:
+            return
+        self._history.record(
+            Change(
+                label,
+                lambda: self._restore_library(before),
+                lambda: self._restore_library(after),
+            )
+        )
+
+    def _restore_settings(self, settings: Settings) -> None:
+        """Вернуть сохранённые настройки; сбой записи поднимает ошибку.
+
+        Raises:
+            ConfigError: если файл не записался — тогда действие остаётся в истории.
+        """
+        if not self._apply_settings(settings, refresh_inputs=True):
+            message = "Не удалось записать настройки при отмене"
+            raise ConfigError(message)
+
+    def _restore_library(self, library: SizeLibrary) -> None:
+        """Вернуть сохранённую библиотеку размеров.
+
+        Raises:
+            ConfigError: если файл не записался.
+        """
+        if not self._apply_library(library):
+            message = "Не удалось записать библиотеку размеров при отмене"
+            raise ConfigError(message)
+
+    def undo(self) -> bool:
+        """Отменить последнее действие (Ctrl+Z).
+
+        Returns:
+            ``True``, если что-то отменено.
+        """
+        self._stop_hold()
+        if not self._history.can_undo:
+            self._set_status("Отменять нечего: история правок пуста.", STATUS_WARN)
+            return False
+        self._restoring = True
+        try:
+            label = self._history.undo()
+        except ConfigError as exc:
+            self._restoring = False
+            self._set_status(str(exc), STATUS_ERROR)
+            return False
+        finally:
+            self._restoring = False
+        if label is None:
+            return False
+        note("отменено: %s", label)
+        self._set_status(f"Отменено: {label}. Вернуть — Ctrl+Y.", STATUS_OK)
+        return True
+
+    def redo(self) -> bool:
+        """Вернуть отменённое действие (Ctrl+Y).
+
+        Returns:
+            ``True``, если что-то вернулось.
+        """
+        self._stop_hold()
+        if not self._history.can_redo:
+            self._set_status("Возвращать нечего: отменённых действий нет.", STATUS_WARN)
+            return False
+        self._restoring = True
+        try:
+            label = self._history.redo()
+        except ConfigError as exc:
+            self._restoring = False
+            self._set_status(str(exc), STATUS_ERROR)
+            return False
+        finally:
+            self._restoring = False
+        if label is None:
+            return False
+        note("возвращено: %s", label)
+        self._set_status(f"Возвращено: {label}.", STATUS_OK)
+        return True
+
+    def _calibration_change_label(self, before: Settings, after: Settings) -> str:
+        """Название правки калибровки: какое поле изменилось."""
+        changed = [
+            field
+            for field in PANEL_ORDER
+            if before.calibration.get(field) != after.calibration.get(field)
+        ]
+        if len(changed) == 1:
+            return f"точка поля {changed[0].label}"
+        return "точки калибровки"
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - имя из Qt
+        """Ctrl+Z отменяет, Ctrl+Y (или Ctrl+Shift+Z) возвращает правку."""
+        if self._undo_shortcut(event):
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _undo_shortcut(self, event: QKeyEvent) -> bool:
+        """Разобрать клавишу отмены; ``False`` — не наша, пусть обрабатывает Qt.
+
+        В полях ввода Ctrl+Z правит набранный текст, а не историю окна: там своя отмена.
+        """
+        if self._learning is not None:
+            return False
+        modifiers = event.modifiers()
+        if not modifiers & Qt.KeyboardModifier.ControlModifier:
+            return False
+        focus = self.focusWidget()
+        if isinstance(focus, QLineEdit | QTextEdit | QAbstractSpinBox | QComboBox):
+            return False
+        key = event.key()
+        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        if key == Qt.Key.Key_Z and not shift:
+            return self.undo()
+        if key == Qt.Key.Key_Y or (key == Qt.Key.Key_Z and shift):
+            return self.redo()
+        return False
 
     def _log_state(self) -> None:
         """Записать «жив» со сводкой: что происходит прямо сейчас."""
@@ -945,14 +1127,16 @@ class MainWindow(QMainWindow):
 
     def _calibration_changed(self, points: object) -> None:
         calibration = cast("Mapping[Field, Point]", points)
+        previous = self._context.settings
         try:
-            self._context.save_settings(self._context.settings.with_calibration(calibration))
+            updated = previous.with_calibration(calibration)
         except ConfigError as exc:
             self._set_status(str(exc), STATUS_ERROR)
             return
-        self._reset_session()
-        self._refresh_header()
-        self.settings_tab.set_base_settings(self._context.settings)
+        if not self._apply_settings(updated):
+            return
+        label = self._calibration_change_label(previous, updated)
+        self._remember_settings(label, previous, updated)
         missing = self._context.settings.missing_points()
         if missing:
             titles = ", ".join(field.label for field in missing)
@@ -962,13 +1146,16 @@ class MainWindow(QMainWindow):
 
     def _empty_point_changed(self, point: object) -> None:
         selected = cast("Point | None", point)
+        previous = self._context.settings
         try:
-            self._context.save_settings(self._context.settings.with_empty_point(selected))
+            updated = previous.with_empty_point(selected)
         except ConfigError as exc:
             self._set_status(str(exc), STATUS_ERROR)
             return
-        self._refresh_header()
-        self.settings_tab.set_base_settings(self._context.settings)
+        if not self._apply_settings(updated):
+            return
+        label = "точка пустого места" if selected is not None else "снятие точки пустого места"
+        self._remember_settings(label, previous, updated)
         if selected is None:
             self._set_status("Точка пустого места снята: «Сохранить F» недоступно", STATUS_WARN)
         else:
@@ -976,19 +1163,38 @@ class MainWindow(QMainWindow):
 
     def _settings_saved(self, settings: object) -> None:
         new_settings = cast(Settings, settings)
+        previous = self._context.settings
+        if not self._apply_settings(new_settings):
+            return
+        self._remember_settings("настройки", previous, new_settings)
+        self._set_status("Настройки сохранены. Нажмите «Считать» заново.", STATUS_OK)
+
+    def _apply_settings(self, settings: Settings, *, refresh_inputs: bool = False) -> bool:
+        """Записать настройки и показать их во всех местах окна.
+
+        ``refresh_inputs`` переписывает поля формы: так делает отмена, а при обычном
+        сохранении поля уже содержат эти значения, и трогать их незачем (иначе введённое,
+        но не сохранённое пропало бы при правке калибровки).
+
+        Returns:
+            ``True``, если файл записался; иначе в строке состояния уже ошибка.
+        """
         try:
-            self._context.save_settings(new_settings)
+            self._context.save_settings(settings)
         except ConfigError as exc:
             self._set_status(str(exc), STATUS_ERROR)
-            return
+            return False
         self._reset_session()
-        self.movement.set_default_step(new_settings.default_step)
-        self.calibration.set_points(new_settings.calibration)
-        self.calibration.set_empty_point(new_settings.empty_point)
-        self.settings_tab.set_base_settings(new_settings)
-        self._apply_hotkeys(new_settings.hotkeys)
+        self.movement.set_default_step(settings.default_step)
+        self.calibration.set_points(settings.calibration)
+        self.calibration.set_empty_point(settings.empty_point)
+        if refresh_inputs:
+            self.settings_tab.show_settings(settings)
+        else:
+            self.settings_tab.set_base_settings(settings)
+        self._apply_hotkeys(settings.hotkeys)
         self._refresh_header()
-        self._set_status("Настройки сохранены. Нажмите «Считать» заново.", STATUS_OK)
+        return True
 
     def _stop_timers(self) -> None:
         """Погасить все таймеры окна: после закрытия они не должны срабатывать."""

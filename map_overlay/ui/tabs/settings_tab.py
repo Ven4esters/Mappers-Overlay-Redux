@@ -56,6 +56,7 @@ HOTKEY_HINT: tuple[str, ...] = (
     "Клавиши забираются у игры; цифровому блоку нужен включённый <b>NumLock</b>.",
     "Игра не получает клавиатуру? Снимите галочку — перехват выключится сразу.",
     "<b>«Изменить»</b> назначает новую клавишу, <b>«✕»</b> снимает привязку.",
+    "Правки отменяются <b>Ctrl+Z</b> и возвращаются <b>Ctrl+Y</b> — до 20 действий.",
 )
 
 
@@ -241,6 +242,20 @@ class SettingsTab(QWidget):
             verify_writes=self._verify.isChecked(),
             default_step=self._default_step.value(),
         )
+
+    def show_settings(self, settings: Settings) -> None:
+        """Показать настройки в полях формы: нужно после отмены правки (Ctrl+Z)."""
+        for widget, value in (
+            (self._click, settings.delays.click),
+            (self._select, settings.delays.select),
+            (self._copy, settings.delays.copy),
+            (self._paste, settings.delays.paste),
+        ):
+            widget.setValue(value)
+        self._decimals.setValue(settings.decimals)
+        self._default_step.setValue(settings.default_step)
+        self._verify.setChecked(settings.verify_writes)
+        self.set_base_settings(settings)
 
     def set_base_settings(self, settings: Settings) -> None:
         """Обновить основу: калибровка и клавиши меняются на других вкладках."""

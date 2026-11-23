@@ -1857,6 +1857,35 @@ def test_sizes_rows_keep_sizes_in_a_column(qt_app: QApplication) -> None:
     assert [item.text() for item in sizes] == ["4 × 0.5 м", "1 × 0.2 м"]
 
 
+def test_long_name_row_grows_instead_of_overlapping(qt_app: QApplication) -> None:
+    """Длинное название переносится: строка не ниже своего текста и не наезжает на соседнюю."""
+    from PySide6.QtWidgets import QLabel
+
+    library = _library(
+        ObjectSize(
+            name="Стена March, TID, Hood, Soup, New, 01-39, бетон, проём",
+            length=4.0,
+            width=0.5,
+        ),
+        ObjectSize(name="Дверь", length=1.0, width=0.2),
+    )
+    window, _panel, _store, _cursor = make_window(qt_app, size_store=FakeSizeStore(library))
+    window.show()
+    window._tabs.setCurrentIndex(1)
+    # Строки получают ширину не сразу: высота пересчитывается по resizeEvent.
+    for _ in range(4):
+        qt_app.processEvents()
+    tab = window.sizes
+    rows = [tab._rows_layout.itemAt(index).widget() for index in range(tab._rows_layout.count())]
+    assert len(rows) == 2
+    needed = []
+    for row in rows:
+        caption = row.findChildren(QLabel)[0]
+        needed.append(caption.heightForWidth(caption.width()))
+        assert row.height() >= caption.heightForWidth(caption.width()), caption.text()
+    assert needed[0] > needed[1], needed
+
+
 def test_sizes_counter_sits_under_search_field(qt_app: QApplication) -> None:
     """«Предметов: 5» — мелким под полем поиска, а не в одной строке с ним."""
     from PySide6.QtCore import QPoint
