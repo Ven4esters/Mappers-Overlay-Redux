@@ -4,6 +4,8 @@ __pycache__/
 build/
 dist/
 *.spec
+# Наш spec — часть сборки: по нему build_exe.bat собирает exe со словарём лемм.
+!MapOverlayRedux.spec
 logs/
 config/
 .pytest_cache/
