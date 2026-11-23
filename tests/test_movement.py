@@ -366,22 +366,57 @@ def test_diagonal_length_in_the_yz_plane(direction: Direction, rx: float) -> Non
 
 
 @pytest.mark.parametrize("rz", [0.0, 45.0, 90.0, 180.0])
-def test_diagonal_does_not_depend_on_rotation(rz: float) -> None:
-    """Диагонали поворачиваются на ``RX``, но ``RZ`` их не крутит (как и раньше)."""
+def test_diagonal_rotation_turns_the_step_around_z(rz: float) -> None:
+    """``RZ`` поворачивает шаг наклонённой диагонали вокруг мировой ``Z``."""
     pose = Pose(x=0.0, y=0.0, z=0.0, rx=37.0, rz=rz)
+    flat = shifted(replace(pose, rz=0.0), Direction.FORWARD_RIGHT, 1.0)
     result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
-    assert result.y == pytest.approx(-0.426, abs=0.002)
-    assert result.z == pytest.approx(0.565, abs=0.002)
+    angle = math.radians(rz)
+    expected_x = flat.x * math.cos(angle) - flat.y * math.sin(angle)
+    expected_y = flat.x * math.sin(angle) + flat.y * math.cos(angle)
+    assert result.x == pytest.approx(expected_x, abs=0.002)
+    assert result.y == pytest.approx(expected_y, abs=0.002)
+    assert result.z == flat.z
 
 
 @pytest.mark.parametrize("rz", [0.0, 45.0, 90.0, 180.0])
-def test_diagonal_with_two_angles_does_not_depend_on_rotation(rz: float) -> None:
-    """Случай «``RX`` и ``RY``» тоже не зависит от ``RZ``."""
+def test_diagonal_with_two_angles_turns_around_z(rz: float) -> None:
+    """Случай «``RX`` и ``RY``» тоже поворачивается на ``RZ``, ``Z`` не меняется."""
     pose = Pose(x=0.0, y=0.0, z=0.0, rx=55.0, ry=17.0, rz=rz)
+    flat = shifted(replace(pose, rz=0.0), Direction.FORWARD_RIGHT, 1.0)
     result = shifted(pose, Direction.FORWARD_RIGHT, 1.0)
-    assert result.x == pytest.approx(0.292, abs=0.002)
-    assert result.y == pytest.approx(-0.783, abs=0.002)
+    angle = math.radians(rz)
+    assert result.x == pytest.approx(flat.x * math.cos(angle) - flat.y * math.sin(angle), abs=0.002)
+    assert result.y == pytest.approx(flat.x * math.sin(angle) + flat.y * math.cos(angle), abs=0.002)
     assert result.z == pytest.approx(0.549, abs=0.002)
+
+
+def test_image_formula_for_the_right_pair() -> None:
+    """Формула заказчика для пары ``Num 9/1`` при трёх углах (``L = шаг``)."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, rx=30.0, ry=20.0, rz=40.0)
+    result = shifted(pose, Direction.FORWARD_RIGHT, 2.0)
+    tx, ty, tz = (math.radians(value) for value in (30.0, 20.0, 40.0))
+    arm = 2.0
+    assert result.x == pytest.approx(
+        arm * (math.sin(ty) * math.cos(tz) + math.sin(tx) * math.cos(ty) * math.sin(tz)),
+        abs=0.002,
+    )
+    assert result.y == pytest.approx(
+        arm * (math.sin(ty) * math.sin(tz) - math.sin(tx) * math.cos(ty) * math.cos(tz)),
+        abs=0.002,
+    )
+    assert result.z == pytest.approx(arm * math.cos(tx) * math.cos(ty), abs=0.002)
+
+
+def test_image_formula_for_the_left_pair() -> None:
+    """Формула заказчика для пары ``Num 7/3`` при трёх углах (``L = шаг/√2``)."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, rx=30.0, ry=20.0, rz=40.0)
+    result = shifted(pose, Direction.BACK_RIGHT, 2.0)
+    tx, tz = math.radians(30.0), math.radians(40.0)
+    arm = 2.0 / math.sqrt(2.0)
+    assert result.x == pytest.approx(arm * math.sin(tz) * math.cos(tx), abs=0.002)
+    assert result.y == pytest.approx(-arm * math.cos(tz) * math.cos(tx), abs=0.002)
+    assert result.z == pytest.approx(-arm * math.sin(tx), abs=0.002)
 
 
 @pytest.mark.parametrize(

@@ -142,10 +142,40 @@ def _diagonal(direction: Direction, pose: Pose) -> tuple[float, float, float]:
     if pose.rx == 0.0:
         return _flat_diagonal(ax, ay)
     # Пара Num 7/3 и при RY ≠ 0 считается по формуле плоскости Y/Z (эталон 1.8.2):
-    # в формуле заказчика для этой пары RY не участвует и X не меняется.
+    # в формуле заказчика для этой пары RY не участвует.
     if pose.ry == 0.0 or ax * ay > 0:
-        return _rx_diagonal(ax, ay, pose.rx)
-    return _rx_ry_diagonal(ax, ay, pose.rx, pose.ry)
+        step = _rx_diagonal(ax, ay, pose.rx)
+    else:
+        step = _rx_ry_diagonal(ax, ay, pose.rx, pose.ry)
+    # RZ поворачивает готовый шаг вокруг мировой оси Z — так выглядят формулы
+    # заказчика для трёх углов (ADR-0027). Без наклона (RX = 0) RZ не участвует.
+    return _rotate_z(step, pose.rz)
+
+
+def _rotate_z(vector: tuple[float, float, float], degrees: float) -> tuple[float, float, float]:
+    """Повернуть шаг вокруг мировой оси ``Z`` на ``RZ``.
+
+    В формулах заказчика это множители ``cos RZ``/``sin RZ`` в ``X`` и ``Y``:
+
+    ```
+    Num 9/1: ΔX = ax·L·(sin RY·cos RZ + sin RX·cos RY·sin RZ)
+             ΔY = ax·L·sin RY·sin RZ + ay·L·sin RX·cos RY·cos RZ
+             ΔZ = ax·L·cos RX·cos RY
+
+    Num 7/3: ΔX = ay·L·sin RZ·cos RX
+             ΔY = −ay·L·cos RZ·cos RX
+             ΔZ = ax·L·sin RX
+    ```
+
+    При ``RZ = 0`` вектор не меняется, поэтому все прежние эталоны с ``RZ = 0``
+    остаются в силе.
+    """
+    if degrees == 0.0:
+        return vector
+    angle = math.radians(degrees)
+    cos_a, sin_a = math.cos(angle), math.sin(angle)
+    x, y, z = vector
+    return round(x * cos_a - y * sin_a, 12), round(x * sin_a + y * cos_a, 12), z
 
 
 def _flat_diagonal(ax: int, ay: int) -> tuple[float, float, float]:
