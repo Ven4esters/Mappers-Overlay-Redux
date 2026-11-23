@@ -10,6 +10,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QObject, QThread, Signal
 
 from map_overlay.errors import AppError, ApplicationError
+from map_overlay.trace import note
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class _Task(QObject):
 
     def run(self) -> None:
         """Выполнить работу и сообщить результат сигналом."""
+        note("рабочий поток: задача %d начата", self._generation)
         try:
             result = execute(self._work)
         except AppError as exc:
@@ -153,6 +155,11 @@ class TaskRunner(QObject):
         self._on_error = on_error
         self._label = label
         self._started_at = time.monotonic()
+        note(
+            "задача «%s» ставится (%s)",
+            label,
+            "в этом же потоке" if self._synchronous else "в фоне",
+        )
         if self._synchronous:
             return self._run_inline(work)
         self._generation += 1
@@ -162,6 +169,7 @@ class TaskRunner(QObject):
         self._active_generation = self._generation
         thread.start()
         logger.info("Задача «%s» начата", label)
+        note("задача «%s» начата, поток запущен", label)
         return True
 
     def _spawn(self, work: Work, generation: int) -> QThread:
@@ -188,6 +196,11 @@ class TaskRunner(QObject):
         if self._synchronous or self._active is None:
             return False
         logger.warning("Задача «%s» брошена вручную после %.1f с", self._label, self.busy_seconds())
+        note(
+            "задача «%s» брошена через %.2f с: её результат больше не нужен",
+            self._label,
+            self.busy_seconds(),
+        )
         self._generation += 1
         self._active = None
         self._thread = None
@@ -219,9 +232,13 @@ class TaskRunner(QObject):
             logger.warning(
                 "Задача «%s» не выполнена за %.2f с: %s", self._label, time.monotonic() - start, exc
             )
+            note(
+                "задача «%s» провалилась за %.2f с: %s", self._label, time.monotonic() - start, exc
+            )
             self._call_error(str(exc))
             return False
         logger.info("Задача «%s» выполнена за %.2f с", self._label, time.monotonic() - start)
+        note("задача «%s» выполнена за %.2f с", self._label, time.monotonic() - start)
         self._call_success(result)
         return True
 
@@ -230,8 +247,10 @@ class TaskRunner(QObject):
         self._forget(generation)
         if generation != self._generation:
             logger.info("Результат брошенной задачи проигнорирован")
+            note("брошенная задача всё-таки завершилась — результат отброшен")
             return
         logger.info("Задача «%s» выполнена за %.2f с", self._label, self.busy_seconds())
+        note("задача «%s» выполнена за %.2f с", self._label, self.busy_seconds())
         self._call_success(result)
 
     def _handle_failure(self, generation: int, message: str) -> None:
@@ -239,10 +258,12 @@ class TaskRunner(QObject):
         self._forget(generation)
         if generation != self._generation:
             logger.info("Ошибка брошенной задачи проигнорирована: %s", message)
+            note("брошенная задача завершилась ошибкой (отброшена): %s", message)
             return
         logger.warning(
             "Задача «%s» не выполнена за %.2f с: %s", self._label, self.busy_seconds(), message
         )
+        note("задача «%s» провалилась за %.2f с: %s", self._label, self.busy_seconds(), message)
         self._call_error(message)
 
     def _call_success(self, result: object) -> None:

@@ -25,6 +25,7 @@ from map_overlay.infrastructure.size_store import JsonSizeStore
 from map_overlay.infrastructure.win32_input import WindowsInput, enable_dpi_awareness
 from map_overlay.logging_setup import setup_logging
 from map_overlay.paths import crash_path, log_path, settings_path, sizes_path
+from map_overlay.trace import note
 from map_overlay.ui.theme import APP_QSS
 from map_overlay.ui.window import MainWindow
 
@@ -41,6 +42,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if enable_dpi_awareness():
         logger.debug("Включён режим Per-Monitor V2")
     logger.info("Старт %s %s на Python %s", APP_NAME, __version__, platform.python_version())
+    note(
+        "запуск: %s %s, Python %s, подробный журнал: %s, файл: %s",
+        APP_NAME,
+        __version__,
+        platform.python_version(),
+        "да" if args.debug else "нет",
+        log_path(),
+    )
     if args.check_only:
         return _check_only()
     diagnostics.install_crash_handlers(crash_path())
@@ -86,9 +95,19 @@ def _run_window() -> int:
         size_store=size_store,
         sizes_path=size_store.path,
     )
+    settings = context.settings
+    note(
+        "настройки: %s; калибровка %d/6; размеров %d; клавиш назначено %d",
+        store.path,
+        len(settings.calibration),
+        len(context.sizes.items),
+        sum(1 for vk in settings.hotkeys.values() if vk is not None),
+    )
     window = MainWindow(context)
     window.show()
-    return int(app.exec())
+    code = int(app.exec())
+    note("выход из приложения, код %d", code)
+    return code
 
 
 def _check_only() -> int:

@@ -7,7 +7,8 @@
 * ``sys.excepthook`` и ``threading.excepthook`` логируют необработанные исключения
   вместе с трассировкой — раньше они уходили в stderr, которого у окна нет;
 * сторож проверяет, что поток интерфейса подаёт признаки жизни: если сердцебиение
-  пропало, в журнал попадают стеки всех потоков — по ним видно, где именно зависло.
+  пропало, в журнал попадают последние действия (:mod:`map_overlay.trace`) и стеки всех
+  потоков — по ним видно, что оверлей делал и где именно встал.
 """
 
 from __future__ import annotations
@@ -23,12 +24,18 @@ from pathlib import Path
 from types import FrameType, TracebackType
 from typing import Final, TextIO, cast
 
+from map_overlay.trace import JOURNAL
+
 logger = logging.getLogger(__name__)
 
 CRASH_MAX_BYTES: Final = 1024 * 1024
 # Сколько занимать файлу аварий до поворота: один старый файл остаётся на диске.
 HANG_TIMEOUT_S: Final = 8.0
 # Сколько секунд без сердцебиения считаются зависанием.
+
+HANG_WARN_S: Final = 2.5
+# Короткое подвисание: стеки ещё не снимаем, но в журнал пишем, что интерфейс встал.
+# По этим предупреждениям видно, что зависание начинается задолго до полного стопа.
 
 HANG_POLL_S: Final = 1.0
 # Как часто сторож проверяет сердцебиение.
@@ -87,12 +94,20 @@ def thread_dumps() -> str:
 class HangWatchdog:
     """Сторож зависаний: ждёт сердцебиение интерфейса и пишет стеки потоков."""
 
-    def __init__(self, *, timeout_s: float = HANG_TIMEOUT_S, poll_s: float = HANG_POLL_S) -> None:
+    def __init__(
+        self,
+        *,
+        timeout_s: float = HANG_TIMEOUT_S,
+        poll_s: float = HANG_POLL_S,
+        warn_s: float = HANG_WARN_S,
+    ) -> None:
         self._timeout_s = timeout_s
         self._poll_s = poll_s
+        self._warn_s = warn_s
         self._lock = threading.Lock()
         self._last_beat = time.monotonic()
         self._stalled = False
+        self._warned = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -112,18 +127,38 @@ class HangWatchdog:
         with self._lock:
             elapsed = time.monotonic() - self._last_beat
             stalled = self._stalled
+        self._warn_if_slow(elapsed)
         if elapsed > self._timeout_s and not stalled:
             with self._lock:
                 self._stalled = True
-            message = f"Интерфейс не отвечает {elapsed:.1f} с — стеки потоков:"
-            logger.critical("%s\n%s", message, thread_dumps())
-            _write_crash(f"{message}\n{thread_dumps()}\n")
+            message = f"Интерфейс не отвечает {elapsed:.1f} с"
+            report = hang_report(elapsed)
+            logger.critical("%s\n%s", message, report)
+            _write_crash(f"{message}\n{report}\n")
             return True
         if elapsed <= self._timeout_s and stalled:
             with self._lock:
                 self._stalled = False
+                self._warned = False
             logger.warning("Интерфейс снова отвечает (пауза была %.1f с)", elapsed)
+            _write_crash(f"Интерфейс снова отвечает после паузы {elapsed:.1f} с\n")
         return False
+
+    def _warn_if_slow(self, elapsed: float) -> None:
+        """Предупредить о коротком подвисании: журнал действий уже показывает, на чём."""
+        if elapsed <= self._warn_s:
+            with self._lock:
+                self._warned = False
+            return
+        with self._lock:
+            if self._warned:
+                return
+            self._warned = True
+        logger.warning(
+            "Интерфейс не отвечает %.1f с — последние действия:\n%s",
+            elapsed,
+            JOURNAL.describe(),
+        )
 
     def start(self) -> None:
         """Запустить проверку в фоновом потоке."""
@@ -137,6 +172,19 @@ class HangWatchdog:
     def _run(self) -> None:
         while not self._stop.wait(self._poll_s):
             self.check_once()
+
+
+def hang_report(elapsed_s: float) -> str:
+    """Полный отчёт о зависании: последние действия и стеки всех потоков.
+
+    Порядок именно такой: сначала «что делал», потом «где стоит». По журналу действий
+    видно операцию без пары «начал/готово», а по стеку — на каком вызове она встала.
+    """
+    return (
+        f"Последние действия оверлея ({elapsed_s:.1f} с без ответа интерфейса):\n"
+        f"{JOURNAL.describe()}\n"
+        f"Стеки потоков:\n{thread_dumps()}"
+    )
 
 
 def start_watchdog(timeout_s: float = HANG_TIMEOUT_S) -> HangWatchdog:
@@ -181,7 +229,7 @@ def _log_uncaught(
     """Залогировать исключение, которое никто не поймал."""
     text = "".join(traceback.format_exception(exc_type, exc, tb))
     logger.critical("Необработанная ошибка:\n%s", text)
-    _write_crash(f"Необработанная ошибка:\n{text}")
+    _write_crash(f"Необработанная ошибка:\n{text}\nПоследние действия:\n{JOURNAL.describe()}\n")
 
 
 def _log_uncaught_thread(args: threading.ExceptHookArgs) -> None:
@@ -189,4 +237,7 @@ def _log_uncaught_thread(args: threading.ExceptHookArgs) -> None:
     text = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
     name = args.thread.name if args.thread is not None else "?"
     logger.critical("Необработанная ошибка в потоке %s:\n%s", name, text)
-    _write_crash(f"Необработанная ошибка в потоке {name}:\n{text}")
+    _write_crash(
+        f"Необработанная ошибка в потоке {name}:\n{text}\n"
+        f"Последние действия:\n{JOURNAL.describe()}\n"
+    )

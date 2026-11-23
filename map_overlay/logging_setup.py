@@ -36,11 +36,16 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logging(path: Path, *, debug: bool = False, console: bool = False) -> None:
-    """Настроить корневой логгер на запись в файл (и, при желании, в консоль)."""
+    """Настроить корневой логгер на запись в файл (и, при желании, в консоль).
+
+    Файл всегда пишет DEBUG: без подробных строк по журналу не понять, на чём именно
+    оверлей завис. Объём ограничен поворотом (2 МиБ × 3), поэтому подробности не
+    переполняют диск. Консоль, наоборот, по умолчанию молчит до INFO — иначе запуск
+    из консоли превращается в поток служебных строк.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    level = logging.DEBUG if debug else logging.INFO
     root = logging.getLogger()
-    root.setLevel(level)
+    root.setLevel(logging.DEBUG)
     for handler in list(_OWN_HANDLERS):
         root.removeHandler(handler)
         handler.close()
@@ -51,11 +56,13 @@ def setup_logging(path: Path, *, debug: bool = False, console: bool = False) -> 
         backupCount=LOG_BACKUP_COUNT,
         encoding="utf-8",
     )
+    file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(JsonFormatter())
     root.addHandler(file_handler)
     _OWN_HANDLERS.append(file_handler)
     if console:
         console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.DEBUG if debug else logging.INFO)
         console_handler.setFormatter(JsonFormatter())
         root.addHandler(console_handler)
         _OWN_HANDLERS.append(console_handler)

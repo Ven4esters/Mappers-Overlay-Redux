@@ -17,6 +17,7 @@ from map_overlay.errors import (
     PanelRejectedError,
     ParseError,
 )
+from map_overlay.trace import note, timed
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,12 @@ class PoseWriter:
         """
         fields = changed_fields(current, target)
         if not fields:
+            note("менять нечего: все поля совпали")
             return fields
+        note(
+            "пишу поля: %s",
+            ", ".join(field.label for field in fields),
+        )
         self._check_panel_matches(current)
         for field in fields:
             if self._panel.cancelled():
@@ -73,7 +79,8 @@ class PoseWriter:
         """
         if not self._verify:
             return
-        raw = self._panel.read_field(Field.X)
+        with timed("сверка панели: поле X"):
+            raw = self._panel.read_field(Field.X)
         try:
             actual = parse_number(raw)
         except ParseError as exc:
@@ -82,6 +89,7 @@ class PoseWriter:
                 "Нажмите «Считать» и повторите"
             ) from exc
         if abs(actual - current.x) <= PANEL_DRIFT_M:
+            note("панель та же: X = %.3f", actual)
             return
         logger.warning(
             "Панель изменилась: X = %s, оверлей помнит %.3f — запись отменена",
@@ -100,6 +108,7 @@ class PoseWriter:
         for attempt in range(1, MAX_WRITE_ATTEMPTS + 1):
             self._panel.write_field(field, text)
             if not self._verify:
+                note("поле %s записано без проверки (%s)", field.label, text)
                 return
             try:
                 seen = self._panel.read_field(field)
@@ -108,6 +117,7 @@ class PoseWriter:
                 logger.warning("Поле %s: не удалось перечитать (%s)", field.label, exc)
                 continue
             if abs(actual - value) <= TOLERANCE:
+                note("поле %s принято: %s", field.label, text)
                 return
             logger.warning(
                 "Поле %s не приняло %s (в поле %s), попытка %d из %d",

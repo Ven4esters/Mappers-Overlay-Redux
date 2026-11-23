@@ -273,6 +273,10 @@ class MovementTab(QWidget):
         self._pad.set_enabled(pose is not None)
         self._refresh_mode()
 
+    def step_text(self) -> str:
+        """Шаг, как он введён в поле (для журнала действий и тестов)."""
+        return self._step_combo.currentText()
+
     def mode_text(self) -> str:
         """Подпись режима движения (для тестов)."""
         return self._mode_label.text()

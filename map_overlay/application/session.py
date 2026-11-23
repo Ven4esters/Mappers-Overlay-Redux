@@ -24,6 +24,7 @@ from map_overlay.errors import (
     ParseError,
     PoseNotCapturedError,
 )
+from map_overlay.trace import note, timed
 
 logger = logging.getLogger(__name__)
 
@@ -101,17 +102,26 @@ class MappingSession:
             NotCalibratedError: если калибровка неполная.
             ApplicationError: если поле вернуло не число.
         """
-        self.ensure_calibrated()
-        self._panel.reset_cancel()
+        with timed("считать координаты из панели"):
+            self.ensure_calibrated()
+            self._panel.reset_cancel()
+            pose = self._read_with_recovery()
+        self._pose = pose
+        logger.info("Считано из панели: %s", pose)
+        return pose
+
+    def _read_with_recovery(self) -> Pose:
+        """Прочитать панель; при сбое забыть старые координаты и пробросить ошибку.
+
+        Raises:
+            AppError: любая ошибка обмена с панелью.
+        """
         try:
-            pose = self._read_pose()
+            return self._read_pose()
         except AppError:
             # Недочитанная панель: прежние координаты больше не годятся.
             self._invalidate()
             raise
-        self._pose = pose
-        logger.info("Считано из панели: %s", pose)
-        return pose
 
     def _read_pose(self) -> Pose:
         """Прочитать все поля по порядку панели.
@@ -151,7 +161,8 @@ class MappingSession:
             )
         self._panel.reset_cancel()
         try:
-            self._panel.confirm()
+            with timed("сохранить F"):
+                self._panel.confirm()
         except PANEL_TROUBLE:
             self._invalidate()
             raise
@@ -174,8 +185,16 @@ class MappingSession:
             )
         self._panel.reset_cancel()
         target = shifted(self._pose, direction, validate_step(step), tilt=tilt)
+        label = f"шаг {direction.label} {step:g} м" + (" (высота)" if tilt else "")
+        note(
+            "%s: от %s к %s",
+            label,
+            _pose_text(self._pose),
+            _pose_text(target),
+        )
         try:
-            written = self._writer.write_changes(self._pose, target)
+            with timed(label):
+                written = self._writer.write_changes(self._pose, target)
         except PANEL_TROUBLE as exc:
             logger.warning("Шаг отменён, координаты забыты: %s", exc)
             self._invalidate()
@@ -198,3 +217,11 @@ class MappingSession:
     def _invalidate(self) -> None:
         """Забыть позу: после сбоя панели двигаться от неё нельзя."""
         self._pose = None
+
+
+def _pose_text(pose: Pose) -> str:
+    """Поза одной строкой для журнала действий."""
+    return (
+        f"X {pose.x:.3f} Y {pose.y:.3f} Z {pose.z:.3f} "
+        f"RX {pose.rx:g} RY {pose.ry:g} RZ {pose.rz:g}"
+    )

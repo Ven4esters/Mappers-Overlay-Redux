@@ -12,6 +12,7 @@ from map_overlay.infrastructure.panel import (
     MODIFIER_WAIT_S,
     CalibratedPanel,
 )
+from map_overlay.trace import JOURNAL
 
 from fakes import FULL_CALIBRATION, FakeClipboard, FakeClock, FakeInput
 
@@ -162,3 +163,39 @@ def test_confirm_after_cursor_drift_still_works() -> None:
     panel.confirm()
     assert input_port.f_pressed == 1
     assert input_port.clicks[-1] == empty
+
+
+def test_read_field_is_logged_with_value() -> None:
+    """В журнале действий видно, что именно прочитано и куда кликали."""
+    panel, _input, _clipboard, _clock = make_panel()
+    JOURNAL.clear()
+    text = panel.read_field(Field.X)
+    log = JOURNAL.describe()
+    assert "начал: чтение поля X" in log
+    assert "клик: X в" in log
+    assert f"поле X прочитано: «{text.strip()}»" in log
+    assert "готово: чтение поля X" in log
+
+
+def test_write_field_is_logged_with_value() -> None:
+    panel, _input, _clipboard, _clock = make_panel()
+    JOURNAL.clear()
+    panel.write_field(Field.Z, "42.500")
+    log = JOURNAL.describe()
+    assert "начал: запись поля Z = 42.500" in log
+    assert "готово: запись поля Z = 42.500" in log
+
+
+def test_confirm_is_logged() -> None:
+    panel, _input, _clipboard, _clock = make_panel(empty_point=Point(x=5, y=5))
+    JOURNAL.clear()
+    panel.confirm()
+    assert "нажать F в пустом месте панели" in JOURNAL.describe()
+
+
+def test_modifier_wait_is_logged() -> None:
+    panel, input_port, _clipboard, _clock = make_panel()
+    input_port.modifiers = 2
+    JOURNAL.clear()
+    panel.read_field(Field.X)
+    assert "ждал отпускания Alt/Ctrl/Shift" in JOURNAL.describe()

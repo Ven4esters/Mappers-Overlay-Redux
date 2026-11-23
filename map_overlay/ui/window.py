@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping
 from typing import cast
 
@@ -34,6 +35,7 @@ from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
 from map_overlay.domain.sizes import SizeLibrary
 from map_overlay.errors import ConfigError, ValidationError
+from map_overlay.trace import note
 from map_overlay.ui.tabs.calibration_tab import CalibrationTab
 from map_overlay.ui.tabs.movement_tab import MovementTab, pose_text
 from map_overlay.ui.tabs.settings_tab import SettingsTab
@@ -75,6 +77,9 @@ HOLD_REPEAT_MS = 150
 NUM_LOCK_CHECK_MS = 3000
 # Как часто проверять NumLock: без него Numpad посылает другие клавиши.
 LEARN_TIMEOUT_MS = 10_000
+STATE_LOG_MS = 20_000
+# Как часто писать «жив» со сводкой состояния: по этим строкам видно, что было
+# до зависания, даже если сторож не успел снять стеки.
 
 
 class MainWindow(QMainWindow):
@@ -184,6 +189,10 @@ class MainWindow(QMainWindow):
         self._num_lock_timer.setInterval(NUM_LOCK_CHECK_MS)
         self._num_lock_timer.timeout.connect(self._check_num_lock)
         self._num_lock_timer.start()
+        self._state_timer = QTimer(self)
+        self._state_timer.setInterval(STATE_LOG_MS)
+        self._state_timer.timeout.connect(self._log_state)
+        self._state_timer.start()
 
     def _connect_signals(self) -> None:
         """Связи вкладок с окном."""
@@ -241,6 +250,8 @@ class MainWindow(QMainWindow):
         return self._status.text()
 
     def _set_status(self, text: str, kind: str = STATUS_INFO) -> None:
+        if _status_key(text) != _status_key(self._status.text()):
+            note("статус [%s]: %s", kind, text)
         self._status.setText(text)
         self._status.setProperty("role", STATUS_ROLES.get(kind, STATUS_ROLES[STATUS_INFO]))
         self._status.style().unpolish(self._status)
@@ -261,6 +272,7 @@ class MainWindow(QMainWindow):
         """
         self.movement.set_busy(busy)
         self._abort_button.setEnabled(busy)
+        note("занятость: %s", "включена" if busy else "снята")
         if busy:
             self._hotkeys.freeze(True)
             self._busy_timer.start(BUSY_TICK_MS)
@@ -290,6 +302,11 @@ class MainWindow(QMainWindow):
         """
         if not self._runner.is_busy():
             return
+        note(
+            "дедлайн: обмен «%s» идёт %.1f с — прерываю",
+            self._busy_text,
+            self._runner.busy_seconds(),
+        )
         logger.warning(
             "Обмен с панелью прерван по таймауту: «%s» шёл %.1f с",
             self._busy_text,
@@ -307,6 +324,7 @@ class MainWindow(QMainWindow):
 
     def _begin_busy(self, text: str) -> None:
         """Показать, что идёт обмен с панелью, и засечь время."""
+        note("начато действие: %s", text)
         self._busy_text = text
         self._set_busy(True)
         self._set_status(text)
@@ -339,7 +357,9 @@ class MainWindow(QMainWindow):
     def _abort_action(self) -> None:
         """Бросить зависшее действие, не закрывая окно."""
         self._stop_hold()
+        note("нажата кнопка «Прервать»")
         if not self._cancel_running():
+            note("прерывать нечего: обмена нет")
             return
         self._set_busy(False)
         self._drop_pose("Действие прервано вручную")
@@ -402,8 +422,10 @@ class MainWindow(QMainWindow):
         )
 
     def _capture(self) -> None:
+        note("команда: считать координаты")
         self._stop_hold()
         if self._runner.is_busy():
+            note("считать не начато: занято «%s»", self._busy_text)
             return
         session = self._ensure_session()
         self._begin_busy("Читаю поля панели…")
@@ -415,8 +437,10 @@ class MainWindow(QMainWindow):
         )
 
     def _confirm(self) -> None:
+        note("команда: сохранить F")
         self._stop_hold()
         if self._runner.is_busy():
+            note("сохранить F не начато: занято «%s»", self._busy_text)
             return
         session = self._ensure_session()
         self._begin_busy("Подтверждаю положение: клик в пустое место и F…")
@@ -435,10 +459,12 @@ class MainWindow(QMainWindow):
         """
         if self._runner.is_busy():
             logger.info("Шаг не начат: занято другим действием")
+            note("шаг не начат: занято другим действием")
             return False
         session = self._session
         if session is None or session.pose is None or self._pose is None:
             logger.warning("Шаг не начат: координаты не считаны")
+            note("шаг не начат: координаты не считаны")
             self._set_status(
                 "Сначала нажмите «Считать»: без координат шаг не посчитать", STATUS_WARN
             )
@@ -514,8 +540,11 @@ class MainWindow(QMainWindow):
 
     def _on_hotkey(self, vk: int, is_down: bool, fresh: bool = True) -> None:
         """Событие клавиатуры: сюда приходит даже автоповтор зажатой клавиши."""
+        repeat = " (автоповтор)" if is_down and not fresh else ""
+        note("клавиша %s %s%s", key_name(vk), "нажата" if is_down else "отпущена", repeat)
         if not self.settings_tab.hotkeys_enabled():
             logger.debug("Клавиша %s: перехват выключен", key_name(vk))
+            note("клавиша %s пропущена: перехват выключен", key_name(vk))
             return
         if self._learning is not None:
             if is_down:
@@ -527,6 +556,7 @@ class MainWindow(QMainWindow):
         action = self._router.handle(vk, is_down, fresh)
         if action is not None:
             logger.info("Клавиша %s → %s", key_name(vk), action.label)
+            note("клавиша %s → команда «%s»", key_name(vk), action.label)
             self._dispatch(action, vk)
             return
         if not is_down:
@@ -549,6 +579,7 @@ class MainWindow(QMainWindow):
         if enabled == self._tilt_mode:
             return
         self._tilt_mode = enabled
+        note("режим высоты: %s", "включён" if enabled else "выключен")
         self.movement.set_tilt(enabled)
         self._refresh_tilt_warning()
         if enabled:
@@ -581,6 +612,7 @@ class MainWindow(QMainWindow):
         """Начать удержание: первый шаг сразу, следующие — друг за другом."""
         self._stop_hold()
         self._held = (action, vk)
+        note("удержание: %s (клавиша %s)", action.label, key_name(vk))
         self._hold_tick(force=True)
 
     def _hold_tick(self, *, force: bool = False) -> None:
@@ -639,6 +671,8 @@ class MainWindow(QMainWindow):
             self._stop_hold()
 
     def _stop_hold(self) -> None:
+        if self._held is not None:
+            note("удержание остановлено: %s", self._held[0].label)
         self._hold_timer.stop()
         self._held = None
 
@@ -648,6 +682,7 @@ class MainWindow(QMainWindow):
             self._set_status("Перехват клавиш выключен — назначить клавишу нельзя.", STATUS_WARN)
             return
         selected = cast(Action, action)
+        note("назначение клавиши для «%s»: жду нажатия", selected.label)
         self._learning = selected
         self._hotkeys.configure(bound_keys=self._router.bound_keys, learning=True)
         self._learn_timer.start(LEARN_TIMEOUT_MS)
@@ -730,6 +765,21 @@ class MainWindow(QMainWindow):
             bound_keys=self._router.bound_keys, learning=self._learning is not None
         )
         self.settings_tab.set_hotkeys(hotkeys)
+
+    def _log_state(self) -> None:
+        """Записать «жив» со сводкой: что происходит прямо сейчас."""
+        pose = self._pose
+        note(
+            "жив: занято=%s%s, шаг=%s, удержание=%s, высота=%s, координаты=%s",
+            "да" if self._runner.is_busy() else "нет",
+            f" ({self._busy_text}, {self._runner.busy_seconds():.0f} с)"
+            if self._runner.is_busy()
+            else "",
+            self.movement.step_text(),
+            self._held[0].label if self._held is not None else "нет",
+            "вкл" if self._tilt_mode else "выкл",
+            pose_text(pose) if pose is not None else "не считаны",
+        )
 
     def _check_num_lock(self) -> None:
         """Следить за NumLock: без него Numpad посылает «стрелки», а не цифры."""
@@ -824,7 +874,16 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - имя из Qt
         """Снять хук и дождаться фоновой задачи, чтобы не оставить поток висеть."""
+        note("окно закрывается: занято=%s", "да" if self._runner.is_busy() else "нет")
         self._stop_timers()
         self._hotkeys.stop_listening()
         self._runner.shutdown()
         super().closeEvent(event)
+
+
+def _status_key(text: str) -> str:
+    """Текст статуса без счётчика секунд: «Шаг… (3 с)» и «Шаг… (4 с)» — одно событие."""
+    return STATUS_COUNTER.sub("", text)
+
+
+STATUS_COUNTER = re.compile(r" \(\d+ с\)$")

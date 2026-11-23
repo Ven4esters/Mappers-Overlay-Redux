@@ -56,3 +56,37 @@ def test_log_rotates_instead_of_growing(tmp_path: Path) -> None:
         logging.getLogger("rotate").warning("строка номер %d для поворота журнала", index)
     handler.flush()
     assert path.with_suffix(".log.1").exists()
+
+
+def test_file_log_keeps_debug_by_default(tmp_path: Path) -> None:
+    """Подробности нужны без флага --debug: иначе зависать будет «молча»."""
+    path = tmp_path / "overlay.log"
+    setup_logging(path)
+    logging.getLogger("map_overlay.action").debug("подробная строка")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    assert "подробная строка" in path.read_text(encoding="utf-8")
+
+
+def _console_levels() -> list[int]:
+    """Уровни консольных обработчиков, которые поставил сам оверлей."""
+    from logging.handlers import RotatingFileHandler
+
+    from map_overlay import logging_setup
+
+    return [
+        handler.level
+        for handler in logging_setup._OWN_HANDLERS
+        if isinstance(handler, logging.StreamHandler)
+        and not isinstance(handler, RotatingFileHandler)
+    ]
+
+
+def test_console_stays_quiet_without_debug(tmp_path: Path) -> None:
+    setup_logging(tmp_path / "overlay.log", console=True)
+    assert _console_levels() == [logging.INFO]
+
+
+def test_console_is_verbose_with_debug(tmp_path: Path) -> None:
+    setup_logging(tmp_path / "overlay.log", console=True, debug=True)
+    assert _console_levels() == [logging.DEBUG]

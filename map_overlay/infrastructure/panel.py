@@ -12,8 +12,12 @@ from map_overlay.config import Delays
 from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.point import Point
 from map_overlay.errors import ClipboardError, NotCalibratedError, OperationCancelledError
+from map_overlay.trace import note, timed
 
 logger = logging.getLogger(__name__)
+
+FIELD_SLOW_MS: Final = 1500
+# Чтение или запись поля дольше этого — уже подозрительно: придёт предупреждение.
 
 MAX_CURSOR_DRIFT_PX: Final = 4
 
@@ -87,11 +91,12 @@ class CalibratedPanel:
             raise NotCalibratedError(
                 "Точка «пустое место панели» не задана — клик перед F невозможен"
             )
-        self._check_cancelled()
-        self._wait_modifiers_released()
-        self._click_point(self._empty_point)
-        self._clock.sleep(self._delays.click)
-        self._input.press_f()
+        with timed("нажать F в пустом месте панели", slow_ms=FIELD_SLOW_MS):
+            self._check_cancelled()
+            self._wait_modifiers_released()
+            self._click_point(self._empty_point, "пустое место панели")
+            self._clock.sleep(self._delays.click)
+            self._input.press_f()
         logger.info("Нажато F в точке %s", self._empty_point)
 
     def read_field(self, field: Field) -> str:
@@ -104,17 +109,18 @@ class CalibratedPanel:
         Raises:
             ClipboardError: если панель не отдала значение — буфер остался пустым.
         """
-        logger.debug("Читаю поле %s", field.label)
-        self._check_cancelled()
-        self._wait_modifiers_released()
-        self._clipboard.set("")
-        self._click(field)
-        self._clock.sleep(self._delays.click)
-        self._input.select_all()
-        self._clock.sleep(self._delays.select)
-        self._input.copy()
-        self._clock.sleep(self._delays.copy)
-        text = self._clipboard.get()
+        with timed(f"чтение поля {field.label}", slow_ms=FIELD_SLOW_MS):
+            self._check_cancelled()
+            self._wait_modifiers_released()
+            self._clipboard.set("")
+            self._click_point(self._point_of(field), field.label)
+            self._clock.sleep(self._delays.click)
+            self._input.select_all()
+            self._clock.sleep(self._delays.select)
+            self._input.copy()
+            self._clock.sleep(self._delays.copy)
+            text = self._clipboard.get()
+        note("поле %s прочитано: «%s»", field.label, text.strip())
         if not text.strip():
             raise ClipboardError(
                 f"Поле {field.label} не отдало значение: панель не получила Ctrl+C. "
@@ -124,16 +130,16 @@ class CalibratedPanel:
 
     def write_field(self, field: Field, text: str) -> None:
         """Записать поле: буфер → клик → ``Ctrl+A`` → ``Ctrl+V``."""
-        logger.debug("Пишу поле %s = %s", field.label, text)
-        self._check_cancelled()
-        self._wait_modifiers_released()
-        self._clipboard.set(text)
-        self._click(field)
-        self._clock.sleep(self._delays.click)
-        self._input.select_all()
-        self._clock.sleep(self._delays.select)
-        self._input.paste()
-        self._clock.sleep(self._delays.paste)
+        with timed(f"запись поля {field.label} = {text}", slow_ms=FIELD_SLOW_MS):
+            self._check_cancelled()
+            self._wait_modifiers_released()
+            self._clipboard.set(text)
+            self._click_point(self._point_of(field), field.label)
+            self._clock.sleep(self._delays.click)
+            self._input.select_all()
+            self._clock.sleep(self._delays.select)
+            self._input.paste()
+            self._clock.sleep(self._delays.paste)
 
     def _wait_modifiers_released(self) -> None:
         """Дождаться, пока пользователь отпустит ``Alt``/``Ctrl``/``Shift``.
@@ -149,15 +155,22 @@ class CalibratedPanel:
             waited += MODIFIER_POLL_S
         if waited:
             logger.info("Ждал отпускания модификаторов %.2f с", waited)
+            note("ждал отпускания Alt/Ctrl/Shift %.2f с", waited)
 
-    def _click(self, field: Field) -> None:
+    def _point_of(self, field: Field) -> Point:
+        """Точка калибровки поля.
+
+        Raises:
+            NotCalibratedError: если точка не задана.
+        """
         point = self._points.get(field)
         if point is None:
             raise NotCalibratedError(f"Поле {field.label} не откалибровано")
-        self._click_point(point)
+        return point
 
-    def _click_point(self, point: Point) -> None:
+    def _click_point(self, point: Point, label: str = "поле") -> None:
         self._check_cancelled()
+        note("клик: %s в %s", label, point)
         self._return_cursor(point)
         self._input.click(point)
         self._expected_cursor = point
@@ -174,4 +187,5 @@ class CalibratedPanel:
         logger.info(
             "Курсор уехал с %s на %s — возвращаю в %s", self._expected_cursor, actual, point
         )
+        note("курсор уехал с %s на %s — возвращаю", self._expected_cursor, actual)
         self._input.move_cursor(point)

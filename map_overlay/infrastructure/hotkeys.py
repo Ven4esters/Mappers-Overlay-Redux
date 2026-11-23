@@ -22,6 +22,7 @@ from typing import ClassVar, Final
 from PySide6.QtCore import QObject, QThread, Signal
 
 from map_overlay.domain.keynames import VK_MENU, VK_NUMLOCK, generic_vk, key_name
+from map_overlay.trace import note
 
 logger = logging.getLogger(__name__)
 
@@ -154,9 +155,11 @@ class WindowsHotkeySource(QThread):
         self._frozen_at = time.monotonic()
         if enabled:
             logger.info("Клавиатура заморожена на время обмена с панелью")
+            note("хук: клавиатура заморожена на время обмена")
         else:
             self._swallowed.clear()
             logger.info("Клавиатура разморожена")
+            note("хук: клавиатура разморожена")
 
     def _freeze_expired(self) -> bool:
         """Не висит ли заморозка дольше положенного: тогда снимаем её сами."""
@@ -236,6 +239,7 @@ class WindowsHotkeySource(QThread):
         if not self._hook:
             self.failed = True
             logger.error("Не удалось установить хук клавиатуры")
+            note("хук: установить не удалось")
             return
         logger.info("Хук клавиатуры установлен")
         message = _Message()
@@ -290,6 +294,11 @@ class WindowsHotkeySource(QThread):
             return self._pass_through(code, wparam, lparam)
         self._freeze_expired()
         if self._frozen and self._enabled and not injected:
+            note(
+                "хук: клавиша %s %s съедена заморозкой",
+                key_name(vk),
+                "нажата" if is_down else "отпущена",
+            )
             return self._swallow(is_down, vk)
         self._observe_alt(vk, is_down, injected)
         block = self._enabled and blocks_key(
@@ -308,9 +317,11 @@ class WindowsHotkeySource(QThread):
         if not block:
             if is_down and vk in self._bound:
                 logger.debug("Клавиша %s пропущена: перехват выключен", key_name(vk))
+                note("хук: клавиша %s пропущена в игру (перехват выключен)", key_name(vk))
             return self._pass_through(code, wparam, lparam)
         if fresh:
             logger.debug("Хук забрал клавишу %s", key_name(vk))
+            note("хук: клавиша %s забрана у игры", key_name(vk))
         self.key_event.emit(vk, is_down, fresh)
         return HOOK_BLOCK
 

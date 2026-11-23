@@ -19,6 +19,7 @@ from map_overlay.domain.pose import Pose
 from map_overlay.domain.sizes import ObjectSize, SizeLibrary, SizeUse
 from map_overlay.errors import ValidationError
 from map_overlay.infrastructure.size_store import JsonSizeStore
+from map_overlay.trace import JOURNAL
 from map_overlay.ui.tabs.movement_tab import MovementTab
 from map_overlay.ui.window import MainWindow
 from PySide6.QtCore import QEvent, Qt
@@ -969,6 +970,12 @@ class _StuckRunner:
     def is_worker_alive(self) -> bool:
         return True
 
+    def is_busy(self) -> bool:
+        return True
+
+    def busy_seconds(self) -> float:
+        return 30.0
+
 
 def test_freeze_is_released_even_if_the_worker_never_stops(qt_app: QApplication) -> None:
     """Клавиатура не может остаться закрытой: ожидание выхода потока ограничено."""
@@ -1201,3 +1208,82 @@ def test_select_makes_item_active(qt_app: QApplication) -> None:
     assert "Паллета" in window.status_text()
     window.movement.press_size_button(SizeUse.LENGTH).click()
     assert window.movement.current_step() == pytest.approx(1.2)
+
+
+# --- журнал действий -------------------------------------------------------
+
+
+def test_user_actions_are_logged(qt_app: QApplication) -> None:
+    """По журналу видно, что нажали и что из этого вышло."""
+    window, _panel, _settings, _cursor = make_window(qt_app)
+    JOURNAL.clear()
+    window.movement.press_capture()
+    log = JOURNAL.describe()
+    assert "команда: считать координаты" in log
+    assert "начал: считать координаты из панели" in log
+    assert "задача «считать координаты» выполнена" in log
+    assert "статус [ok]" in log
+
+
+def test_hotkey_decision_is_logged(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _settings, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    JOURNAL.clear()
+    hotkeys.press(NUMPAD0)
+    hotkeys.release(NUMPAD0)
+    log = JOURNAL.describe()
+    assert "клавиша Num 0 нажата" in log
+    assert "→ команда «Считать координаты»" in log
+    assert "клавиша Num 0 отпущена" in log
+
+
+def test_state_line_describes_what_is_happening(qt_app: QApplication) -> None:
+    """Строка «жив» показывает занятость, шаг и координаты — как снимок состояния."""
+    window, _panel, _settings, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    JOURNAL.clear()
+    window._log_state()
+    log = JOURNAL.describe()
+    assert "жив: занято=нет" in log
+    assert "шаг=0.5" in log
+    assert "координаты=X 1850.000" in log
+
+
+def test_busy_state_is_logged(qt_app: QApplication) -> None:
+    window, _panel, _settings, _cursor = make_window(qt_app)
+    JOURNAL.clear()
+    window._begin_busy("Шаг вперёд…")
+    window._set_busy(False)
+    log = JOURNAL.describe()
+    assert "начато действие: Шаг вперёд…" in log
+    assert "занятость: включена" in log
+    assert "занятость: снята" in log
+
+
+def test_abort_and_deadline_are_logged(qt_app: QApplication) -> None:
+    hotkeys = FakeHotkeySource()
+    window, _panel, _settings, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window._begin_busy("Шаг…")
+    window._runner = _AbandoningRunner()  # type: ignore[assignment]
+    JOURNAL.clear()
+    window._abort_action()
+    assert "нажата кнопка «Прервать»" in JOURNAL.describe()
+
+    window._runner = _StuckRunner()  # type: ignore[assignment]
+    window._set_busy(True)
+    JOURNAL.clear()
+    window._action_deadline()
+    assert "дедлайн" in JOURNAL.describe()
+
+
+def test_failed_step_is_logged_with_reason(qt_app: QApplication) -> None:
+    window, panel, _settings, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    panel.reject.add(Field.X)
+    JOURNAL.clear()
+    window.movement.arrow(Direction.FORWARD).click()
+    log = JOURNAL.describe()
+    assert "шаг" in log
+    assert "провалилась" in log
+    assert "Панель не приняла поле X" in log
+    assert "статус [error]" in log
