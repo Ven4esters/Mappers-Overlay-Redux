@@ -59,7 +59,7 @@ QLabel[role="rowName"] {{
 }}
 QLabel[role="rowSize"] {{
     font-family: "Consolas", "Cascadia Mono", monospace;
-    font-size: 13px;
+    font-size: 12px;
     color: {MUTED};
 }}
 QLabel[role="badge"], QLabel[role="badgeOk"], QPushButton[role="badge"] {{
@@ -72,7 +72,11 @@ QLabel[role="badge"], QLabel[role="badgeOk"], QPushButton[role="badge"] {{
 QLabel[role="badgeOk"] {{ color: {SUCCESS}; border-color: #235c45; }}
 /* «Мини» — та же пилюля, что и бейдж калибровки: одна высота и один радиус. */
 QPushButton[role="badge"] {{ color: {TEXT}; }}
-QPushButton[role="badge"]:hover {{ background: #243050; border-color: #2c3a55; }}
+QPushButton[role="badge"]:hover {{
+    background: #2f3d5e;
+    border-color: #4a6ea8;
+    color: #ffffff;
+}}
 QPushButton[role="badge"]:pressed {{ background: #1d2740; }}
 QPushButton[role="badge"]:disabled {{ color: {TEXT_DISABLED}; }}
 QLabel[role="muted"] {{ color: {MUTED}; }}
@@ -109,6 +113,21 @@ QPushButton[role="primary"]:disabled {{
     border-color: #26324a;
     color: #55627a;
 }}
+/* «Прервать» — аварийная остановка: в покое серая кнопка, во время обмена красная. */
+QPushButton[role="abort"] {{
+    background: {SURFACE_RAISED};
+    border: 1px solid {BORDER};
+    color: #c2cbdb;
+    padding: 4px 12px;
+}}
+QPushButton[role="abort"]:hover {{ background: #243050; color: {TEXT}; }}
+QPushButton[role="abort"]:enabled {{
+    background: rgba(239, 68, 68, 0.8);
+    border: 1px solid {ERROR};
+    color: #ffffff;
+}}
+QPushButton[role="abort"]:enabled:hover {{ background: {ERROR}; }}
+QPushButton[role="abort"]:enabled:pressed {{ background: #dc2626; }}
 QPushButton[role="danger"] {{
     background: rgba(239, 68, 68, 0.16);
     border: 1px solid {DANGER_EDGE};
@@ -124,12 +143,17 @@ QPushButton[role="danger"]:disabled {{
 QPushButton[role="ghost"] {{
     background: transparent;
     border: 1px solid transparent;
-    color: {MUTED};
+    color: #b9c4d6;
     padding: 4px 8px;
     font-size: 12px;
 }}
 QPushButton[role="ghost"]:hover {{ color: {TEXT}; background: rgba(255, 255, 255, 0.06); }}
-QPushButton[role="ghost"]:disabled {{ color: #4b5563; background: transparent; }}
+/* Выключенная «Выбрать» — это уже выбранный предмет: белый текст и лёгкая подложка. */
+QPushButton[role="ghost"]:disabled {{
+    color: #e6ebf3;
+    background: rgba(148, 163, 184, 0.16);
+    border-radius: 8px;
+}}
 QPushButton[role="icon"] {{
     background: transparent;
     border: 1px solid transparent;
@@ -254,6 +278,8 @@ QScrollBar::handle:horizontal {{ background: #243050; border-radius: 4px; min-wi
 QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; border: none; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 QStatusBar {{ background: {BACKGROUND}; }}
+QLabel#status {{ font-size: 12px; }}
+QLabel#status[role="muted"] {{ color: #a0a0a0; }}
 QStatusBar::item {{ border: none; }}
 QToolTip {{
     background: {SURFACE_RAISED};

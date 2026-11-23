@@ -1702,14 +1702,17 @@ def test_disabled_button_shows_forbidden_cursor(qt_app: QApplication) -> None:
     assert item.cursor().shape() == QtCore.CursorShape.PointingHandCursor
 
 
-def test_abort_button_is_a_danger_button(qt_app: QApplication) -> None:
-    """«Прервать» — кнопка с красной обводкой, а не текст в углу."""
-    from map_overlay.ui.theme import APP_QSS, DANGER_EDGE
+def test_abort_button_is_armed_only_while_busy(qt_app: QApplication) -> None:
+    """«Прервать» — кнопка, а не текст в углу: в покое серая, во время обмена красная."""
+    from map_overlay.ui.theme import APP_QSS, ERROR
 
     window, _panel, _store, _cursor = make_window(qt_app)
-    assert window._abort_button.property("role") == "danger"
-    assert window._abort_button.text() == "Прервать"
-    assert DANGER_EDGE in APP_QSS
+    abort = window._abort_button
+    assert abort.property("role") == "abort"
+    assert abort.text() == "Прервать"
+    armed = APP_QSS.split('QPushButton[role="abort"]:enabled {', 1)[1].split("}", 1)[0]
+    assert ERROR in armed
+    assert "color: #ffffff" in armed
 
 
 def test_mini_button_sits_next_to_title_and_badge_shows_calibration(
@@ -1815,8 +1818,8 @@ def test_calibration_help_hides_behind_the_card_icon(qt_app: QApplication) -> No
     assert not [item for item in tab.findChildren(QLabel) if item.property("role") == "hint"]
 
 
-def test_sizes_form_fields_share_a_column(qt_app: QApplication) -> None:
-    """«Название», «Длина» и «Ширина» начинаются с одного места, единица — внутри поля."""
+def test_sizes_form_puts_sizes_in_one_row(qt_app: QApplication) -> None:
+    """«Длина» и «Ширина» стоят рядом и заполняют карточку, а не жмутся влево."""
     from PySide6.QtCore import QPoint
 
     window, _panel, _store, _cursor = make_window(qt_app)
@@ -1824,15 +1827,23 @@ def test_sizes_form_fields_share_a_column(qt_app: QApplication) -> None:
     window._tabs.setCurrentIndex(1)
     qt_app.processEvents()
     tab = window.sizes
-    left = [field.mapTo(tab, QPoint(0, 0)).x() for field in (tab._name, tab._length, tab._width)]
-    assert len(set(left)) == 1, left
+    length = tab._length.mapTo(tab, QPoint(0, 0))
+    width = tab._width.mapTo(tab, QPoint(0, 0))
+    name = tab._name.mapTo(tab, QPoint(0, 0))
+    assert length.y() == width.y()
+    assert length.x() < width.x()
+    assert length.x() == name.x()
+    assert tab._length.width() == tab._width.width()
+    # Поля шире прежней «узкой» колонки и вместе занимают почти всю карточку.
+    assert tab._length.width() > 150
+    right = width.x() + tab._width.width()
+    assert right >= tab._form_card.width() - 40
     assert tab._length.text().endswith(" м")
     assert tab._width.text().endswith(" м")
-    assert tab._length.width() == tab._width.width()
 
 
-def test_sizes_rows_keep_sizes_in_a_column(qt_app: QApplication) -> None:
-    """Габариты в списке выровнены по правому краю и стоят в одном столбце."""
+def test_sizes_rows_put_sizes_under_the_name(qt_app: QApplication) -> None:
+    """Габариты стоят сразу под названием и начинаются с того же места."""
     from PySide6.QtCore import QPoint
     from PySide6.QtWidgets import QLabel
 
@@ -1847,15 +1858,20 @@ def test_sizes_rows_keep_sizes_in_a_column(qt_app: QApplication) -> None:
     names = tab.row_names()
     assert len(names) == 2
 
+    rows = [tab._list.itemWidget(tab._list.item(index)) for index in range(tab._list.count())]
     sizes = [
         item
-        for item in tab.findChildren(QLabel)
+        for row in rows
+        for item in row.findChildren(QLabel)
         if item.property("role") == "rowSize" and "×" in item.text()
     ]
     assert len(sizes) == len(names)
-    assert all(item.alignment() & Qt.AlignmentFlag.AlignRight for item in sizes)
-    assert len({item.mapTo(tab, QPoint(0, 0)).x() for item in sizes}) == 1
     assert [item.text() for item in sizes] == ["4 × 0.5 м", "1 × 0.2 м"]
+    for row in rows:
+        name = next(item for item in row.findChildren(QLabel) if item.property("role") == "rowName")
+        size = next(item for item in row.findChildren(QLabel) if item.property("role") == "rowSize")
+        assert size.mapTo(row, QPoint(0, 0)).y() > name.mapTo(row, QPoint(0, 0)).y()
+        assert size.mapTo(row, QPoint(0, 0)).x() == name.mapTo(row, QPoint(0, 0)).x()
 
 
 def test_long_name_row_grows_instead_of_overlapping(qt_app: QApplication) -> None:
@@ -2031,6 +2047,15 @@ def test_window_has_application_icon(qt_app: QApplication) -> None:
     assert not window.windowIcon().isNull()
 
 
+def test_theme_makes_status_instruction_readable() -> None:
+    """Строка состояния — 12 px и светлее: инструкцию внизу видно, а не угадывается."""
+    from map_overlay.ui.theme import APP_QSS
+
+    assert "QLabel#status { font-size: 12px; }" in APP_QSS
+    status = APP_QSS.split('QLabel#status[role="muted"] {', 1)[1].split("}", 1)[0]
+    assert "#a0a0a0" in status
+
+
 def test_theme_gives_inputs_room_inside_the_frame() -> None:
     """Текст не липнет к рамке: у полей ввода внутренние отступы 8 × 12."""
     from map_overlay.ui.theme import APP_QSS
@@ -2087,8 +2112,10 @@ def test_sizes_row_reads_name_first_and_sizes_second(qt_app: QApplication) -> No
     size = next(item for item in labels if item.property("role") == "rowSize")
     assert name.text() == "Ящик"
     assert size.text() == "2 × 1 м"
-    assert name.x() < size.x()
-    assert size.x() + size.width() <= row.width()
+    # Размеры — под названием, а не в середине строки между текстом и кнопками.
+    assert size.y() > name.y()
+    assert size.x() == name.x()
+    assert size.x() + size.width() < row.width()
 
     ghost = next(item for item in row.findChildren(QPushButton) if item.text() == "Выбрать")
     assert ghost.property("role") == "ghost"
@@ -2128,15 +2155,97 @@ def test_mini_and_calibration_badge_are_one_pill(qt_app: QApplication) -> None:
     assert 'QPushButton[role="badge"]' in APP_QSS
 
 
-def test_abort_button_stays_visible_but_quiet(qt_app: QApplication) -> None:
-    """«Прервать» видна всегда, но приглушена, пока прерывать нечего."""
-    from map_overlay.ui.theme import APP_QSS
+def test_abort_button_is_readable_while_idle(qt_app: QApplication) -> None:
+    """В покое «Прервать» — серая кнопка с читаемым текстом, а не тёмное пятно."""
+    from map_overlay.ui.theme import APP_QSS, BORDER
 
     window, _panel, _store, _cursor = make_window(qt_app)
     abort = window._abort_button
-    assert abort.text() == "Прервать"
-    assert abort.property("role") == "danger"
     assert not abort.isHidden()
     assert not abort.isEnabled()
-    disabled = APP_QSS.split('QPushButton[role="danger"]:disabled {', 1)[1].split("}", 1)[0]
-    assert "background: transparent" in disabled
+    idle = APP_QSS.split('QPushButton[role="abort"] {', 1)[1].split("}", 1)[0]
+    assert BORDER in idle
+    assert "color: #c2cbdb" in idle
+
+
+def test_sizes_placeholder_is_short_and_example_lives_in_help(
+    qt_app: QApplication,
+) -> None:
+    """Плейсхолдер не обрезается: «Введите название…», а пример — в справке ⓘ."""
+    window, _panel, _store, _cursor = make_window(qt_app)
+    tab = window.sizes
+    assert tab._name.placeholderText() == "Введите название…"
+    assert "Ящик" not in tab._name.placeholderText()
+    assert "Ящик" in tab.form_hint()
+
+
+def test_sizes_choose_button_is_visible_in_both_states(qt_app: QApplication) -> None:
+    """«Выбрать» читается: у выбранного предмета — белый текст на подложке."""
+    from map_overlay.ui.theme import APP_QSS
+
+    library = _library(
+        ObjectSize(name="Ящик", length=2.0, width=1.0),
+        ObjectSize(name="Дверь", length=1.0, width=0.2),
+    ).select("Ящик")
+    window, _panel, _store, _cursor = make_window(qt_app, size_store=FakeSizeStore(library))
+    window.sizes.show()
+    qt_app.processEvents()
+    tab = window.sizes
+    rows = {
+        tab._list.item(index).data(Qt.ItemDataRole.UserRole): tab._list.itemWidget(
+            tab._list.item(index)
+        )
+        for index in range(tab._list.count())
+    }
+    choose = {
+        name: next(item for item in row.findChildren(QPushButton) if item.text() == "Выбрать")
+        for name, row in rows.items()
+    }
+    assert not choose["Ящик"].isEnabled()
+    assert choose["Дверь"].isEnabled()
+    base = APP_QSS.split('QPushButton[role="ghost"] {', 1)[1].split("}", 1)[0]
+    assert "color: #b9c4d6" in base
+    picked = APP_QSS.split('QPushButton[role="ghost"]:disabled {', 1)[1].split("}", 1)[0]
+    assert "color: #e6ebf3" in picked
+    assert "rgba(148, 163, 184, 0.16)" in picked
+
+
+def test_sizes_icons_are_equal_and_trash_turns_white_on_hover(
+    qt_app: QApplication,
+) -> None:
+    """Карандаш и корзина одного размера; под курсом корзина белеет на красном фоне."""
+    from map_overlay.ui.tabs.sizes_tab import _trash_icon
+    from map_overlay.ui.theme import APP_QSS, DANGER_TEXT
+    from PySide6.QtCore import QSize
+    from PySide6.QtGui import QColor, QIcon
+
+    library = _library(ObjectSize(name="Ящик", length=2.0, width=1.0))
+    window, _panel, _store, _cursor = make_window(qt_app, size_store=FakeSizeStore(library))
+    tab = window.sizes
+    pencil = tab.pencil("Ящик")
+    trash = tab.trash("Ящик")
+    assert pencil is not None and trash is not None
+    assert pencil.size() == trash.size()
+    assert pencil.iconSize() == trash.iconSize()
+
+    icon = _trash_icon(QColor(DANGER_TEXT), hover=QColor("#ffffff"))
+    normal = icon.pixmap(QSize(24, 24), QIcon.Mode.Normal).toImage()
+    active = icon.pixmap(QSize(24, 24), QIcon.Mode.Active).toImage()
+    assert normal != active
+    colours = {
+        active.pixelColor(x, 12).name()
+        for x in range(active.width())
+        if active.pixelColor(x, 12).alpha() > 200
+    }
+    assert "#ffffff" in colours
+    hover_rule = APP_QSS.split('QPushButton[severity="danger"][role="icon"]:hover {', 1)[1]
+    assert "rgba(239, 68, 68" in hover_rule.split("}", 1)[0]
+
+
+def test_mini_button_reacts_to_hover() -> None:
+    """«Мини» — кнопка: при наведении меняется фон, иначе она выглядит бейджем."""
+    from map_overlay.ui.theme import APP_QSS
+
+    hover = APP_QSS.split('QPushButton[role="badge"]:hover {', 1)[1].split("}", 1)[0]
+    assert "background:" in hover
+    assert "color: #ffffff" in hover

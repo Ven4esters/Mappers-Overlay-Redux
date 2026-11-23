@@ -183,7 +183,7 @@ class MainWindow(QMainWindow):
         # похожая на обычную кнопку «нажми меня».
         self._abort_button = button(
             "Прервать",
-            widget_role="danger",
+            widget_role="abort",
             tooltip="Бросить текущее действие, если панель не отвечает",
         )
         self._abort_button.setEnabled(False)

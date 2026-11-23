@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QIcon,
@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QPixmap,
     QPolygonF,
     QResizeEvent,
+    QShowEvent,
     QValidator,
 )
 from PySide6.QtWidgets import (
@@ -51,21 +52,23 @@ from map_overlay.ui.widgets import (
     label,
 )
 
-SIZE_FIELD_WIDTH = 130
+SIZE_FIELD_WIDTH = 140
+# Минимальная ширина поля размера: в узком окне ниже не опускается, в широком растягивается.
 DEFAULT_LENGTH = 2.0
 DEFAULT_WIDTH = 1.0
 # С чего начинается форма: типичный ящик 2 × 1 м — видно, что куда вписывать.
 
 SUFFIX = " м"
-SIZE_COLUMN_WIDTH = 96
-# Колонка габаритов в списке: числа «4 × 0.5 м» стоят друг под другом, а не «пляшут».
 ROW_MARGIN_X = 8
 ROW_MARGIN_Y = 6
+ROW_MIN_HEIGHT = 44
+# Минимальная высота строки: название и габариты в две строки плюс поля.
 # Поля строки списка: подсветка выбранной строки видна по краям, текст не липнет к рамке.
 
 ADD_HINT = (
     "Название — ключ: предмет с тем же названием заменяется, регистр не важен.\n"
-    "Размеры задаются в метрах; дробная часть — через точку или запятую."
+    "Например: «Ящик», 2 × 1 м — длина и ширина в метрах, дробная часть через точку\n"
+    "или запятую."
 )
 EDIT_HINT = (
     "Правка «{name}»: измените название, длину или ширину и нажмите «Сохранить изменения».\n"
@@ -81,8 +84,10 @@ LIST_HINT = (
 ICON_TEXT = "#c3ccdb"
 # Карандаш светлый: палитра окна тёмная только через QSS, поэтому цвет задан явно.
 ICON_PX = 24
-ICON_BUTTON_PX = 30
-# Размер рисунка карандаша; на экране он показывается вдвое мельче.
+ICON_DRAW_PX = 20
+# Значок показывается 20 px в кнопке 32 px: карандаш и корзина читаются одинаково.
+ICON_BUTTON_PX = 32
+# Поле рисунка: значки рисуются в сетке 24 px, а на экране занимают ICON_DRAW_PX.
 
 
 class SizesTab(QWidget):
@@ -121,7 +126,7 @@ class SizesTab(QWidget):
         layout.addStretch(1)
 
     def _build_form(self) -> Card:
-        """Форма: подписи в одной колонке, единицы измерения — внутри полей."""
+        """Форма: название во всю ширину, длина и ширина — в одном ряду."""
         card = Card("Предмет", hint=ADD_HINT)
         self._form_card = card
         form = QGridLayout()
@@ -129,17 +134,25 @@ class SizesTab(QWidget):
         form.setVerticalSpacing(GRID_SPACING)
         self._name = QLineEdit(self)
         self._name.setMaxLength(MAX_NAME_LEN)
-        self._name.setPlaceholderText("Название, например «Ящик»")
+        # Коротко: пример («Ящик») живёт в справке под ⓘ и не обрезается в узком окне.
+        self._name.setPlaceholderText("Введите название…")
         self._length = _size_spin(DEFAULT_LENGTH)
         self._width = _size_spin(DEFAULT_WIDTH)
-        rows = (("Название", self._name), ("Длина", self._length), ("Ширина", self._width))
-        for row, (title, field) in enumerate(rows):
+        name_caption = label("Название", widget_role="muted")
+        name_caption.setMinimumWidth(LABEL_COLUMN_WIDTH)
+        name_caption.setWordWrap(False)
+        form.addWidget(name_caption, 0, 0)
+        form.addWidget(self._name, 0, 1, 1, 3)
+        # Длина и ширина стоят рядом: две колонки заполняют карточку, а не оставляют
+        # пустое поле справа от узких полей.
+        for column, (title, field) in enumerate((("Длина", self._length), ("Ширина", self._width))):
             caption = label(title, widget_role="muted")
             caption.setWordWrap(False)
             caption.setMinimumWidth(LABEL_COLUMN_WIDTH)
-            form.addWidget(caption, row, 0)
-            form.addWidget(field, row, 1)
+            form.addWidget(caption, 1, column * 2)
+            form.addWidget(field, 1, column * 2 + 1)
         form.setColumnStretch(1, 1)
+        form.setColumnStretch(3, 1)
         card.add_layout(form)
 
         # Кнопки — отдельной строкой: в одну строку с полями и подписями они не влезали
@@ -248,7 +261,7 @@ class SizesTab(QWidget):
             return
         self._add_button.setText("Сохранить изменения")
         self._add_button.setToolTip(
-            "Записать новые название и габариты: порядок в списке и выбранный предмет " "сохранятся"
+            "Записать новые название и габариты: порядок в списке и выбранный предмет сохранятся"
         )
         self._form_card.set_hint(EDIT_HINT.format(name=self._editing))
 
@@ -388,7 +401,9 @@ class SizesTab(QWidget):
             entry = self._list.item(index)
             # Виджет есть у каждой строки: строки создаются вместе с записями списка.
             row = self._list.itemWidget(entry)
-            height = max(row.sizeHint().height(), row.heightForWidth(width))
+            # Высоту считаем заново по ширине, а не берём sizeHint: у переносящего
+            # названия sizeHint зависит от текущей ширины и застревает на старом значении.
+            height = max(row.heightForWidth(width), ROW_MIN_HEIGHT)
             if entry.sizeHint().height() != height:
                 entry.setSizeHint(QSize(0, height))
         self._fit_list()
@@ -399,12 +414,22 @@ class SizesTab(QWidget):
         if hasattr(self, "_list"):
             self._resize_rows()
 
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 - имя из Qt
+        """Первая раскладка: список получает настоящую ширину только после показа."""
+        super().showEvent(event)
+        QTimer.singleShot(0, self._resize_rows)
+
     def _fit_list(self) -> None:
-        """Список занимает ровно свою высоту: прокрутка у вкладки, а не внутри списка."""
+        """Список занимает ровно свою высоту: прокрутка у вкладки, а не внутри списка.
+
+        Высота считается по ``sizeHint`` записей, а не по ``sizeHintForRow``: список
+        кэширует высоту строк и отдаёт старую, пока не пересчитает раскладку.
+        """
+        gap = self._list.spacing()
         height = 2 * self._list.frameWidth()
         for index in range(self._list.count()):
-            height += self._list.sizeHintForRow(index) + 2
-        self._list.setFixedHeight(max(height, 44))
+            height += self._list.item(index).sizeHint().height() + gap
+        self._list.setFixedHeight(max(height, ROW_MIN_HEIGHT))
 
     def _hint(self, visible: int) -> str:
         """Подсказка над списком: пусто, ничего не найдено или сколько показано."""
@@ -427,23 +452,29 @@ class SizesTab(QWidget):
         return active is not None and active.casefold() == item.key
 
     def _row(self, item: ObjectSize) -> QWidget:
-        """Строка списка: название слева, габариты и кнопки справа."""
+        """Строка списка: название с габаритами слева, действия — в правом краю."""
         host = QWidget(self)
         row = QHBoxLayout(host)
         row.setContentsMargins(ROW_MARGIN_X, ROW_MARGIN_Y, ROW_MARGIN_X, ROW_MARGIN_Y)
         row.setSpacing(10)
+        # Название и габариты — один блок: размеры не «болтаются» посередине строки,
+        # а стоят сразу под своим названием.
+        text = QVBoxLayout()
+        text.setSpacing(0)
+        text.setContentsMargins(0, 0, 0, 0)
         name = label(item.name, widget_role="rowName")
         name.setWordWrap(True)
         # Клик по тексту выбирает строку: метка не перехватывает мышь у списка.
         name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        row.addWidget(name, 1)
-        # Габариты — отдельной колонкой справа: числа в списке выстраиваются в столбец.
         size = label(f"{item.length:g} × {item.width:g} м", widget_role="rowSize")
         size.setWordWrap(False)
-        size.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        size.setMinimumWidth(SIZE_COLUMN_WIDTH)
         size.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        row.addWidget(size)
+        text.addWidget(name)
+        text.addWidget(size)
+        text.addStretch(1)
+        # Блок «название + размеры» стоит по центру строки, а не прижат к её верхнему краю.
+        row.addLayout(text, 1)
+        row.setAlignment(text, Qt.AlignmentFlag.AlignVCenter)
         choose = button(
             "Выбрать",
             widget_role="ghost",
@@ -461,7 +492,7 @@ class SizesTab(QWidget):
         trash = self._icon_button(
             tooltip="Удалить предмет из библиотеки",
             accessible="Удалить",
-            icon=_trash_icon(QColor(DANGER_TEXT)),
+            icon=_trash_icon(QColor(DANGER_TEXT), hover=QColor("#ffffff")),
             name=item.name,
             danger=True,
         )
@@ -487,6 +518,7 @@ class SizesTab(QWidget):
         item.setIcon(icon)
         item.setAccessibleName(accessible)
         item.setProperty("item_name", name)
+        item.setIconSize(QSize(ICON_DRAW_PX, ICON_DRAW_PX))
         item.setFixedSize(ICON_BUTTON_PX, ICON_BUTTON_PX)
         return item
 
@@ -527,8 +559,12 @@ def _pencil_icon(color: QColor) -> QIcon:
     return QIcon(pixmap)
 
 
-def _trash_icon(color: QColor) -> QIcon:
-    """Нарисовать корзину: иконка не зависит от шрифтов и системных наборов значков."""
+def _trash_icon(color: QColor, *, hover: QColor | None = None) -> QIcon:
+    """Нарисовать корзину: иконка не зависит от шрифтов и системных наборов значков.
+
+    Корзина уже карандаша, поэтому рисуется крупнее — иначе она выглядит мелкой.
+    ``hover`` — цвет рисунка под курсором (на красной подложке он белый).
+    """
     size = ICON_PX
     pixmap = QPixmap(size * 2, size * 2)
     pixmap.setDevicePixelRatio(2.0)
@@ -537,7 +573,8 @@ def _trash_icon(color: QColor) -> QIcon:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(color)
-    scale = size / 24.0
+    # 24 → 22: силуэт корзины подрастает до высоты карандаша.
+    scale = size / 22.0
 
     def polygon(points: list[tuple[float, float]]) -> QPolygonF:
         return QPolygonF([QPointF(x * scale, y * scale) for x, y in points])
@@ -554,7 +591,31 @@ def _trash_icon(color: QColor) -> QIcon:
         QRectF(13.0 * scale, 10.5 * scale, 1.2 * scale, 8.0 * scale), Qt.GlobalColor.transparent
     )
     painter.end()
-    return QIcon(pixmap)
+    icon = QIcon(pixmap)
+    if hover is not None:
+        # Активное состояние — это наведение: Qt берёт его для кнопки под курсором.
+        ring = QPixmap(size * 2, size * 2)
+        ring.setDevicePixelRatio(2.0)
+        ring.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(ring)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(hover)
+        painter.drawPolygon(polygon([(5.0, 5.0), (19.0, 5.0), (19.0, 7.5), (5.0, 7.5)]))
+        painter.drawPolygon(polygon([(9.0, 2.5), (15.0, 2.5), (15.0, 5.0), (9.0, 5.0)]))
+        painter.drawPolygon(polygon([(6.5, 8.5), (17.5, 8.5), (16.5, 21.0), (7.5, 21.0)]))
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+        painter.fillRect(
+            QRectF(10.0 * scale, 10.5 * scale, 1.2 * scale, 8.0 * scale),
+            Qt.GlobalColor.transparent,
+        )
+        painter.fillRect(
+            QRectF(13.0 * scale, 10.5 * scale, 1.2 * scale, 8.0 * scale),
+            Qt.GlobalColor.transparent,
+        )
+        painter.end()
+        icon.addPixmap(ring, QIcon.Mode.Active)
+    return icon
 
 
 class SizeSpin(QDoubleSpinBox):
@@ -574,7 +635,7 @@ class SizeSpin(QDoubleSpinBox):
         # Стрелки «+» и «−» не нужны: размер вписывают с клавиатуры.
         self.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.setFixedWidth(SIZE_FIELD_WIDTH)
+        self.setMinimumWidth(SIZE_FIELD_WIDTH)
         self.setValue(value)
 
     def validate(self, text: str, position: int) -> QValidator.State:
