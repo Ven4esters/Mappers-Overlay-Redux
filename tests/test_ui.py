@@ -1426,3 +1426,12 @@ def test_search_exact_padding_still_wins(qt_app: QApplication) -> None:
     assert "без учёта нулей" not in window.sizes.list_hint()
     window.sizes.press_search("Стена 1")
     assert window.sizes.row_names() == ["Стена 1-10"]
+
+
+def test_search_finds_wall_by_english_word_and_typo(qt_app: QApplication) -> None:
+    """Лемма «стен» связана с «wall»: английское слово и смешанный алфавит находят стену."""
+    store = FakeSizeStore(_library(ObjectSize("Стена March, TID, 01-39", 2.9, 2.7)))
+    window, _panel, _settings, _cursor = make_window(qt_app, size_store=store)
+    for query in ("wall", "Cтена", "март"):
+        window.sizes.press_search(query)
+        assert window.sizes.row_names() == ["Стена March, TID, 01-39"], query

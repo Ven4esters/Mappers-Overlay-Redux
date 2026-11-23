@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import pytest
 from tools.check_licenses import (
+    BUILD_ONLY,
     Dependency,
     find_blocked,
+    installed_dependencies,
     is_strong_copyleft,
     license_text,
     main,
@@ -55,6 +57,14 @@ def test_find_blocked_returns_only_copyleft() -> None:
         Dependency(name="ok", license="MIT License"),
     ]
     assert [item.name for item in find_blocked(dependencies)] == ["cursed"]
+
+
+def test_build_tools_are_skipped() -> None:
+    """Инструменты сборки (PyInstaller) не входят в поставку и не блокируют проверку."""
+    assert "pyinstaller" in BUILD_ONLY
+    names = {item.name.lower() for item in installed_dependencies()}
+    assert not names & BUILD_ONLY
+    assert "pyside6_essentials" in names
 
 
 def test_installed_environment_has_no_blocked_licenses() -> None:

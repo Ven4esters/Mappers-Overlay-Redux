@@ -14,6 +14,7 @@ from map_overlay import __version__, diagnostics
 from map_overlay.application.ports import HotkeySource, PanelAutomation
 from map_overlay.config import Settings
 from map_overlay.context import AppContext
+from map_overlay.domain import lemmas
 from map_overlay.domain.fields import PANEL_ORDER
 from map_overlay.errors import AppError, ConfigError
 from map_overlay.infrastructure.clipboard import SystemClipboard
@@ -50,6 +51,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "да" if args.debug else "нет",
         log_path(),
     )
+    logger.info(lemmas.describe())
     if args.check_only:
         return _check_only()
     diagnostics.install_crash_handlers(crash_path())

@@ -23,8 +23,14 @@ WEAK_COPYLEFT: tuple[str, ...] = ("lesser", "lgpl", "mozilla public license", "m
 # Исключения: LGPL и MPL разрешают динамическое подключение проприетарного кода.
 
 LICENSE_CLASSIFIER_PREFIX: str = "License ::"
-DEFAULT_SKIP: frozenset[str] = frozenset()
-# Пакеты, которые не проверяем: пусто — проверяются все установленные.
+
+BUILD_ONLY: frozenset[str] = frozenset({"pyinstaller", "pyinstaller-hooks-contrib"})
+# Инструменты сборки: в поставку приложения они не входят, а PyInstaller прямо разрешает
+# распространять собранные им бинарники (GPLv2 с исключением). Рантайм-зависимости
+# (PySide6, pyperclip) проверяются как обычно.
+
+DEFAULT_SKIP: frozenset[str] = BUILD_ONLY
+# Пакеты, которые не проверяем.
 
 
 @dataclass(frozen=True, slots=True)

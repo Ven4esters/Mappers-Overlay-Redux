@@ -34,54 +34,23 @@ import re
 from dataclasses import dataclass
 from typing import Final
 
+from map_overlay.domain.lemmas import stem, stems_of
+
+__all__ = [
+    "RANGE_LIMIT",
+    "SEPARATORS",
+    "SearchIndex",
+    "build_index",
+    "expand_range",
+    "parse_query",
+    "stem",
+]
+
 SEPARATORS: Final = (",", ";")
 # Чем в названии разделяют синонимы: запятая — основной вариант, точка с запятой — на случай.
 
 RANGE_LIMIT: Final = 1000
 # Больше номеров не разворачиваем: «1-99999» — это опечатка, а не диапазон.
-
-MIN_STEM: Final = 3
-# Короче этого основу не режем: «Я» и «№» должны сравниваться целиком.
-
-_ENDINGS: Final = (
-    "ами",
-    "ями",
-    "ов",
-    "ев",
-    "ой",
-    "ый",
-    "ий",
-    "ая",
-    "яя",
-    "ое",
-    "ее",
-    "ые",
-    "ие",
-    "ым",
-    "им",
-    "ам",
-    "ям",
-    "ах",
-    "ях",
-    "ом",
-    "ем",
-    "ую",
-    "юю",
-    "а",
-    "е",
-    "ё",
-    "и",
-    "о",
-    "у",
-    "ы",
-    "э",
-    "ю",
-    "я",
-    "й",
-    "ь",
-    "ъ",
-)
-# Окончания, которые отбрасываются при сравнении слов. Порядок — от длинных к коротким.
 
 _RANGE_RE: Final = re.compile(r"(?P<prefix>.*?)(?P<start>\d+)\s*-\s*(?P<end>\d+)\s*\Z")
 _WORD_RE: Final = re.compile(r"[^\s,;]+")
@@ -118,7 +87,7 @@ class SearchIndex:
                 known = self.values if ignore_padding else self.numbers
                 if (int(word) if ignore_padding else word) not in known:
                     return False
-            elif stem(word) not in self.text:
+            elif not any(base in self.text for base in stems_of(word)):
                 return False
         return True
 
@@ -128,20 +97,6 @@ def parse_query(text: str) -> tuple[str, ...]:
     return tuple(
         word for word in (part.casefold() for part in _WORD_RE.findall(text)) if word != _WILDCARD
     )
-
-
-def stem(word: str) -> str:
-    """Отбросить окончание: «Стена», «стены», «стеной» → «стен».
-
-    Сравнение основ делает поиск устойчивым к падежам: «Стена» находит и «Длинная
-    стена», и «четверть стены», и «Полустена».
-    """
-    lowered = word.casefold()
-    for ending in _ENDINGS:
-        rest = len(lowered) - len(ending)
-        if rest >= MIN_STEM and lowered.endswith(ending):
-            return lowered[:rest]
-    return lowered
 
 
 def build_index(name: str) -> SearchIndex:
@@ -169,13 +124,12 @@ def _fragments(name: str) -> list[str]:
 def _add_fragment(fragment: str, stems: set[str], numbers: set[str]) -> None:
     """Добавить синоним, основы его слов и развёрнутый диапазон номеров, если он есть."""
     lowered = fragment.casefold()
-    stems.add(stem(lowered))
     for word in _WORD_RE.findall(lowered):
         if word.isdigit():
             numbers.add(word)
             stems.add(word)
             continue
-        stems.add(stem(word))
+        stems.update(stems_of(word))
     match = _RANGE_RE.match(lowered)
     if match is None:
         return
@@ -185,7 +139,7 @@ def _add_fragment(fragment: str, stems: set[str], numbers: set[str]) -> None:
         numbers.add(value)
         stems.add(value)
         if prefix:
-            stems.add(f"{stem(prefix)} {value}")
+            stems.update(f"{base} {value}" for base in stems_of(prefix))
 
 
 def expand_range(start: str, end: str, *, limit: int = RANGE_LIMIT) -> tuple[str, ...]:

@@ -82,9 +82,9 @@ def test_wall_is_not_found_by_foreign_words(query: str) -> None:
     assert not matches(WALL, query)
 
 
-def test_missing_number_does_not_match_even_if_word_matches() -> None:
+def test_missing_word_does_not_match_even_if_number_matches() -> None:
     assert matches(WALL, "Стена 10")
-    assert not matches(WALL, "Стена 10 март")
+    assert not matches(WALL, "Стена 10 шкатулка")
 
 
 def test_paddings_are_different_ranges() -> None:
@@ -186,3 +186,36 @@ def test_loose_number_still_rejects_foreign_number() -> None:
 def test_loose_number_does_not_match_missing_word() -> None:
     index = build_index(WALL)
     assert not index.matches(parse_query("Стена Склад 1"), ignore_padding=True)
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["wall", "Wall", "стена", "Стена March", "стены 05"],
+)
+def test_wall_is_found_in_both_languages(query: str) -> None:
+    """Лемма «стен» и её английская связка «wall» находят одну и ту же запись."""
+    assert matches(WALL, query)
+
+
+def test_english_name_is_found_by_russian_word() -> None:
+    assert matches("Wall March, TID, 01-39", "стена")
+    assert matches("Wall March, TID, 01-39", "март")
+    assert matches("Wall March, TID, 01-39", "march")
+
+
+def test_half_wall_is_not_every_wall() -> None:
+    """«полустена» — отдельная лемма: запрос не подмешивает все стены."""
+    assert matches("Полустена 01-39", "стена")
+    assert not matches("Стена March, 01-39", "полустена")
+
+
+def test_mixed_alphabet_typo_finds_wall() -> None:
+    """Латинская «C» в начале слова не мешает найти «Стену»."""
+    assert matches(WALL, "Cтена TID")
+    assert matches(WALL, "стенa")
+
+
+def test_box_is_found_by_english_synonym() -> None:
+    assert matches("Ящик", "box")
+    assert matches("Box", "ящик")
+    assert matches("Ящик", "ящ")
