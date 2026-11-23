@@ -2,13 +2,16 @@
 
 Скрипт создаёт ``.venv``, ставит зависимости из ``requirements.txt`` (только если они
 изменились) и запускает ``main.py``. Журнал установки — ``logs/setup.log``.
+
+``subprocess`` вызывается только со своими командами (``sys.executable``, ``pip`` из
+``.venv``, ``main.py``); внешнего ввода в аргументах нет, шелл не используется.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
-import subprocess
+import subprocess  # nosec B404
 import sys
 import time
 from pathlib import Path
@@ -65,7 +68,10 @@ def ensure_venv() -> bool:
     if python.exists():
         return True
     _log(f"Создаю окружение: {VENV}")
-    result = subprocess.run([sys.executable, "-m", "venv", str(VENV)], check=False)
+    # Список аргументов без шелла: подставить чужую команду неоткуда.
+    result = subprocess.run(  # nosec B603
+        [sys.executable, "-m", "venv", str(VENV)], check=False
+    )
     if result.returncode != 0 or not python.exists():
         _log("Не удалось создать виртуальное окружение", is_error=True)
         return False
@@ -84,7 +90,7 @@ def install_requirements() -> bool:
         [python, "-m", "pip", "install", "--upgrade", "pip"],
         [python, "-m", "pip", "install", "-r", str(REQUIREMENTS)],
     ):
-        result = subprocess.run(command, check=False)
+        result = subprocess.run(command, check=False)  # nosec B603
         if result.returncode != 0:
             _log(f"Команда завершилась с ошибкой: {' '.join(command)}", is_error=True)
             return False
@@ -96,7 +102,7 @@ def run_app(extra_args: list[str]) -> int:
     """Запустить приложение и вернуть его код выхода."""
     command = [str(venv_python()), str(ROOT / "main.py"), *extra_args]
     _log("Запускаю оверлей")
-    return subprocess.run(command, check=False).returncode
+    return subprocess.run(command, check=False).returncode  # nosec B603
 
 
 def main(argv: list[str] | None = None) -> int:

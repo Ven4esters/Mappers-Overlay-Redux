@@ -16,7 +16,7 @@ from map_overlay.errors import PanelRejectedError, ParseError
 logger = logging.getLogger(__name__)
 
 MAX_WRITE_ATTEMPTS: Final = 2
-"""Сколько раз пробуем записать поле: вставка идемпотентна, одной повторной попытки хватает."""
+# Сколько раз пробуем записать поле: вставка идемпотентна, одной повторной попытки хватает.
 
 
 class PoseWriter:

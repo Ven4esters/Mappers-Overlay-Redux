@@ -12,3 +12,4 @@ config/
 .coverage
 htmlcov/
 *.zip
+*.egg-info/

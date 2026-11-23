@@ -32,15 +32,17 @@ WM_SYSKEYDOWN: Final = 0x0104
 WM_SYSKEYUP: Final = 0x0105
 WM_QUIT: Final = 0x0012
 LLKHF_INJECTED: Final = 0x10
-"""Флаг «клавиша послана программой», а не нажата человеком."""
+# Флаг «клавиша послана программой», а не нажата человеком.
 HOOK_TIMEOUT_MS: Final = 2000
+HOOK_BLOCK: Final = 1
+# Что вернуть из хука, чтобы клавиша не дошла до игры; пропуск — значение CallNextHookEx.
+HOOK_PASS: Final = 0
 FREEZE_LIMIT_S: Final = 20.0
-"""Сколько секунд клавиатура может оставаться замороженной без присмотра.
-
-Заморозка нужна на время обмена с панелью: случайное нажатие в этот момент попадает
-в поле координат и ломает значение. Она обязана сниматься сама — иначе ошибка в
-интерфейсе оставила бы пользователя без клавиатуры.
-"""
+# Сколько секунд клавиатура может оставаться замороженной без присмотра.
+#
+# Заморозка нужна на время обмена с панелью: случайное нажатие в этот момент попадает
+# в поле координат и ломает значение. Она обязана сниматься сама — иначе ошибка в
+# интерфейсе оставила бы пользователя без клавиатуры.
 
 _Fields = list[tuple[str, object]]
 
@@ -172,6 +174,8 @@ class WindowsHotkeySource(QThread):
 
     def stop_listening(self) -> None:
         """Остановить хук и дождаться потока."""
+        self._frozen = False
+        self._swallowed.clear()
         if sys.platform == "win32" and self._thread_id:
             windll = ctypes.windll
             windll.user32.PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
@@ -197,6 +201,7 @@ class WindowsHotkeySource(QThread):
         self._enabled = enabled
         if not enabled:
             self._swallowed.clear()
+            self._frozen = False
 
     def num_lock_enabled(self) -> bool | None:
         """Включён ли NumLock."""
@@ -284,22 +289,15 @@ class WindowsHotkeySource(QThread):
         if not (is_down or is_up):
             return self._pass_through(code, wparam, lparam)
         self._freeze_expired()
-        if self._frozen and not injected:
-            # Обмен с панелью: живые клавиши не доходят ни до игры, ни до поля координат.
-            # Свои (внедрённые) клавиши обязаны проходить: это и есть Ctrl+A/Ctrl+V,
-            # которыми оверлей пишет значения. Заблокировать их — значит не записать ничего.
-            if is_down:
-                self._swallowed.add(vk)
-            else:
-                self._swallowed.discard(vk)
-            return 1
+        if self._frozen and self._enabled and not injected:
+            return self._swallow(is_down, vk)
         self._observe_alt(vk, is_down, injected)
         block = self._enabled and blocks_key(
             vk=vk,
             is_down=is_down,
             bound=self._bound,
             learning=self._learning,
-            overlay_active=self._foreground_is_ours(),
+            overlay_active=self._learning and self._foreground_is_ours(),
             swallowed=self._swallowed,
         )
         fresh = is_down and block and vk not in self._swallowed
@@ -312,9 +310,22 @@ class WindowsHotkeySource(QThread):
                 logger.debug("Клавиша %s пропущена: перехват выключен", key_name(vk))
             return self._pass_through(code, wparam, lparam)
         if fresh:
-            logger.info("Хук забрал клавишу %s", key_name(vk))
+            logger.debug("Хук забрал клавишу %s", key_name(vk))
         self.key_event.emit(vk, is_down, fresh)
-        return 1
+        return HOOK_BLOCK
+
+    def _swallow(self, is_down: bool, vk: int) -> int:
+        """Съесть живую клавишу на время обмена с панелью.
+
+        Клавиши, которые посылает сам оверлей (``LLKHF_INJECTED``), сюда не попадают:
+        это ``Ctrl+A`` и ``Ctrl+V``, которыми пишутся значения. Отпускания съедаются
+        вместе с нажатиями, чтобы в игре не осталось «зажатой» клавиши.
+        """
+        if is_down:
+            self._swallowed.add(vk)
+        else:
+            self._swallowed.discard(vk)
+        return HOOK_BLOCK
 
     def _observe_alt(self, vk: int, is_down: bool, injected: bool = False) -> None:
         """Заметить одиночное нажатие Alt — им переключается режим высоты.
@@ -354,6 +365,7 @@ class WindowsHotkeySource(QThread):
         return int(pid.value) == int(self._own_pid())
 
     def _pass_through(self, code: int, wparam: int, lparam: int) -> int:
+        """Пропустить клавишу дальше: вернуть то, что вернул бы следующий хук."""
         if self._call_next is None:
-            return 0
+            return HOOK_PASS
         return int(self._call_next(None, code, wparam, lparam))

@@ -66,8 +66,6 @@ COMMON_GAME_KEYS: Final = frozenset(
 
 MIN_VK: Final = 0x01
 MAX_VK: Final = 0xFE
-UNBOUND: Final = None
-
 _SPECIAL_NAMES: Final[dict[int, str]] = {
     VK_TAB: "Tab",
     VK_ENTER: "Enter",
@@ -94,7 +92,6 @@ _SPECIAL_NAMES.update({0x41 + index: chr(ord("A") + index) for index in range(26
 
 def generic_vk(vk: int) -> int:
     """Свести клавишу со «стороной» к общему коду.
-
     Хук клавиатуры сообщает конкретную клавишу: левый Alt приходит как ``VK_LMENU``
     (``0xA4``), а не как ``VK_MENU`` (``0x12``). Без сведения не работали бы ни
     переключатель режима высоты на Alt, ни горячие клавиши на Shift и Ctrl.

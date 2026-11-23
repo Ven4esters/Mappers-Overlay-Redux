@@ -15,6 +15,8 @@ from map_overlay.domain.point import Point
 from map_overlay.errors import ConfigError
 
 SCHEMA_VERSION: Final = 2
+MAX_POINT_COORDINATE: Final = 100_000
+# Верхняя граница для точек калибровки: защита от испорченного файла с ``1e18``.
 DEFAULT_STEP: Final = 0.5
 DEFAULT_DECIMALS: Final = 3
 
@@ -142,6 +144,8 @@ class Settings:
         """
         raw = _as_mapping(data, "настройки")
         version = _as_int(raw.get("schema_version", SCHEMA_VERSION), "schema_version")
+        if version < 0:
+            raise ConfigError(f"Версия файла настроек не может быть отрицательной: {version}")
         if version > SCHEMA_VERSION:
             raise ConfigError(
                 f"Файл настроек новее приложения (схема {version}, поддерживается "
@@ -197,6 +201,11 @@ def _as_bool(value: object, name: str) -> bool:
 def _check_point(point: Point, name: str) -> None:
     if point.x < 0 or point.y < 0:
         raise ConfigError(f"Координаты точки «{name}» не могут быть отрицательными")
+    if point.x > MAX_POINT_COORDINATE or point.y > MAX_POINT_COORDINATE:
+        raise ConfigError(
+            f"Координаты точки «{name}» больше {MAX_POINT_COORDINATE} пикселей: "
+            "файл настроек испорчен"
+        )
 
 
 def _check_hotkeys(hotkeys: Mapping[Action, int | None]) -> None:

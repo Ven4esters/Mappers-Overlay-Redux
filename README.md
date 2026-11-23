@@ -8,7 +8,7 @@
 Ещё экраны: [калибровка](docs/screenshot-calibration.png) и
 [настройки](docs/screenshot-settings.png).
 
-## Что умеет (версия 1.7.1)
+## Что умеет (версия 1.8.0)
 
 1. **Калибровка.** Семь точек: шесть полей `X`, `Y`, `Z`, `RX`, `RY`, `RZ` и «пустое место
    панели». Оверлей отсчитывает 3 секунды, забирает позицию курсора и запоминает её в
@@ -353,7 +353,9 @@ run_overlay.bat --debug
 ```bash
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"
-ruff format --check . && ruff check . && mypy && pytest --cov=map_overlay --cov-report=term-missing
+ruff format --check . && ruff check . && mypy && bandit -q -c pyproject.toml -r map_overlay tools \
+  && pytest --cov=map_overlay --cov-report=term-missing \
+  && pip-audit && python -m tools.check_licenses
 ```
 
 Правила проекта — `CONTRIBUTING.md`, стиль — `STYLEGUIDE.md`, решения — `docs/adr/`,

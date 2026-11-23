@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 MAX_CURSOR_DRIFT_PX: Final = 4
 
 MODIFIER_WAIT_S: Final = 1.5
-"""Сколько ждать отпускания ``Alt``/``Ctrl``/``Shift`` перед обменом."""
+# Сколько ждать отпускания ``Alt``/``Ctrl``/``Shift`` перед обменом.
 
 MODIFIER_POLL_S: Final = 0.05
-"""Столько пикселей курсор может «дрожать» между нашими действиями."""
+# Столько пикселей курсор может «дрожать» между нашими действиями.
 
 
 class CalibratedPanel:

@@ -11,7 +11,7 @@ from map_overlay.errors import InputError, UnsupportedPlatformError
 
 VK_CONTROL: Final = 0x11
 MODIFIER_KEYS: Final = (0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5)
-"""``Shift``, ``Ctrl``, ``Alt`` и их версии со стороной."""
+# ``Shift``, ``Ctrl``, ``Alt`` и их версии со стороной.
 VK_F: Final = 0x46
 VK_A: Final = 0x41
 VK_C: Final = 0x43
@@ -24,11 +24,9 @@ MOUSEEVENTF_LEFTDOWN: Final = 0x0002
 MOUSEEVENTF_LEFTUP: Final = 0x0004
 
 DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: Final = -4
-SM_CXSCREEN: Final = 0
-SM_CYSCREEN: Final = 1
 
 _Fields = list[tuple[str, object]]
-"""Описание полей ctypes-структуры."""
+# Описание полей ctypes-структуры.
 
 
 class _MouseInput(ctypes.Structure):
@@ -141,13 +139,6 @@ class WindowsInput:
         """Переместить курсор без клика."""
         if not self._user32.SetCursorPos(int(point.x), int(point.y)):
             raise InputError(f"Не удалось перевести курсор в точку {point}")
-
-    def screen_size(self) -> Point:
-        """Размер основного экрана в пикселях."""
-        return Point(
-            x=int(self._user32.GetSystemMetrics(SM_CXSCREEN)),
-            y=int(self._user32.GetSystemMetrics(SM_CYSCREEN)),
-        )
 
     def _send_combo(self, key: int) -> None:
         self._send_keys(((VK_CONTROL, True), (key, True), (key, False), (VK_CONTROL, False)))

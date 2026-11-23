@@ -5,13 +5,17 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Final
 
 LOG_FORMAT_VERSION: Final = 1
+LOG_MAX_BYTES: Final = 2 * 1024 * 1024
+# Сколько места журнал может занять: старые записи вытесняются, диск не переполняется.
+LOG_BACKUP_COUNT: Final = 3
 
 _OWN_HANDLERS: list[logging.Handler] = []
-"""Обработчики, добавленные этим модулем: чужие (например, в тестах) не трогаем."""
+# Обработчики, добавленные этим модулем: чужие (например, в тестах) не трогаем.
 
 
 class JsonFormatter(logging.Formatter):
@@ -41,7 +45,12 @@ def setup_logging(path: Path, *, debug: bool = False, console: bool = False) -> 
         root.removeHandler(handler)
         handler.close()
     _OWN_HANDLERS.clear()
-    file_handler = logging.FileHandler(path, encoding="utf-8")
+    file_handler = RotatingFileHandler(
+        path,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
     file_handler.setFormatter(JsonFormatter())
     root.addHandler(file_handler)
     _OWN_HANDLERS.append(file_handler)

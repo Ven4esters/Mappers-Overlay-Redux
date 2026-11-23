@@ -57,17 +57,16 @@ HOOK_CHECK_MS = 800
 HEARTBEAT_MS = 250
 BUSY_TICK_MS = 500
 ACTION_DEADLINE_MS = 20000
-"""Сколько ждать обмен с панелью, прежде чем прервать его самим.
-
-Раньше зависший обмен оставлял окно занятым навсегда, и оверлей приходилось
-закрывать через диспетчер задач. Теперь по таймауту задача бросается автоматически.
-"""
+# Сколько ждать обмен с панелью, прежде чем прервать его самим.
+#
+# Раньше зависший обмен оставлял окно занятым навсегда, и оверлей приходилось
+# закрывать через диспетчер задач. Теперь по таймауту задача бросается автоматически.
 STUCK_HINT_S = 5.0
 HOLD_REPEAT_MS = 150
-"""Пауза перед следующим шагом удержания: отсчитывается от конца предыдущего."""
+# Пауза перед следующим шагом удержания: отсчитывается от конца предыдущего.
 
 NUM_LOCK_CHECK_MS = 3000
-"""Как часто проверять NumLock: без него Numpad посылает другие клавиши."""
+# Как часто проверять NumLock: без него Numpad посылает другие клавиши.
 LEARN_TIMEOUT_MS = 10_000
 
 
@@ -107,7 +106,13 @@ class MainWindow(QMainWindow):
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         # Окно не отбирает фокус у игры при запуске: клавиатура остаётся у игры.
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self._build_layout()
+        self._build_status_bar()
+        self._build_timers()
+        self._connect_signals()
 
+    def _build_layout(self) -> None:
+        """Заголовок, три вкладки в прокрутке и центральный виджет."""
         central = QWidget(self)
         central.setObjectName("central")
         layout = QVBoxLayout(central)
@@ -130,6 +135,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._tabs, 1)
         self.setCentralWidget(central)
 
+    def _build_status_bar(self) -> None:
+        """Строка состояния с текстом и кнопкой «Прервать»."""
         self._status = QLabel("", self)
         self._status.setObjectName("status")
         self._status.setWordWrap(True)
@@ -143,6 +150,8 @@ class MainWindow(QMainWindow):
         self._abort_button.clicked.connect(self._abort_action)
         self.statusBar().addPermanentWidget(self._abort_button)
 
+    def _build_timers(self) -> None:
+        """Таймеры: дедлайн действия, отсчёт занятости, сердцебиение, удержание, NumLock."""
         self._deadline_timer = QTimer(self)
         self._deadline_timer.setSingleShot(True)
         self._deadline_timer.timeout.connect(self._action_deadline)
@@ -161,6 +170,8 @@ class MainWindow(QMainWindow):
         self._num_lock_timer.timeout.connect(self._check_num_lock)
         self._num_lock_timer.start()
 
+    def _connect_signals(self) -> None:
+        """Связи вкладок с окном."""
         self.movement.capture_requested.connect(self._capture)
         self.movement.confirm_requested.connect(self._confirm)
         self.movement.move_requested.connect(self._move)
@@ -709,12 +720,19 @@ class MainWindow(QMainWindow):
         self._refresh_header()
         self._set_status("Настройки сохранены. Нажмите «Считать» заново.", STATUS_OK)
 
-    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - имя из Qt
-        """Снять хук и дождаться фоновой задачи, чтобы не оставить поток висеть."""
+    def _stop_timers(self) -> None:
+        """Погасить все таймеры окна: после закрытия они не должны срабатывать."""
         self._heartbeat.stop()
         self._num_lock_timer.stop()
         self._hold_timer.stop()
+        self._deadline_timer.stop()
+        self._busy_timer.stop()
+        self._learn_timer.stop()
         self._held = None
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - имя из Qt
+        """Снять хук и дождаться фоновой задачи, чтобы не оставить поток висеть."""
+        self._stop_timers()
         self._hotkeys.stop_listening()
         self._runner.shutdown()
         super().closeEvent(event)

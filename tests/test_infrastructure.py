@@ -99,12 +99,13 @@ def test_hook_decides_fresh_press_and_autorepeat(
     data = _KeyboardHookData(vk=0x68, scan=0, flags=0, time=0, extra=None)
     lparam = ctypes.addressof(data)
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         assert source._decide(0, WM_KEYDOWN, lparam) == 1
         assert source._decide(0, WM_KEYDOWN, lparam) == 1
         assert source._decide(0, WM_KEYUP, lparam) == 1
     assert events == [(0x68, True, True), (0x68, True, False), (0x68, False, False)]
     # В журнал попадает только само нажатие: автоповтор и отпускание молчат.
+    # Уровень DEBUG, а не INFO: поток хука не должен ждать записи на диск.
     assert caplog.text.count("Хук забрал клавишу Num 8") == 1
 
 
@@ -255,3 +256,36 @@ def test_frozen_hook_still_blocks_live_keys_next_to_its_own() -> None:
     assert hook.send(0x11, True, injected=True) == 0
     assert hook.send(0x41, True) == 1
     assert hook.send(0x41, False) == 1
+
+
+def test_emergency_stop_lifts_the_freeze() -> None:
+    """Галочка «Перехватывать клавиши» сильнее заморозки: клавиатура оживает сразу.
+
+    Иначе при зависшем обмене с панелью пользователь снимал галочку, а клавиши
+    продолжали съедаться до истечения :data:`FREEZE_LIMIT_S`.
+    """
+    hook = _HookHarness(bound=(0x68,))
+    hook.source.freeze(True)
+    hook.source.set_enabled(False)
+    assert hook.source._frozen is False
+    assert hook.send(0x41, True) == 0
+
+
+def test_frozen_hook_passes_keys_when_interception_is_off() -> None:
+    hook = _HookHarness(bound=(0x68,))
+    hook.source._enabled = False
+    hook.source.freeze(True)
+    assert hook.send(0x41, True) == 0
+    assert hook.source._frozen is True
+
+
+def test_foreground_window_is_checked_only_while_learning() -> None:
+    """Обычное нажатие не тратит два вызова Win32 на определение активного окна."""
+    calls: list[bool] = []
+    hook = _HookHarness(bound=(0x68,))
+    hook.source._foreground_is_ours = lambda: calls.append(True) or False
+    hook.send(0x68, True)
+    assert calls == []
+    hook.source._learning = True
+    hook.send(0x68, True)
+    assert calls == [True]

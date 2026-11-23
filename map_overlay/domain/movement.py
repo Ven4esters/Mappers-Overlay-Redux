@@ -13,13 +13,13 @@ from map_overlay.domain.pose import Pose
 from map_overlay.errors import ValidationError
 
 COORD_DECIMALS: Final = 3
-"""Точность координат в панели LSP: миллиметры."""
+# Точность координат в панели LSP: миллиметры.
 
 MIN_STEP: Final = 0.01
 MAX_STEP: Final = 100.0
 
 TOLERANCE: Final = 0.0005
-"""Половина третьего знака: меньше — это то же самое значение."""
+# Половина третьего знака: меньше — это то же самое значение.
 
 
 def validate_step(step: float) -> float:
@@ -212,13 +212,13 @@ DIAGONAL_TITLES: Final[dict[Direction, str]] = {
     Direction.BACK_LEFT: "вниз-влево",
     Direction.BACK_RIGHT: "вниз-вправо",
 }
-"""Куда ведёт диагональная клавиша: ``Rx(RX) · Ry(RY)`` над локальной «вверх»-осью."""
+# Куда ведёт диагональная клавиша: ``Rx(RX) · Ry(RY)`` над локальной «вверх»-осью.
 
 ALT_TITLES: Final[dict[Direction, str]] = {
     Direction.FORWARD: "вверх",
     Direction.BACK: "вниз",
 }
-"""Что делают ``Num 8`` и ``Num 2`` при включённом режиме высоты."""
+# Что делают ``Num 8`` и ``Num 2`` при включённом режиме высоты.
 
 
 def alt_hint() -> str:

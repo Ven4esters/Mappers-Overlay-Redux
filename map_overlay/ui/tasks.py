@@ -131,7 +131,16 @@ class TaskRunner(QObject):
         if self._synchronous:
             return self._run_inline(work)
         self._generation += 1
-        generation = self._generation
+        thread = self._spawn(work, self._generation)
+        self._thread = thread
+        self._active = thread
+        self._active_generation = self._generation
+        thread.start()
+        logger.info("Задача «%s» начата", label)
+        return True
+
+    def _spawn(self, work: Work, generation: int) -> QThread:
+        """Создать поток с задачей и связать её сигналы с обработчиками."""
         task = _Task(work, generation)
         thread = QThread(self)
         self._tasks[generation] = task
@@ -142,12 +151,7 @@ class TaskRunner(QObject):
         task.succeeded.connect(thread.quit)
         task.failed.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
-        self._thread = thread
-        self._active = thread
-        self._active_generation = generation
-        thread.start()
-        logger.info("Задача «%s» начата", label)
-        return True
+        return thread
 
     def abandon(self) -> bool:
         """Бросить текущую задачу: её результат больше не нужен.

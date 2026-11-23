@@ -144,3 +144,18 @@ def test_negative_empty_point_is_rejected() -> None:
 def test_negative_calibration_point_is_rejected() -> None:
     with pytest.raises(ConfigError):
         Settings(calibration={Field.X: Point(-1, 0)})
+
+
+def test_too_far_calibration_point_is_rejected() -> None:
+    """Испорченный файл с ``1e18`` не должен превращаться в клик за пределы экрана."""
+    raw = Settings().to_dict()
+    raw["calibration"] = {"x": {"x": 10**18, "y": 10}}
+    with pytest.raises(ConfigError, match="испорчен"):
+        Settings.from_dict(raw)
+
+
+def test_negative_schema_version_is_rejected() -> None:
+    raw = Settings().to_dict()
+    raw["schema_version"] = -1
+    with pytest.raises(ConfigError, match="отрицательной"):
+        Settings.from_dict(raw)

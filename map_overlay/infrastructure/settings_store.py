@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Final
 
@@ -46,14 +47,20 @@ class JsonSettingsStore:
         return settings
 
     def save(self, settings: Settings) -> None:
-        """Записать настройки атомарно: сначала ``.tmp``, затем подмена."""
+        """Записать настройки атомарно: сначала ``.tmp`` с ``fsync``, затем подмена.
+
+        ``fsync`` нужен, чтобы после внезапного выключения на диске остался либо
+        старый файл, либо новый, но не пустой. Секретов в настройках нет — только
+        координаты точек и привязки клавиш, поэтому права файла не ужесточаются.
+        """
+        payload = json.dumps(settings.to_dict(), ensure_ascii=False, indent=2)
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             temp_path = self._path.with_suffix(TEMP_SUFFIX)
-            temp_path.write_text(
-                json.dumps(settings.to_dict(), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            with temp_path.open("w", encoding="utf-8") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
             temp_path.replace(self._path)
         except OSError as exc:
             raise ConfigError(f"Не удалось сохранить настройки в {self._path}: {exc}") from exc

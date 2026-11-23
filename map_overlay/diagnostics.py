@@ -25,11 +25,13 @@ from typing import Final, TextIO, cast
 
 logger = logging.getLogger(__name__)
 
+CRASH_MAX_BYTES: Final = 1024 * 1024
+# Сколько занимать файлу аварий до поворота: один старый файл остаётся на диске.
 HANG_TIMEOUT_S: Final = 8.0
-"""Сколько секунд без сердцебиения считаются зависанием."""
+# Сколько секунд без сердцебиения считаются зависанием.
 
 HANG_POLL_S: Final = 1.0
-"""Как часто сторож проверяет сердцебиение."""
+# Как часто сторож проверяет сердцебиение.
 
 _crash_stream: TextIO | None = None
 _watchdog: HangWatchdog | None = None
@@ -39,11 +41,21 @@ def install_crash_handlers(path: Path) -> None:
     """Сохранять фатальные падения и необработанные исключения в отдельный файл."""
     global _crash_stream
     path.parent.mkdir(parents=True, exist_ok=True)
+    _rotate_crash_file(path)
     _crash_stream = path.open("a", encoding="utf-8", buffering=1)
     _write_crash(f"\n=== Запуск {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
     faulthandler.enable(file=_crash_stream, all_threads=True)
     sys.excepthook = _log_uncaught
     threading.excepthook = _log_uncaught_thread
+
+
+def _rotate_crash_file(path: Path) -> None:
+    """Оставить один прошлый файл аварий: он не растёт бесконечно."""
+    try:
+        if path.exists() and path.stat().st_size > CRASH_MAX_BYTES:
+            path.replace(path.with_suffix(path.suffix + ".1"))
+    except OSError as exc:  # файл занят другим процессом — не повод падать
+        logger.warning("Не удалось повернуть файл аварий: %s", exc)
 
 
 def close_crash_handlers() -> None:
@@ -157,7 +169,9 @@ def _write_crash(text: str) -> None:
     try:
         _crash_stream.write(text)
         _crash_stream.flush()
-    except Exception:
+    except (OSError, ValueError):
+        # Файл уже закрыт при выходе или диск недоступен. Логировать отсюда нельзя:
+        # ошибка в обработчике аварии вызвала бы его повторно.
         pass
 
 

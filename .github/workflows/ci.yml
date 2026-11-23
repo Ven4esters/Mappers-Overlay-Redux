@@ -33,5 +33,13 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: pytest --cov=map_overlay --cov-report=term-missing --cov-fail-under=80
+      - name: Статический анализ безопасности
+        run: bandit -q -c pyproject.toml -r map_overlay tools
       - name: Уязвимости зависимостей
         run: pip-audit
+      - name: Лицензии зависимостей
+        run: python -m tools.check_licenses
+      - name: Секреты в репозитории
+        run: git ls-files -z | xargs -0 detect-secrets-hook
+      - name: Сборка пакета
+        run: python -m build --wheel --outdir build/wheel

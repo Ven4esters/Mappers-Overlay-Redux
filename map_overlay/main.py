@@ -35,9 +35,10 @@ APP_NAME = "Map Overlay Redux"
 def main(argv: Sequence[str] | None = None) -> int:
     """Запустить оверлей. Возвращает код выхода."""
     args = _parse_args(argv)
+    # Сначала журнал: иначе самое первое сообщение (и ошибки старта) уходит в никуда.
+    setup_logging(log_path(), debug=args.debug, console=args.debug)
     if enable_dpi_awareness():
         logger.debug("Включён режим Per-Monitor V2")
-    setup_logging(log_path(), debug=args.debug, console=args.debug)
     logger.info("Старт %s %s на Python %s", APP_NAME, __version__, platform.python_version())
     if args.check_only:
         return _check_only()

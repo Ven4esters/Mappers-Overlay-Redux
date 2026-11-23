@@ -9,6 +9,9 @@
 
 - `ruff format --check .` и `ruff check .` чистые;
 - `mypy` чистый (strict, Python 3.12);
+- `bandit -q -c pyproject.toml -r map_overlay tools` без замечаний, `detect-secrets-hook`
+  по `git ls-files` — без находок, `pip-audit` — без уязвимостей,
+  `python -m tools.check_licenses` — без сильного копилефта;
 - `pytest` зелёный, покрытие `map_overlay` не ниже 80 %, критичные модули
   (`domain/movement.py`, `domain/formatting.py`, `application/writer.py`,
   `application/session.py`) — 100 % по ветвям, насколько это достижимо;
@@ -36,7 +39,8 @@
 ## CI
 
 `.github/workflows/ci.yml` на Python 3.12: формат, линтер, типы, тесты с покрытием,
-`pip-audit`. PR без зелёного CI не мержится. Шаблон PR — `.github/pull_request_template.md`
+`bandit`, `pip-audit`, проверка лицензий (`tools/check_licenses.py`), поиск секретов
+(`detect-secrets-hook` по `git ls-files`), сборка колеса пакета. PR без зелёного CI не мержится. Шаблон PR — `.github/pull_request_template.md`
 (что, зачем, как проверено, риски, откат).
 
 ## Документация

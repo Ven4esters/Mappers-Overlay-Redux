@@ -29,6 +29,17 @@ from map_overlay.ui.widgets import Card, DirectionPad, PoseGrid, button, label
 
 STEP_PRESETS: Final[tuple[str, ...]] = ("0.1", "0.25", "0.5", "1", "2", "5", "10")
 STEP_DECIMALS: Final = 3
+_HINTS: Final[tuple[str, ...]] = (
+    "Одна стрелка — один шаг; те же действия есть на Numpad. Зажмите клавишу — "
+    "шаг повторяется сразу за предыдущим, отпустите — движение останавливается.",
+    "Одно нажатие Alt включает режим высоты: Num 8 поднимает предмет по локальной "
+    "оси Z, Num 2 опускает (при RY ≠ 0 шаг идёт в плоскости X/Z). Остальные "
+    "клавиши не меняются: Num 4/6 — по горизонтали, диагонали — по наклону "
+    "предмета (без наклона — 45° в плоскости экрана Y/Z, с наклоном — по RX и RY). "
+    "Ещё одно нажатие — выключить. "
+    "Держать Alt не нужно: пока он зажат, игра не применяет правки панели.",
+)
+# Подсказки под крестовиной: одни и те же для окна и для режима высоты.
 
 
 class MovementTab(QWidget):
@@ -49,10 +60,20 @@ class MovementTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
+        layout.addWidget(self._build_pose_card())
+        layout.addWidget(self._build_move_card(default_step))
+        self._warning = label("", widget_role="warn")
+        self._warning.hide()
+        layout.addWidget(self._warning)
+        layout.addStretch(1)
+        self._pad.set_enabled(False)
+        self._sync_step_text()
 
-        pose_card = Card("Координаты и углы")
+    def _build_pose_card(self) -> Card:
+        """Карточка координат и углов с кнопками «Считать» и «Сохранить F»."""
+        card = Card("Координаты и углы")
         self._grid = PoseGrid(self)
-        pose_card.add(self._grid)
+        card.add(self._grid)
         row = QHBoxLayout()
         self._capture_button = button("Считать", widget_role="primary")
         self._capture_button.clicked.connect(self.capture_requested.emit)
@@ -65,17 +86,25 @@ class MovementTab(QWidget):
         row.addWidget(self._capture_button)
         row.addWidget(self._confirm_button)
         row.addStretch(1)
-        pose_card.add_layout(row)
-        layout.addWidget(pose_card)
+        card.add_layout(row)
+        return card
 
-        move_card = Card("Сдвиг предмета")
+    def _build_move_card(self, default_step: float) -> Card:
+        """Карточка сдвига: крестовина, шаг, режим высоты и подсказки."""
+        card = Card("Сдвиг предмета")
         self._pad = DirectionPad(self)
         self._pad.direction_clicked.connect(self._request_move)
-        move_card.add(self._pad)
+        card.add(self._pad)
+        card.add_layout(self._build_step_row(default_step))
+        card.add_layout(self._build_mode_row())
+        for hint in _HINTS:
+            card.add(label(hint, widget_role="muted"))
+        return card
 
-        step_row = QHBoxLayout()
-        step_row.setSpacing(8)
-        step_row.addWidget(label("Шаг", widget_role="muted"))
+    def _build_step_row(self, default_step: float) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addWidget(label("Шаг", widget_role="muted"))
         self._step_combo = QComboBox(self)
         self._step_combo.setEditable(True)
         self._step_combo.addItems(STEP_PRESETS)
@@ -84,52 +113,25 @@ class MovementTab(QWidget):
         self._step_combo.setLocale(QLocale.c())
         self._step_combo.setMinimumWidth(96)
         self._step_combo.editTextChanged.connect(self._sync_step_text)
-        step_row.addWidget(self._step_combo)
-        step_row.addWidget(label("м", widget_role="muted"))
-        step_row.addStretch(1)
-        move_card.add_layout(step_row)
+        row.addWidget(self._step_combo)
+        row.addWidget(label("м", widget_role="muted"))
+        row.addStretch(1)
+        return row
 
-        mode_row = QHBoxLayout()
+    def _build_mode_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
         self._tilt_box = QCheckBox("Режим высоты", self)
         self._tilt_box.setToolTip(
             "Num 8 поднимает предмет, Num 2 опускает. Остальные клавиши работают как "
             "обычно. То же делает одно нажатие Alt."
         )
         self._tilt_box.toggled.connect(self.tilt_toggled.emit)
-        mode_row.addWidget(self._tilt_box)
-        mode_row.addStretch(1)
+        row.addWidget(self._tilt_box)
+        row.addStretch(1)
         self._mode_label = label("8/2 — вперёд/назад", widget_role="muted")
         self._mode_label.setWordWrap(False)
-        mode_row.addWidget(self._mode_label)
-        move_card.add_layout(mode_row)
-
-        move_card.add(
-            label(
-                "Одна стрелка — один шаг; те же действия есть на Numpad. Зажмите клавишу — "
-                "шаг повторяется сразу за предыдущим, отпустите — движение останавливается.",
-                widget_role="muted",
-            )
-        )
-        move_card.add(
-            label(
-                "Одно нажатие Alt включает режим высоты: Num 8 поднимает предмет по локальной "
-                "оси Z, Num 2 опускает (при RY ≠ 0 шаг идёт в плоскости X/Z). Остальные "
-                "клавиши не меняются: Num 4/6 — по горизонтали, диагонали — по наклону "
-                "предмета (без наклона — в горизонтали, с наклоном — по RX и RY). "
-                "Ещё одно нажатие — выключить. "
-                "Держать Alt не нужно: пока он зажат, игра не применяет правки панели.",
-                widget_role="muted",
-            )
-        )
-        layout.addWidget(move_card)
-
-        self._warning = label("", widget_role="warn")
-        self._warning.hide()
-        layout.addWidget(self._warning)
-        layout.addStretch(1)
-
-        self._pad.set_enabled(False)
-        self._sync_step_text()
+        row.addWidget(self._mode_label)
+        return row
 
     def _request_move(self, direction: object) -> None:
         try:

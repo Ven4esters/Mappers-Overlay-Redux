@@ -82,3 +82,17 @@ def test_uncaught_thread_error_is_logged(tmp_path: Path, caplog: logging.LogReco
         diagnostics.close_crash_handlers()
         sys.excepthook, threading.excepthook = old_hooks
     assert "поток упал" in caplog.text
+
+
+def test_crash_file_is_rotated_when_it_grows(tmp_path: Path) -> None:
+    """Прошлый файл аварий сохраняется отдельно, а не копится годами."""
+    crash = tmp_path / "crash.log"
+    crash.write_bytes(b"x" * (diagnostics.CRASH_MAX_BYTES + 10))
+    diagnostics.install_crash_handlers(crash)
+    try:
+        rotated = crash.with_suffix(".log.1")
+        assert rotated.exists()
+        assert rotated.stat().st_size > diagnostics.CRASH_MAX_BYTES
+        assert crash.stat().st_size < diagnostics.CRASH_MAX_BYTES
+    finally:
+        diagnostics.close_crash_handlers()

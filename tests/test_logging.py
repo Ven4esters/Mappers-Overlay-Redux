@@ -33,3 +33,26 @@ def test_setup_keeps_foreign_handlers(tmp_path) -> None:
         assert foreign in root.handlers
     finally:
         root.removeHandler(foreign)
+
+
+def test_log_rotates_instead_of_growing(tmp_path: Path) -> None:
+    """Журнал ограничен по размеру: файл не растёт до бесконечности."""
+    from logging.handlers import RotatingFileHandler
+
+    from map_overlay import logging_setup
+
+    path = tmp_path / "overlay.log"
+    setup_logging(path)
+    handlers = [
+        item for item in logging.getLogger().handlers if isinstance(item, RotatingFileHandler)
+    ]
+    assert len(handlers) == 1
+    handler = handlers[0]
+    assert handler.maxBytes == logging_setup.LOG_MAX_BYTES
+    assert handler.backupCount == logging_setup.LOG_BACKUP_COUNT
+
+    handler.maxBytes = 200  # ускоряем поворот, не дожидаясь мегабайтов
+    for index in range(20):
+        logging.getLogger("rotate").warning("строка номер %d для поворота журнала", index)
+    handler.flush()
+    assert path.with_suffix(".log.1").exists()

@@ -25,6 +25,7 @@ from map_overlay.domain.actions import ACTION_ORDER, Action
 from map_overlay.domain.formatting import MAX_DECIMALS, MIN_DECIMALS
 from map_overlay.domain.keynames import key_name
 from map_overlay.domain.movement import MAX_STEP, MIN_STEP
+from map_overlay.errors import AppError
 from map_overlay.ui.widgets import Card, button, label
 
 DELAY_STEP_S = 0.01
@@ -155,33 +156,7 @@ class SettingsTab(QWidget):
         self._num_lock_warning = label("", widget_role="warn")
         self._num_lock_warning.hide()
         card.add(self._num_lock_warning)
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(4)
-        for index, action in enumerate(ACTION_ORDER):
-            column, row = divmod(index, HOTKEY_ROWS)
-            base = column * 5
-            name = label(action.label, widget_role="muted")
-            name.setMinimumWidth(NAME_COLUMN_WIDTH)
-            key = label(key_name(settings.hotkeys.get(action)), widget_role="poseValue")
-            key.setMinimumWidth(KEY_COLUMN_WIDTH)
-            change = button("Изменить", widget_role="small")
-            change.clicked.connect(
-                lambda _checked=False, selected=action: self.hotkey_change_requested.emit(selected)
-            )
-            clear = button("✕", widget_role="small", tooltip="Снять привязку")
-            clear.clicked.connect(
-                lambda _checked=False, selected=action: self.hotkey_clear_requested.emit(selected)
-            )
-            grid.addWidget(name, row, base)
-            grid.addWidget(key, row, base + 1)
-            grid.addWidget(change, row, base + 2)
-            grid.addWidget(clear, row, base + 3)
-            self._key_labels[action] = key
-        grid.setColumnMinimumWidth(4, HOTKEY_COLUMN_GAP)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(6, 1)
-        card.add_layout(grid)
+        card.add_layout(self._build_hotkey_grid(settings))
         card.add(
             label(
                 "Клавиши забираются у игры; цифровому блоку нужен включённый NumLock.",
@@ -190,13 +165,48 @@ class SettingsTab(QWidget):
         )
         return card
 
+    def _build_hotkey_grid(self, settings: Settings) -> QGridLayout:
+        """Сетка «действие — клавиша — Изменить — Снять» в два столбца."""
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(4)
+        for index, action in enumerate(ACTION_ORDER):
+            column, row = divmod(index, HOTKEY_ROWS)
+            base = column * 5
+            self._add_hotkey_row(grid, settings, action, row, base)
+        grid.setColumnMinimumWidth(4, HOTKEY_COLUMN_GAP)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(6, 1)
+        return grid
+
+    def _add_hotkey_row(
+        self, grid: QGridLayout, settings: Settings, action: Action, row: int, base: int
+    ) -> None:
+        name = label(action.label, widget_role="muted")
+        name.setMinimumWidth(NAME_COLUMN_WIDTH)
+        key = label(key_name(settings.hotkeys.get(action)), widget_role="poseValue")
+        key.setMinimumWidth(KEY_COLUMN_WIDTH)
+        change = button("Изменить", widget_role="small")
+        change.clicked.connect(
+            lambda _checked=False, selected=action: self.hotkey_change_requested.emit(selected)
+        )
+        clear = button("✕", widget_role="small", tooltip="Снять привязку")
+        clear.clicked.connect(
+            lambda _checked=False, selected=action: self.hotkey_clear_requested.emit(selected)
+        )
+        grid.addWidget(name, row, base)
+        grid.addWidget(key, row, base + 1)
+        grid.addWidget(change, row, base + 2)
+        grid.addWidget(clear, row, base + 3)
+        self._key_labels[action] = key
+
     def _describe_path(self) -> str:
         return str(self._config_path) if self._config_path is not None else "ещё не сохранён"
 
     def _save(self) -> None:
         try:
             settings = self.collect()
-        except Exception as exc:  # ConfigError с текстом для пользователя
+        except AppError as exc:  # текст для пользователя уже готов
             self.status_message.emit(str(exc))
             return
         self.settings_saved.emit(settings)
@@ -235,19 +245,9 @@ class SettingsTab(QWidget):
         self._num_lock_warning.setText(text)
         self._num_lock_warning.setVisible(bool(text))
 
-    def hotkey_rows(self) -> int:
-        """Сколько действий можно переназначить (для тестов)."""
-        return len(self._key_labels)
-
     def hotkeys_enabled(self) -> bool:
         """Включён ли перехват клавиш (для тестов)."""
         return self._hotkeys_enabled.isChecked()
-
-    def set_hotkeys_enabled(self, enabled: bool) -> None:
-        """Показать состояние перехвата, не испуская сигнал."""
-        self._hotkeys_enabled.blockSignals(True)
-        self._hotkeys_enabled.setChecked(enabled)
-        self._hotkeys_enabled.blockSignals(False)
 
 
 def _compact(widget: QAbstractSpinBox) -> None:

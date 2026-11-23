@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import cast
 
 from map_overlay.domain.fields import Field
-
-POSITION_FIELDS: tuple[Field, ...] = (Field.X, Field.Y, Field.Z)
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,10 +25,6 @@ class Pose:
     def value(self, field: Field) -> float:
         """Значение поля по его перечислению."""
         return cast("float", getattr(self, field.value))
-
-    def with_value(self, field: Field, value: float) -> Pose:
-        """Копия позы с заменённым одним полем."""
-        return replace(self, **{field.value: value})
 
     def values(self) -> dict[Field, float]:
         """Все значения в порядке панели."""

@@ -95,12 +95,4 @@ DEFAULT_HOTKEYS: Final[dict[Action, int | None]] = {
     Action.MOVE_LEFT: VK_NUMPAD4,
     Action.MOVE_RIGHT: VK_NUMPAD6,
 }
-"""Клавиши по умолчанию: цифровой блок при включённом NumLock."""
-
-
-def action_for_direction(direction: Direction) -> Action:
-    """Действие, которое двигает предмет в этом направлении."""
-    for action, bound_direction in _DIRECTIONS.items():
-        if bound_direction is direction:
-            return action
-    raise KeyError(direction)
+# Клавиши по умолчанию: цифровой блок при включённом NumLock.

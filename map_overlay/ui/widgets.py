@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import Final
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
-    QHBoxLayout,
     QLabel,
     QLayout,
     QPushButton,
@@ -194,12 +192,3 @@ class DirectionPad(QWidget):
         """Включить или выключить все стрелки (режим высоты ничего не блокирует)."""
         for item in self._by_direction.values():
             item.setEnabled(self._enabled)
-
-
-def add_row(layout: QHBoxLayout, widgets: Iterable[QWidget], *, stretch_last: bool = True) -> None:
-    """Добавить виджеты в строку, растянув последний."""
-    items = list(widgets)
-    for index, widget in enumerate(items):
-        layout.addWidget(widget)
-        if stretch_last and index == len(items) - 1:
-            layout.setStretch(index, 1)

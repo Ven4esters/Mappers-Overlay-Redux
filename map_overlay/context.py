@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Псевдоним типа: type-выражение (PEP 695) требует Python 3.12, а тесты гоняются и на 3.11.
 PanelFactory = Callable[[Settings], PanelAutomation]
-"""Фабрика панели под текущие настройки (точки калибровки и задержки)."""
+# Фабрика панели под текущие настройки (точки калибровки и задержки).
 
 
 class AppContext:
