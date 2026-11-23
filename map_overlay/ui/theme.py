@@ -19,6 +19,8 @@ TEXT_DISABLED: Final = "#3d475a"
 PANEL_DISPLAY: Final = "#0f1521"
 # Фон полей-показаний (координаты): темнее карточки, чтобы число читалось как данные.
 DANGER_EDGE: Final = "#7f2d2d"
+DANGER_TEXT: Final = "#f87171"
+# Красный текст для опасных действий: читается на тёмном, но не «кричит».
 
 APP_QSS: Final = f"""
 QWidget {{
@@ -93,7 +95,7 @@ QPushButton[role="primary"]:disabled {{
 QPushButton[role="danger"] {{
     background: transparent;
     border: 1px solid {DANGER_EDGE};
-    color: #f87171;
+    color: {DANGER_TEXT};
 }}
 QPushButton[role="danger"]:hover {{ background: rgba(239, 68, 68, 0.12); border-color: {ERROR}; }}
 QPushButton[role="danger"]:pressed {{ background: rgba(239, 68, 68, 0.2); }}
@@ -106,6 +108,21 @@ QPushButton[role="small"] {{
     padding: 4px 10px;
     min-height: 0;
     font-size: 12px;
+}}
+/* Опасное действие с компактным размером: свойство severity не спорит с ролью. */
+QPushButton[severity="danger"] {{
+    border: 1px solid {DANGER_EDGE};
+    color: {DANGER_TEXT};
+}}
+QPushButton[severity="danger"]:hover {{
+    background: rgba(239, 68, 68, 0.12);
+    border-color: {ERROR};
+}}
+QPushButton[severity="danger"]:pressed {{ background: rgba(239, 68, 68, 0.2); }}
+QPushButton[severity="danger"]:disabled {{
+    color: #5a3a42;
+    border-color: #33222a;
+    background: rgba(22, 29, 43, 0.45);
 }}
 QPushButton[role="arrow"] {{
     font-size: 20px;

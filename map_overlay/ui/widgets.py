@@ -31,6 +31,7 @@ SECTION_GAP: Final = 16
 # иначе блоки слипаются и непонятно, где кончается один и начинается другой.
 ROW_SPACING: Final = 8
 LABEL_COLUMN_WIDTH: Final = 66
+VALUE_MIN_WIDTH: Final = 170
 # Колонка подписей «Поиск»/«Предмет»: поля ввода начинаются с одного места.
 
 ARROW_ROWS: Final[tuple[tuple[Direction | None, ...], ...]] = (
@@ -52,6 +53,46 @@ def label(text: str = "", *, widget_role: str = "muted") -> QLabel:
     item.setProperty("role", widget_role)
     item.setWordWrap(True)
     return item
+
+
+HINT_LIST_STYLE: Final = "margin:0; padding-left:18px;"
+
+
+def bullets(*lines: str) -> str:
+    """Текст подсказки списком: один пункт на строку, разметка rich text."""
+    items = "".join(f"<li>{line}</li>" for line in lines)
+    return f"<ul style='{HINT_LIST_STYLE}'>{items}</ul>"
+
+
+def hint_label(*lines: str) -> QLabel:
+    """Подсказка списком: мелкий приглушённый текст, клавиши выделяются ``<b>``."""
+    item = label(bullets(*lines), widget_role="hint")
+    item.setTextFormat(Qt.TextFormat.RichText)
+    return item
+
+
+class ValueField(QLabel):
+    """Поле-показание: моноширинное значение по правому краю, «—» для пустого."""
+
+    def __init__(self, text: str | None = None, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setProperty("role", "poseDisplay")
+        self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.set_value(text)
+
+    def set_value(self, text: str | None) -> None:
+        """Показать значение или приглушённый прочерк, если данных ещё нет."""
+        is_empty = not text
+        self.setText(text if text else "—")
+        if bool(self.property("empty")) is not is_empty:
+            self.setProperty("empty", is_empty)
+            self.style().unpolish(self)
+            self.style().polish(self)
+
+    def value(self) -> str | None:
+        """Значение без прочерка (для тестов и подсказок)."""
+        return None if self.property("empty") else self.text()
 
 
 class AppButton(QPushButton):
@@ -76,11 +117,23 @@ class AppButton(QPushButton):
         self.setCursor(shape)
 
 
-def button(text: str, *, widget_role: str | None = None, tooltip: str = "") -> AppButton:
-    """Кнопка с необязательной ролью (например, ``primary``)."""
+def button(
+    text: str,
+    *,
+    widget_role: str | None = None,
+    tooltip: str = "",
+    danger: bool = False,
+) -> AppButton:
+    """Кнопка с необязательной ролью (например, ``primary``).
+
+    ``danger`` помечает опасное действие красной рамкой, не меняя размер кнопки:
+    свойство ``severity`` складывается с ролью ``small``.
+    """
     item = AppButton(text)
     if widget_role:
         item.setProperty("role", widget_role)
+    if danger:
+        item.setProperty("severity", "danger")
     if tooltip:
         item.setToolTip(tooltip)
     return item
@@ -121,7 +174,7 @@ class PoseGrid(QWidget):
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(18)
         grid.setVerticalSpacing(GRID_SPACING)
-        self._values: dict[Field, QLabel] = {}
+        self._values: dict[Field, ValueField] = {}
         rows: tuple[tuple[Field, ...], ...] = (
             (Field.X, Field.Y, Field.Z),
             (Field.RX, Field.RY, Field.RZ),
@@ -138,11 +191,7 @@ class PoseGrid(QWidget):
         layout.addWidget(label(field.label, widget_role="poseField"))
         # Значение — поле-показание: моноширинный шрифт и выравнивание по правому краю,
         # чтобы 0.125 и 12.500 стояли друг под другом, а не «плясали».
-        value = QLabel("—")
-        value.setProperty("role", "poseDisplay")
-        value.setProperty("empty", True)
-        value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        value.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        value = ValueField()
         layout.addWidget(value)
         self._values[field] = value
         return cell
@@ -150,10 +199,9 @@ class PoseGrid(QWidget):
     def set_pose(self, pose: Pose | None) -> None:
         """Показать позу или прочерки, если она ещё не считана."""
         for field, widget in self._values.items():
-            widget.setText("—" if pose is None else format_value(pose.value(field), COORD_DECIMALS))
-            widget.setProperty("empty", pose is None)
-            widget.style().unpolish(widget)
-            widget.style().polish(widget)
+            widget.set_value(
+                None if pose is None else format_value(pose.value(field), COORD_DECIMALS)
+            )
         return
 
     def alignment_of(self, field: Field) -> Qt.AlignmentFlag:

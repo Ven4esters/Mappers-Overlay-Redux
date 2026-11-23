@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSpinBox,
+    QWidget,
 )
 
 from fakes import (
@@ -1620,12 +1621,13 @@ def test_pose_values_look_like_aligned_fields(qt_app: QApplication) -> None:
 
 def test_pose_value_field_roles(qt_app: QApplication) -> None:
     """Значения позы помечены ролью поля, а не обычной подписи."""
+    from map_overlay.ui.widgets import PoseGrid
     from PySide6.QtWidgets import QLabel
 
     window, _panel, _store, _cursor = make_window(qt_app)
-    fields = [
-        item for item in window.findChildren(QLabel) if item.property("role") == "poseDisplay"
-    ]
+    grid = window.findChild(PoseGrid)
+    assert grid is not None
+    fields = [item for item in grid.findChildren(QLabel) if item.property("role") == "poseDisplay"]
     assert len(fields) == len(Field)
     assert all(item.property("empty") is True for item in fields)
     window.movement.press_capture()
@@ -1736,6 +1738,220 @@ def test_scrollbar_is_thin_and_dark() -> None:
     assert "QScrollBar::handle" in APP_QSS
     assert "width: 9px" in APP_QSS
     assert "QScrollArea { background: transparent; border: none; }" in APP_QSS
+
+
+def test_value_field_shows_dash_for_missing_value(qt_app: QApplication) -> None:
+    """Пустое показание — приглушённый прочерк, а не пустая рамка."""
+    from map_overlay.ui.widgets import ValueField
+
+    field = ValueField()
+    assert field.text() == "—"
+    assert field.property("empty") is True
+    field.set_value("-12.500")
+    assert field.text() == "-12.500"
+    assert field.property("empty") is False
+    assert field.value() == "-12.500"
+    field.set_value(None)
+    assert field.text() == "—"
+    assert field.value() is None
+
+
+def test_calibration_points_are_display_fields(qt_app: QApplication) -> None:
+    """Точки панели — такие же поля-показания, как координаты на «Навигации»."""
+    from map_overlay.ui.tabs.calibration_tab import CalibrationTab
+    from map_overlay.ui.widgets import ValueField
+
+    cursor = FakeCursor(Point(700, 500))
+    tab = CalibrationTab(cursor=cursor, points={}, countdown_seconds=0, tick_ms=0)
+    values = list(tab._value_labels.values())
+    assert len(values) == len(Field) + 1
+    assert all(isinstance(item, ValueField) for item in values)
+    assert all(item.text() == "—" for item in values)
+    assert all(item.property("empty") is True for item in values)
+    assert all(item.alignment() & Qt.AlignmentFlag.AlignRight for item in values)
+
+    tab.capture_now(Field.X)
+    filled = tab._value_labels[Field.X.value]
+    assert filled.text() == "700, 500"
+    assert filled.property("empty") is False
+
+
+def test_calibration_show_is_disabled_without_point(qt_app: QApplication) -> None:
+    """«Показать» без сохранённой точки недоступна — кнопка не обещает переход."""
+    from map_overlay.ui.tabs.calibration_tab import CalibrationTab
+
+    cursor = FakeCursor(Point(640, 480))
+    tab = CalibrationTab(cursor=cursor, points={}, countdown_seconds=0, tick_ms=0)
+    show = tab._show_buttons[Field.Y.value]
+    assert not show.isEnabled()
+    assert "Сначала задайте" in show.toolTip()
+    assert tab._show_buttons[Field.X.value].isEnabled() is False
+
+    tab.capture_now(Field.Y)
+    assert show.isEnabled()
+    assert show.toolTip() == "Перевести курсор в сохранённую точку"
+
+
+def test_calibration_hints_are_lists(qt_app: QApplication) -> None:
+    """Подсказки калибровки — списком, как на «Навигации»."""
+    from map_overlay.ui.tabs.calibration_tab import CalibrationTab
+    from PySide6.QtCore import Qt as QtCore
+    from PySide6.QtWidgets import QLabel
+
+    tab = CalibrationTab(cursor=FakeCursor(), points={})
+    hints = [item for item in tab.findChildren(QLabel) if item.property("role") == "hint"]
+    assert len(hints) == 2
+    for hint in hints:
+        assert hint.textFormat() == QtCore.TextFormat.RichText
+        assert "<li>" in hint.text()
+        assert "<b>" in hint.text()
+
+
+def test_sizes_form_fields_share_a_column(qt_app: QApplication) -> None:
+    """«Название», «Длина» и «Ширина» начинаются с одного места, «м» — рядом с полем."""
+    from PySide6.QtCore import QPoint
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    window.show()
+    window._tabs.setCurrentIndex(1)
+    qt_app.processEvents()
+    tab = window.sizes
+    left = [field.mapTo(tab, QPoint(0, 0)).x() for field in (tab._name, tab._length, tab._width)]
+    assert len(set(left)) == 1, left
+
+    caption = [
+        item
+        for item in tab.findChildren(QWidget)
+        if item.property("role") == "muted" and item.text() == "м"
+    ]
+    assert len(caption) == 2
+    unit_x = caption[0].mapTo(tab, QPoint(0, 0)).x()
+    width_x = tab._width.mapTo(tab, QPoint(0, 0)).x()
+    assert 0 < unit_x - width_x < 140
+
+
+def test_sizes_rows_keep_sizes_in_a_column(qt_app: QApplication) -> None:
+    """Габариты в списке выровнены по правому краю и стоят в одном столбце."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QLabel
+
+    library = _library(
+        ObjectSize(name="Стена March", length=4.0, width=0.5),
+        ObjectSize(name="Дверь", length=1.0, width=0.2),
+    )
+    window, _panel, _store, _cursor = make_window(qt_app, size_store=FakeSizeStore(library))
+    window.sizes.show()
+    qt_app.processEvents()
+    tab = window.sizes
+    names = tab.row_names()
+    assert len(names) == 2
+
+    sizes = [
+        item
+        for item in tab.findChildren(QLabel)
+        if item.property("role") == "poseValue" and "×" in item.text()
+    ]
+    assert len(sizes) == len(names)
+    assert all(item.alignment() & Qt.AlignmentFlag.AlignRight for item in sizes)
+    assert len({item.mapTo(tab, QPoint(0, 0)).x() for item in sizes}) == 1
+    assert [item.text() for item in sizes] == ["4 × 0.5 м", "1 × 0.2 м"]
+
+
+def test_sizes_counter_sits_under_search_field(qt_app: QApplication) -> None:
+    """«Предметов: 5» — мелким под полем поиска, а не в одной строке с ним."""
+    from PySide6.QtCore import QPoint
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    window.show()
+    window._tabs.setCurrentIndex(1)
+    qt_app.processEvents()
+    tab = window.sizes
+    search = tab._search.mapTo(tab, QPoint(0, 0))
+    counter = tab._empty_label.mapTo(tab, QPoint(0, 0))
+    assert tab._empty_label.property("role") == "hint"
+    assert counter.y() > search.y() + tab._search.height() - 1
+    assert counter.x() == search.x()
+
+
+def test_sizes_hints_are_lists(qt_app: QApplication) -> None:
+    """Подсказки формы и списка — списком, а счётчик — просто мелкий текст."""
+    from PySide6.QtCore import Qt as QtCore
+    from PySide6.QtWidgets import QLabel
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    tab = window.sizes
+    hints = [item for item in tab.findChildren(QLabel) if item.property("role") == "hint"]
+    lists = [item for item in hints if "<li>" in item.text()]
+    assert len(lists) == 2
+    for hint in lists:
+        assert hint.textFormat() == QtCore.TextFormat.RichText
+    assert tab._empty_label not in lists
+    assert "Название — ключ" in tab.form_hint()
+
+
+def test_sizes_trash_is_danger_and_pencil_is_not(qt_app: QApplication) -> None:
+    """Удаление помечено красным, правка — нет."""
+    library = _library(ObjectSize(name="Ящик", length=2.0, width=1.0))
+    window, _panel, _store, _cursor = make_window(qt_app, size_store=FakeSizeStore(library))
+    tab = window.sizes
+    trash = tab.trash("Ящик")
+    pencil = tab.pencil("Ящик")
+    assert trash is not None and pencil is not None
+    assert trash.property("severity") == "danger"
+    assert trash.property("role") == "small"
+    assert pencil.property("severity") is None
+    assert trash.width() == pencil.width()
+
+
+def test_settings_delay_fields_align_by_columns(qt_app: QApplication) -> None:
+    """Поля задержек стоят двумя столбцами, а подписи — своей колонкой."""
+    from PySide6.QtCore import QPoint
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    tab = window.settings_tab
+    window.show()
+    window._tabs.setCurrentIndex(3)
+    qt_app.processEvents()
+    fields = [tab._click, tab._select, tab._copy, tab._paste]
+    left = {item.mapTo(tab, QPoint(0, 0)).x() for item in fields[:2]}
+    right = {item.mapTo(tab, QPoint(0, 0)).x() for item in fields[2:]}
+    assert len(left) == 1
+    assert len(right) == 1
+    assert left.pop() < right.pop()
+
+
+def test_settings_hotkey_clear_is_small_danger(qt_app: QApplication) -> None:
+    """«✕» снимает привязку: компактная кнопка с красной рамкой, не выше «Изменить»."""
+    window, _panel, _store, _cursor = make_window(qt_app)
+    tab = window.settings_tab
+    window.show()
+    window._tabs.setCurrentIndex(3)
+    qt_app.processEvents()
+    clears = [
+        child
+        for child in tab.findChildren(QPushButton)
+        if child.text() == "✕" and child.property("severity") == "danger"
+    ]
+    assert len(clears) == len(Action)
+    assert all(item.property("role") == "small" for item in clears)
+    change = next(child for child in tab.findChildren(QPushButton) if child.text() == "Изменить")
+    assert clears[0].height() <= change.height()
+
+
+def test_settings_hints_are_lists(qt_app: QApplication) -> None:
+    """Подсказки «Настроек» — списком, с выделенными клавишами и названиями."""
+    from PySide6.QtCore import Qt as QtCore
+    from PySide6.QtWidgets import QLabel
+
+    window, _panel, _store, _cursor = make_window(qt_app)
+    hints = [
+        item for item in window.settings_tab.findChildren(QLabel) if item.property("role") == "hint"
+    ]
+    lists = [item for item in hints if "<li>" in item.text()]
+    assert len(lists) == 3
+    for hint in lists:
+        assert hint.textFormat() == QtCore.TextFormat.RichText
+        assert "<b>" in hint.text()
 
 
 def test_window_title_does_not_wrap(qt_app: QApplication) -> None:

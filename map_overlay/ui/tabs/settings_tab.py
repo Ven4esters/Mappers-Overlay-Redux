@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
     QDoubleSpinBox,
-    QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -26,13 +25,38 @@ from map_overlay.domain.formatting import MAX_DECIMALS, MIN_DECIMALS
 from map_overlay.domain.keynames import key_name
 from map_overlay.domain.movement import MAX_STEP, MIN_STEP
 from map_overlay.errors import AppError
-from map_overlay.ui.widgets import SECTION_GAP, Card, button, label
+from map_overlay.ui.widgets import (
+    GRID_SPACING,
+    ROW_SPACING,
+    SECTION_GAP,
+    Card,
+    button,
+    hint_label,
+    label,
+)
 
 DELAY_STEP_S = 0.01
 STEP_SPIN_DECIMALS = 3
 SPIN_WIDTH = 110
 KEY_COLUMN_WIDTH = 62
 NAME_COLUMN_WIDTH = 116
+DELAY_LABEL_WIDTH = 116
+# Колонка подписей задержек: поля в левой и правой половине начинаются с одного места.
+VALUE_LABEL_WIDTH = 150
+
+DELAY_HINT: tuple[str, ...] = (
+    "Каждое поле — пауза после своего действия: клика, выделения, копирования, вставки.",
+    "Если панель не успевает принять значения, увеличьте задержки на <b>20–40 мс</b>.",
+)
+VALUE_HINT: tuple[str, ...] = (
+    "Знаков после запятой — сколько цифр оверлей вставляет в панель.",
+    "Шаг по умолчанию подставляется в поле <b>«Шаг»</b> при запуске и после «Считать».",
+)
+HOTKEY_HINT: tuple[str, ...] = (
+    "Клавиши забираются у игры; цифровому блоку нужен включённый <b>NumLock</b>.",
+    "Игра не получает клавиатуру? Снимите галочку — перехват выключится сразу.",
+    "<b>«Изменить»</b> назначает новую клавишу, <b>«✕»</b> снимает привязку.",
+)
 
 
 class SettingsTab(QWidget):
@@ -59,7 +83,7 @@ class SettingsTab(QWidget):
 
     def _build(self, settings: Settings) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(SECTION_GAP)
         layout.addWidget(self._build_delays(settings))
         layout.addWidget(self._build_values(settings))
@@ -69,7 +93,7 @@ class SettingsTab(QWidget):
         save = button("Сохранить", widget_role="primary")
         save.clicked.connect(self._save)
         row.addWidget(save)
-        path_label = label(f"Файл настроек: {self._describe_path()}", widget_role="muted")
+        path_label = label(f"Файл настроек: {self._describe_path()}", widget_role="hint")
         path_label.setWordWrap(False)
         row.addSpacing(12)
         row.addWidget(path_label, 1)
@@ -83,8 +107,8 @@ class SettingsTab(QWidget):
         self._copy = _delay_spin(settings.delays.copy)
         self._paste = _delay_spin(settings.delays.paste)
         grid = QGridLayout()
-        grid.setHorizontalSpacing(18)
-        grid.setVerticalSpacing(8)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(GRID_SPACING)
         pairs = [
             ("После клика", self._click),
             ("После Ctrl+A", self._select),
@@ -93,22 +117,18 @@ class SettingsTab(QWidget):
         ]
         for index, (title, widget) in enumerate(pairs):
             column, row = divmod(index, 2)
-            grid.addWidget(label(title, widget_role="muted"), row, column * 2)
+            caption = label(title, widget_role="muted")
+            caption.setWordWrap(False)
+            caption.setMinimumWidth(DELAY_LABEL_WIDTH)
+            grid.addWidget(caption, row, column * 2)
             grid.addWidget(widget, row, column * 2 + 1)
+        grid.setColumnStretch(3, 1)
         card.add_layout(grid)
-        card.add(
-            label(
-                "Если панель не успевает принять значения, увеличьте задержки на 20–40 мс.",
-                widget_role="muted",
-            )
-        )
+        card.add(hint_label(*DELAY_HINT))
         return card
 
     def _build_values(self, settings: Settings) -> QWidget:
         card = Card("Значения")
-        form = QFormLayout()
-        form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(8)
         self._decimals = QSpinBox(self)
         self._decimals.setRange(MIN_DECIMALS, MAX_DECIMALS)
         self._decimals.setValue(settings.decimals)
@@ -122,17 +142,21 @@ class SettingsTab(QWidget):
         _compact(self._default_step)
         self._verify = QCheckBox("Проверять значение после вставки")
         self._verify.setChecked(settings.verify_writes)
-        inline = QHBoxLayout()
-        inline.setSpacing(10)
-        inline.addWidget(label("Знаков после запятой", widget_role="muted"))
-        inline.addWidget(self._decimals)
-        inline.addSpacing(12)
-        inline.addWidget(label("Шаг по умолчанию", widget_role="muted"))
-        inline.addWidget(self._default_step)
-        inline.addStretch(1)
-        card.add_layout(inline)
-        form.addRow(self._verify)
-        card.add_layout(form)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(ROW_SPACING)
+        grid.setVerticalSpacing(GRID_SPACING)
+        for row, (title, widget) in enumerate(
+            (("Знаков после запятой", self._decimals), ("Шаг по умолчанию", self._default_step))
+        ):
+            caption = label(title, widget_role="muted")
+            caption.setWordWrap(False)
+            caption.setMinimumWidth(VALUE_LABEL_WIDTH)
+            grid.addWidget(caption, row, 0)
+            grid.addWidget(widget, row, 1)
+        grid.addWidget(self._verify, 2, 0, 1, 2)
+        grid.setColumnStretch(2, 1)
+        card.add_layout(grid)
+        card.add(hint_label(*VALUE_HINT))
         return card
 
     def _build_hotkeys(self, settings: Settings) -> QWidget:
@@ -145,22 +169,11 @@ class SettingsTab(QWidget):
         )
         self._hotkeys_enabled.toggled.connect(self.hotkeys_enabled_changed)
         card.add(self._hotkeys_enabled)
-        card.add(
-            label(
-                "Игра не получает клавиатуру? Снимите галочку — перехват выключится сразу.",
-                widget_role="muted",
-            )
-        )
         self._num_lock_warning = label("", widget_role="warn")
         self._num_lock_warning.hide()
         card.add(self._num_lock_warning)
         card.add_layout(self._build_hotkey_grid(settings))
-        card.add(
-            label(
-                "Клавиши забираются у игры; цифровому блоку нужен включённый NumLock.",
-                widget_role="muted",
-            )
-        )
+        card.add(hint_label(*HOTKEY_HINT))
         return card
 
     def _build_hotkey_grid(self, settings: Settings) -> QGridLayout:
@@ -170,7 +183,7 @@ class SettingsTab(QWidget):
         уходил за границу прокручиваемой области.
         """
         grid = QGridLayout()
-        grid.setHorizontalSpacing(8)
+        grid.setHorizontalSpacing(ROW_SPACING)
         grid.setVerticalSpacing(4)
         for row, action in enumerate(ACTION_ORDER):
             self._add_hotkey_row(grid, settings, action, row)
@@ -189,7 +202,7 @@ class SettingsTab(QWidget):
         change.clicked.connect(
             lambda _checked=False, selected=action: self.hotkey_change_requested.emit(selected)
         )
-        clear = button("✕", widget_role="small", tooltip="Снять привязку")
+        clear = button("✕", widget_role="small", tooltip="Снять привязку", danger=True)
         clear.clicked.connect(
             lambda _checked=False, selected=action: self.hotkey_clear_requested.emit(selected)
         )

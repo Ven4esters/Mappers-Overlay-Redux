@@ -6,23 +6,41 @@ from collections.abc import Callable, Mapping
 from functools import partial
 from typing import Final
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QGridLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtWidgets import QGridLayout, QPushButton, QVBoxLayout, QWidget
 
 from map_overlay.application.ports import CursorPort
 from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.point import Point
-from map_overlay.ui.widgets import SECTION_GAP, Card, button, label
+from map_overlay.ui.widgets import (
+    SECTION_GAP,
+    VALUE_MIN_WIDTH,
+    Card,
+    ValueField,
+    button,
+    hint_label,
+    label,
+)
 
 COUNTDOWN_SECONDS: Final = 3
 COUNTDOWN_TICK_MS: Final = 1000
 EMPTY_SPOT_KEY: Final = "empty"
 EMPTY_SPOT_LABEL: Final = "Пустое место (для F)"
 
-HINT: Final = (
-    "Нажмите «Задать» и за 3 секунды наведите курсор точно на цель — оверлей запомнит "
-    "точку. «Показать» переводит курсор в сохранённую точку, чтобы проверить калибровку."
+HINT: Final[tuple[str, ...]] = (
+    "Нажмите <b>«Задать»</b> и за <b>3 секунды</b> наведите курсор точно на цель — оверлей "
+    "запомнит точку.",
+    "<b>«Показать»</b> переводит курсор в сохранённую точку: так проверяют калибровку.",
+    "Точка, которую ещё не задавали, показана прочерком — «Показать» для неё недоступна.",
 )
+
+EMPTY_HINT: Final[tuple[str, ...]] = (
+    "Пустое место нужно для <b>«Сохранить F»</b>: оверлей кликает туда, чтобы поле перестало "
+    "быть активным, и нажимает F.",
+    "Все шесть точек и пустое место заданы — бейдж калибровки в шапке становится зелёным.",
+)
+
+NAME_COLUMN_WIDTH: Final = 150
 
 
 class CalibrationTab(QWidget):
@@ -54,7 +72,8 @@ class CalibrationTab(QWidget):
         self._timer = QTimer(self)
         self._timer.setInterval(tick_ms)
         self._timer.timeout.connect(self._tick)
-        self._value_labels: dict[str, QLabel] = {}
+        self._value_labels: dict[str, ValueField] = {}
+        self._show_buttons: dict[str, QPushButton] = {}
         self._capture_buttons: list[QPushButton] = []
         self._build()
 
@@ -62,11 +81,11 @@ class CalibrationTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(SECTION_GAP)
-        layout.addWidget(label(HINT, widget_role="muted"))
+        layout.addWidget(hint_label(*HINT))
 
         card = Card("Точки панели LSP")
         grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
+        grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(8)
         row = 0
         for field in PANEL_ORDER:
@@ -87,16 +106,13 @@ class CalibrationTab(QWidget):
             on_capture=self.start_empty_capture,
             on_show=self.show_empty_point,
         )
-        grid.setColumnStretch(1, 1)
+        # Поля одинаковой ширины, кнопки стоят сразу за ними: пустое место уходит вправо,
+        # а числа остаются в одном столбце.
+        grid.setColumnStretch(1, 0)
+        grid.setColumnStretch(4, 1)
         card.add_layout(grid)
         layout.addWidget(card)
-        layout.addWidget(
-            label(
-                "Пустое место нужно для «Сохранить F»: оверлей кликает туда, чтобы поле "
-                "перестало быть активным, и нажимает F.",
-                widget_role="muted",
-            )
-        )
+        layout.addWidget(hint_label(*EMPTY_HINT))
         layout.addStretch(1)
         self._refresh_all()
 
@@ -111,18 +127,26 @@ class CalibrationTab(QWidget):
         on_show: Callable[[], None],
     ) -> None:
         name = label(title, widget_role="poseField")
-        name.setMinimumWidth(140)
-        value = QLabel("не задано")
-        value.setProperty("role", "muted")
-        capture = button("Задать", widget_role="primary")
+        name.setMinimumWidth(NAME_COLUMN_WIDTH)
+        # Точка — такое же показание, как координаты: поле с моноширинным числом справа.
+        value = ValueField()
+        value.setFixedWidth(VALUE_MIN_WIDTH)
+        value.setToolTip("Точка ещё не задана: нажмите «Задать»")
+        capture = button("Задать", tooltip="Отсчитать 3 секунды и запомнить, где сейчас курсор")
         capture.clicked.connect(lambda _checked=False: on_capture())
-        show = button("Показать")
+        show = button(
+            "Показать",
+            widget_role="small",
+            tooltip="Перевести курсор в сохранённую точку",
+        )
+        show.setEnabled(False)
         show.clicked.connect(lambda _checked=False: on_show())
         grid.addWidget(name, row, 0)
         grid.addWidget(value, row, 1)
         grid.addWidget(capture, row, 2)
         grid.addWidget(show, row, 3)
         self._value_labels[key] = value
+        self._show_buttons[key] = show
         self._capture_buttons.append(capture)
 
     def points(self) -> dict[Field, Point]:
@@ -205,7 +229,7 @@ class CalibrationTab(QWidget):
             self._set_capture_enabled(True)
             finish()
             return
-        self._value_labels[self._countdown_key].setText(f"наведите курсор… {self._seconds_left}")
+        self._value_labels[self._countdown_key].set_value(f"… {self._seconds_left} с")
         self.status_message.emit(
             f"Наведите курсор на {self._pending_label}: осталось {self._seconds_left} с"
         )
@@ -223,12 +247,13 @@ class CalibrationTab(QWidget):
     def _refresh(self, key: str) -> None:
         point = self._empty_point if key == EMPTY_SPOT_KEY else self._points.get(Field(key))
         widget = self._value_labels[key]
-        if point is None:
-            widget.setText("не задано")
-            widget.setProperty("role", "muted")
-        else:
-            widget.setText(f"{point.x}, {point.y}")
-            widget.setProperty("role", "poseValue")
-        widget.style().unpolish(widget)
-        widget.style().polish(widget)
-        widget.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        widget.set_value(None if point is None else f"{point.x}, {point.y}")
+        widget.setToolTip(
+            "Точка ещё не задана: нажмите «Задать»" if point is None else f"Точка {point}"
+        )
+        # «Показать» без сохранённой точки нечего: кнопка выключена, а не обещает переход.
+        show = self._show_buttons[key]
+        show.setEnabled(point is not None)
+        show.setToolTip(
+            "Перевести курсор в сохранённую точку" if point is not None else "Сначала задайте точку"
+        )

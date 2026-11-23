@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QLocale, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QDoubleValidator, QIcon, QPainter, QPalette, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
+    QGridLayout,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
@@ -25,7 +26,18 @@ from map_overlay.domain.sizes import (
     SizeLibrary,
 )
 from map_overlay.errors import AppError, ValidationError
-from map_overlay.ui.widgets import SECTION_GAP, Card, button, label
+from map_overlay.ui.theme import DANGER_TEXT
+from map_overlay.ui.widgets import (
+    GRID_SPACING,
+    LABEL_COLUMN_WIDTH,
+    ROW_SPACING,
+    SECTION_GAP,
+    Card,
+    bullets,
+    button,
+    hint_label,
+    label,
+)
 
 SIZE_FIELD_WIDTH = 110
 DEFAULT_LENGTH = 2.0
@@ -33,14 +45,22 @@ DEFAULT_WIDTH = 1.0
 # С чего начинается форма: типичный ящик 2 × 1 м — видно, что куда вписывать.
 
 SUFFIX = " м"
+SIZE_COLUMN_WIDTH = 96
+# Колонка габаритов в списке: числа «4 × 0.5 м» стоят друг под другом, а не «пляшут».
 
-ADD_HINT = (
-    "Название — ключ: предмет с тем же названием заменяется, регистр не важен. "
-    "Размеры задаются в метрах, дробная часть — через точку или запятую."
+ADD_HINT: tuple[str, ...] = (
+    "Название — ключ: предмет с тем же названием заменяется, регистр не важен.",
+    "Размеры задаются в <b>метрах</b>; дробная часть — через точку или запятую.",
 )
-EDIT_HINT = (
-    "Правка «{name}»: измените название, длину или ширину и нажмите «Сохранить "
-    "изменения». «Очистить» вернёт форму в режим добавления."
+EDIT_HINT: tuple[str, ...] = (
+    "Правка «{name}»: измените название, длину или ширину и нажмите "
+    "<b>«Сохранить изменения»</b>.",
+    "<b>«Очистить»</b> возвращает форму в режим добавления и не трогает библиотеку.",
+)
+LIST_HINT: tuple[str, ...] = (
+    "<b>«Выбрать»</b> делает предмет текущим: на вкладке «Навигация» его длину, ширину "
+    "и половины можно сразу подставить в шаг.",
+    "<b>Карандаш</b> — правка записи, <b>корзина</b> — удаление из библиотеки.",
 )
 ICON_PX = 24
 ICON_BUTTON_PX = 30
@@ -84,35 +104,45 @@ class SizesTab(QWidget):
         layout.addStretch(1)
 
     def _build_form(self) -> Card:
-        """Форма: название отдельной строкой, под ним длина и ширина."""
+        """Форма: подписи в одной колонке, поля начинаются с одного места."""
         card = Card("Предмет")
-        name_row = QHBoxLayout()
-        name_row.setSpacing(8)
+        form = QGridLayout()
+        form.setHorizontalSpacing(ROW_SPACING)
+        form.setVerticalSpacing(GRID_SPACING)
         self._name = QLineEdit(self)
         self._name.setMaxLength(MAX_NAME_LEN)
         self._name.setPlaceholderText("Название, например «Ящик»")
-        name_row.addWidget(label("Название", widget_role="muted"))
-        name_row.addWidget(self._name, 1)
-        card.add_layout(name_row)
-
-        size_row = QHBoxLayout()
-        size_row.setSpacing(8)
-        size_row.addWidget(label("Длина", widget_role="muted"))
         self._length = _size_field(DEFAULT_LENGTH)
-        size_row.addWidget(self._length)
-        size_row.addWidget(label(SUFFIX.strip(), widget_role="muted"))
-        size_row.addSpacing(18)
-        size_row.addWidget(label("Ширина", widget_role="muted"))
         self._width = _size_field(DEFAULT_WIDTH)
-        size_row.addWidget(self._width)
-        size_row.addWidget(label(SUFFIX.strip(), widget_role="muted"))
-        size_row.addStretch(1)
-        card.add_layout(size_row)
+        rows = (
+            ("Название", self._name, False),
+            ("Длина", self._length, True),
+            ("Ширина", self._width, True),
+        )
+        for row, (title, field, with_suffix) in enumerate(rows):
+            caption = label(title, widget_role="muted")
+            caption.setWordWrap(False)
+            caption.setMinimumWidth(LABEL_COLUMN_WIDTH)
+            form.addWidget(caption, row, 0)
+            if with_suffix:
+                # Поле и «м» стоят рядом: единица измерения не уезжает к правому краю.
+                host = QWidget(self)
+                pair = QHBoxLayout(host)
+                pair.setContentsMargins(0, 0, 0, 0)
+                pair.setSpacing(6)
+                pair.addWidget(field)
+                pair.addWidget(label(SUFFIX.strip(), widget_role="muted"))
+                pair.addStretch(1)
+                form.addWidget(host, row, 1)
+            else:
+                form.addWidget(field, row, 1)
+        form.setColumnStretch(1, 1)
+        card.add_layout(form)
 
         # Кнопки — отдельной строкой: в одну строку с полями и подписями они не влезали
         # в узкое окно, и правый край формы уходил за границу карточки.
         buttons_row = QHBoxLayout()
-        buttons_row.setSpacing(8)
+        buttons_row.setSpacing(ROW_SPACING)
         self._add_button = button(
             "Добавить в библиотеку",
             widget_role="primary",
@@ -125,7 +155,7 @@ class SizesTab(QWidget):
         buttons_row.addWidget(self._clear_button)
         buttons_row.addStretch(1)
         card.add_layout(buttons_row)
-        self._form_hint = label(ADD_HINT, widget_role="muted")
+        self._form_hint = hint_label(*ADD_HINT)
         card.add(self._form_hint)
         return card
 
@@ -135,25 +165,25 @@ class SizesTab(QWidget):
         self._search.setPlaceholderText("Поиск: слова названия или номер из диапазона")
         self._search.setClearButtonEnabled(True)
         self._search.textChanged.connect(self._refresh)
-        search_row = QHBoxLayout()
-        search_row.setSpacing(8)
-        search_row.addWidget(label("Поиск", widget_role="muted"))
-        search_row.addWidget(self._search, 1)
-        card.add_layout(search_row)
-        self._empty_label = label("", widget_role="muted")
-        card.add(self._empty_label)
+        search_grid = QGridLayout()
+        search_grid.setHorizontalSpacing(ROW_SPACING)
+        search_grid.setVerticalSpacing(4)
+        caption = label("Поиск", widget_role="muted")
+        caption.setWordWrap(False)
+        caption.setMinimumWidth(LABEL_COLUMN_WIDTH)
+        search_grid.addWidget(caption, 0, 0)
+        search_grid.addWidget(self._search, 0, 1)
+        # Счётчик найденного — под полем поиска: он не отнимает у поля ширину.
+        self._empty_label = label("", widget_role="hint")
+        search_grid.addWidget(self._empty_label, 1, 1)
+        search_grid.setColumnStretch(1, 1)
+        card.add_layout(search_grid)
         host = QWidget(self)
         self._rows_layout = QVBoxLayout(host)
         self._rows_layout.setContentsMargins(0, 0, 0, 0)
         self._rows_layout.setSpacing(4)
         card.add(host)
-        card.add(
-            label(
-                "«Выбрать» делает предмет текущим: на вкладке «Навигация» его длину, ширину "
-                "и половины можно сразу подставить в шаг.",
-                widget_role="muted",
-            )
-        )
+        card.add(hint_label(*LIST_HINT))
         return card
 
     # --- действия ---------------------------------------------------------
@@ -203,13 +233,13 @@ class SizesTab(QWidget):
         if self._editing is None:
             self._add_button.setText("Добавить в библиотеку")
             self._add_button.setToolTip("Предмет с таким же названием будет заменён")
-            self._form_hint.setText(ADD_HINT)
+            self._form_hint.setText(bullets(*ADD_HINT))
             return
         self._add_button.setText("Сохранить изменения")
         self._add_button.setToolTip(
             "Записать новые название и габариты: порядок в списке и выбранный предмет " "сохранятся"
         )
-        self._form_hint.setText(EDIT_HINT.format(name=self._editing))
+        self._form_hint.setText(bullets(*(line.format(name=self._editing) for line in EDIT_HINT)))
 
     def _delete(self, name: str) -> None:
         item = self._library.find(name)
@@ -357,7 +387,15 @@ class SizesTab(QWidget):
         row.setSpacing(6)
         active = self._library.active is not None and self._library.active.casefold() == item.key
         mark = "✓ " if active else ""
-        row.addWidget(label(f"{mark}{item.text()}", widget_role="poseValue"), 1)
+        name = label(f"{mark}{item.name}", widget_role="poseValue")
+        name.setWordWrap(True)
+        row.addWidget(name, 1)
+        # Габариты — отдельной колонкой справа: числа в списке выстраиваются в столбец.
+        size = label(f"{item.length:g} × {item.width:g} м", widget_role="poseValue")
+        size.setWordWrap(False)
+        size.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        size.setMinimumWidth(SIZE_COLUMN_WIDTH)
+        row.addWidget(size)
         choose = button(
             "Выбрать",
             widget_role="small",
@@ -375,8 +413,9 @@ class SizesTab(QWidget):
         trash = self._icon_button(
             tooltip="Удалить предмет из библиотеки",
             accessible="Удалить",
-            icon=_trash_icon(self.palette().color(QPalette.ColorRole.Text)),
+            icon=_trash_icon(QColor(DANGER_TEXT)),
             name=item.name,
+            danger=True,
         )
         trash.clicked.connect(lambda _checked=False, name=item.name: self._delete(name))
         row.addWidget(choose)
@@ -386,9 +425,17 @@ class SizesTab(QWidget):
         self._trash_buttons[item.name] = trash
         return host
 
-    def _icon_button(self, *, tooltip: str, accessible: str, icon: QIcon, name: str) -> QPushButton:
+    def _icon_button(
+        self,
+        *,
+        tooltip: str,
+        accessible: str,
+        icon: QIcon,
+        name: str,
+        danger: bool = False,
+    ) -> QPushButton:
         """Кнопка-значок размером с иконку: подпись заменена рисунком и подсказкой."""
-        item = button("", widget_role="small", tooltip=tooltip)
+        item = button("", widget_role="small", tooltip=tooltip, danger=danger)
         item.setIcon(icon)
         item.setAccessibleName(accessible)
         item.setProperty("item_name", name)
