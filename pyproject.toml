@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mappers-overlay-redux"
-version = "1.22.0"
+version = "1.22.1"
 description = "Mapper's Overlay Redux — оверлей для мапперов LSP (FiveM): калибровка полей панели, запись координат и сдвиг по 8 направлениям."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -88,5 +88,8 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Корень проекта в sys.path: тесты импортируют tools.* (проверки документации, лицензий,
+# SBOM). Без этого `pytest` и `python -m pytest` ведут себя по-разному, и CI падал на сборе.
+pythonpath = ["."]
 addopts = "-q --strict-markers"
 filterwarnings = ["error"]
