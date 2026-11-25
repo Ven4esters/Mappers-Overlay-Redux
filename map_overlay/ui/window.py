@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 from map_overlay import __version__, diagnostics
 from map_overlay.application.history import Change, History
 from map_overlay.application.hotkeys import HotkeyRouter
-from map_overlay.application.session import MappingSession, StepResult
+from map_overlay.application.session import MappingSession, PasteResult, StepResult
 from map_overlay.config import Settings
 from map_overlay.context import AppContext
 from map_overlay.domain.actions import Action
@@ -217,6 +217,7 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         """Связи вкладок с окном."""
         self.movement.capture_requested.connect(self._capture)
+        self.movement.paste_requested.connect(self._paste)
         self.movement.confirm_requested.connect(self._confirm)
         self.movement.move_requested.connect(self._move)
         self.movement.tilt_toggled.connect(self._set_tilt)
@@ -587,6 +588,41 @@ class MainWindow(QMainWindow):
             label="считать координаты",
         )
 
+    def _paste(self, source: Pose | None = None) -> bool:
+        """Вписать считанные координаты и углы в тот предмет, что открыт в панели.
+
+        Источник — поза из карточки «Координаты и углы»: та, что снята кнопкой «Считать»
+        и с тех пор сдвинута шагами. ``F`` вставка не нажимает: предмет встаёт на место,
+        когда пользователь подтвердит его сам.
+
+        Returns:
+            ``True``, если задача поставлена; ``False`` — вставлять нечего или занято.
+        """
+        self._stop_hold()
+        if self._runner.is_busy():
+            logger.info("Вставка не начата: занято «%s»", self._busy_text)
+            note("вставка не начата: занято «%s»", self._busy_text)
+            self._set_status(
+                f"Дождитесь окончания действия: «{self._busy_text}» ещё идёт.", STATUS_WARN
+            )
+            return False
+        origin = self._pose if source is None else source
+        if origin is None:
+            logger.warning("Вставка не начата: координаты не считаны")
+            note("вставка не начата: координаты не считаны")
+            self._set_status("Сначала нажмите «Считать»: вставлять пока нечего", STATUS_WARN)
+            return False
+        session = self._ensure_session()
+        note("команда: вставить координаты")
+        self._begin_busy("Вставляю координаты и углы в текущий предмет…")
+        self._runner.submit(
+            lambda: session.paste(origin),
+            on_success=self._pasted,
+            on_error=self._failed,
+            label="вставить координаты",
+        )
+        return True
+
     def _confirm(self) -> None:
         note("команда: сохранить F")
         self._stop_hold()
@@ -658,38 +694,70 @@ class MainWindow(QMainWindow):
             deltas = f"{deltas} · ΔZ {format_delta(step_result.delta_z)}"
         if step_result.tilted:
             slope = " · Alt: вверх/вниз"
-        prefix = self._commit_history(step_result)
+        prefix = self._commit_history(self._step_change(step_result))
         self._set_status(
             f"{prefix}Шаг: {deltas} → {pose_text(step_result.pose)} · записано: {written}{slope}",
             STATUS_OK,
         )
 
-    def _commit_history(self, step_result: StepResult) -> str:
-        """Закрепить отмену/повтор или запомнить новый шаг; вернуть префикс для статуса."""
-        kind = self._pending_kind
-        change = self._pending_change
-        self._pending_kind = None
-        self._pending_change = None
+    def _pasted(self, result: object) -> None:
+        """Итог вставки: показать новую позу и запомнить её в истории."""
+        self._set_busy(False)
+        paste_result = cast(PasteResult, result)
+        self._pose = paste_result.pose
+        self.movement.set_pose(paste_result.pose)
+        self.movement.set_warning(self._tilt_warning(paste_result.pose))
+        change: Change | None = None
+        if paste_result.changed:
+            previous = paste_result.previous
+            source = paste_result.pose
+            change = Change(
+                "перенос координат",
+                lambda: self._restore_pose(previous, full=True),
+                lambda: self._paste(source),
+            )
+        prefix = self._commit_history(change)
+        if not paste_result.changed:
+            self._set_status(
+                f"{prefix}У получателя уже эти координаты: писать нечего.", STATUS_WARN
+            )
+            return
+        written = ", ".join(field.label for field in paste_result.written)
+        self._set_status(
+            f"{prefix}Вставлено: {pose_text(paste_result.pose)} · записано: {written}. "
+            "Нажмите F, чтобы применить.",
+            STATUS_OK,
+        )
+
+    def _step_change(self, step_result: StepResult) -> Change | None:
+        """Описание шага для истории; ``None`` — шаг поставлен не направлением (отмена)."""
         request = self._last_request
         self._last_request = None
-        if kind == "undo" and change is not None:
-            self._history.commit_undo()
-            logger.info("Отменён шаг: %s", change.label)
-            return f"Отменён {change.label}. "
-        if kind == "redo" and change is not None:
-            self._history.commit_redo()
-            logger.info("Повторён шаг: %s", change.label)
-            return f"Повторён {change.label}. "
         if request is None:
-            return ""
+            return None
         direction, step, tilt = request
-        self._history.record(
-            Change(
-                self._step_label(direction, step, tilt=tilt),
-                lambda: self._restore_pose(step_result.previous),
-                lambda: self._repeat_step(direction, step, tilt=tilt),
-            )
+        return Change(
+            self._step_label(direction, step, tilt=tilt),
+            lambda: self._restore_pose(step_result.previous),
+            lambda: self._repeat_step(direction, step, tilt=tilt),
         )
+
+    def _commit_history(self, change: Change | None) -> str:
+        """Закрепить отмену/повтор или запомнить новый шаг; вернуть префикс для статуса."""
+        kind = self._pending_kind
+        pending = self._pending_change
+        self._pending_kind = None
+        self._pending_change = None
+        if kind == "undo" and pending is not None:
+            self._history.commit_undo()
+            logger.info("Отменён шаг: %s", pending.label)
+            return f"Отменён {pending.label}. "
+        if kind == "redo" and pending is not None:
+            self._history.commit_redo()
+            logger.info("Повторён шаг: %s", pending.label)
+            return f"Повторён {pending.label}. "
+        if change is not None:
+            self._history.record(change)
         return ""
 
     def _step_label(self, direction: Direction, step: float, *, tilt: bool = False) -> str:
@@ -697,16 +765,16 @@ class MainWindow(QMainWindow):
         suffix = " (высота)" if tilt else ""
         return f"шаг «{direction.label}» на {step:g} м{suffix}"
 
-    def _restore_pose(self, pose: Pose) -> bool:
-        """Отменить шаг: вернуть координаты, записанные до него."""
+    def _restore_pose(self, pose: Pose, *, full: bool = False) -> bool:
+        """Отменить изменение: вернуть координаты (или всю позу при ``full``), что были до него."""
         if not self._check_step_ready("отменять шаг"):
             return False
         session = self._session
         if session is None:
             return False
-        self._begin_busy("Отменяю шаг: возвращаю координаты…")
+        self._begin_busy("Отменяю изменение: возвращаю координаты…")
         self._runner.submit(
-            lambda: session.restore(pose),
+            lambda: session.restore(pose, full=full),
             on_success=self._moved,
             on_error=self._failed,
             label="отмена шага",
@@ -808,6 +876,9 @@ class MainWindow(QMainWindow):
     def _dispatch(self, action: Action, vk: int) -> None:
         if action is Action.CAPTURE:
             self._capture()
+            return
+        if action is Action.PASTE:
+            self._paste()
             return
         if action is Action.CONFIRM:
             self._confirm()

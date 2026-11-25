@@ -48,8 +48,14 @@ class PoseWriter:
         self._decimals = check_decimals(decimals)
         self._verify = verify
 
-    def write_changes(self, current: Pose, target: Pose) -> tuple[Field, ...]:
+    def write_changes(
+        self, current: Pose, target: Pose, *, expect_panel: bool = True
+    ) -> tuple[Field, ...]:
         """Записать отличающиеся поля; вернуть их список.
+
+        ``expect_panel=False`` отключает сверку «панель та же»: так пишет вставка
+        координат, которая перезаписывает текущий предмет намеренно. Проверка каждого
+        записанного поля после вставки при этом остаётся.
 
         Raises:
             PanelChangedError: если в панели уже другое значение.
@@ -64,7 +70,8 @@ class PoseWriter:
             "пишу поля: %s",
             ", ".join(field.label for field in fields),
         )
-        self._check_panel_matches(current)
+        if expect_panel:
+            self._check_panel_matches(current)
         for field in fields:
             if self._panel.cancelled():
                 raise OperationCancelledError("Действие отменено")

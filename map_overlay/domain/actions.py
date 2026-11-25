@@ -7,6 +7,7 @@ from typing import Final
 
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.keynames import (
+    VK_DECIMAL,
     VK_NUMPAD0,
     VK_NUMPAD1,
     VK_NUMPAD2,
@@ -24,6 +25,7 @@ class Action(StrEnum):
     """Действие оверлея, привязанное к клавише."""
 
     CAPTURE = "capture"
+    PASTE = "paste"
     CONFIRM = "confirm"
     MOVE_FORWARD = "move_forward"
     MOVE_BACK = "move_back"
@@ -58,6 +60,7 @@ _DIRECTIONS: Final[dict[Action, Direction]] = {
 
 _LABELS: Final[dict[Action, str]] = {
     Action.CAPTURE: "Считать координаты",
+    Action.PASTE: "Вставить координаты",
     Action.CONFIRM: "Сохранить F",
     Action.MOVE_FORWARD: "Вперёд",
     Action.MOVE_BACK: "Назад",
@@ -71,6 +74,7 @@ _LABELS: Final[dict[Action, str]] = {
 
 ACTION_ORDER: Final[tuple[Action, ...]] = (
     Action.CAPTURE,
+    Action.PASTE,
     Action.CONFIRM,
     Action.MOVE_FORWARD,
     Action.MOVE_FORWARD_LEFT,
@@ -85,6 +89,7 @@ ACTION_ORDER: Final[tuple[Action, ...]] = (
 
 DEFAULT_HOTKEYS: Final[dict[Action, int | None]] = {
     Action.CAPTURE: VK_NUMPAD0,
+    Action.PASTE: VK_DECIMAL,
     Action.CONFIRM: VK_NUMPAD5,
     Action.MOVE_FORWARD: VK_NUMPAD8,
     Action.MOVE_FORWARD_LEFT: VK_NUMPAD7,

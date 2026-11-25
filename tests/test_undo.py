@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import pytest
 from map_overlay.application.history import HISTORY_LIMIT, Change, History
+from map_overlay.domain.actions import DEFAULT_HOTKEYS, Action
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import Field
+from map_overlay.domain.keynames import VK_DECIMAL
 from map_overlay.domain.movement import shifted
 from map_overlay.domain.point import Point
+from map_overlay.domain.pose import Pose
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
@@ -282,3 +285,112 @@ def test_ctrl_z_in_text_field_edits_text_not_steps(qt_app: QApplication) -> None
     _press(window, Qt.Key.Key_Z)
     assert panel.pose() == moved
     assert window.history().can_undo
+
+
+# --- вставка координат в другой предмет -----------------------------------
+
+OTHER = Pose(x=310.5, y=-12.25, z=4.5, rx=15.0, ry=90.0, rz=30.0)
+# Другой предмет: и позиция, и углы отличаются от START.
+
+
+def _show_object(panel: object, pose: Pose) -> None:
+    """Открыть в панели другой предмет (как будто пользователь выбрал его в игре)."""
+    values = panel.values  # type: ignore[attr-defined]
+    for field in Field:
+        values[field] = f"{pose.value(field):.3f}"
+
+
+def test_paste_button_copies_the_captured_pose(qt_app: QApplication) -> None:
+    """«Вставить» переписывает координаты и углы считанного предмета в получателя."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    _show_object(panel, OTHER)
+    window.movement.press_paste()
+    assert panel.pose() == START
+    assert "Вставлено" in window.status_text()
+
+
+def test_paste_goes_to_the_current_object_not_the_captured_one(qt_app: QApplication) -> None:
+    """Кнопка пишет в тот предмет, что открыт сейчас: старый «Считать» не мешает."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    _step(window, Direction.FORWARD)
+    moved = panel.pose()
+    _show_object(panel, OTHER)
+    window.movement.press_paste()
+    assert panel.pose() == moved
+    assert panel.pose() != OTHER
+
+
+def test_paste_is_undone_with_ctrl_z(qt_app: QApplication) -> None:
+    """Ctrl+Z возвращает получателя на прежнее место — вместе с углами."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    _show_object(panel, OTHER)
+    window.movement.press_paste()
+    assert panel.pose() == START
+
+    assert window.undo()
+    assert panel.pose() == OTHER
+    assert "Отменён перенос координат" in window.status_text()
+
+
+def test_paste_is_repeated_with_ctrl_y(qt_app: QApplication) -> None:
+    """Ctrl+Y повторяет вставку: источник запоминается, а не берётся из текущей позы."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    _show_object(panel, OTHER)
+    window.movement.press_paste()
+    window.undo()
+    assert panel.pose() == OTHER
+
+    assert window.redo()
+    assert panel.pose() == START
+    assert "Повторён перенос координат" in window.status_text()
+
+
+def test_paste_without_capture_asks_to_read(qt_app: QApplication) -> None:
+    """Пока координаты не считаны, вставлять нечего: панель не трогаем."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_paste()
+    assert "Считать" in window.status_text()
+    assert panel.writes == []
+
+
+def test_paste_does_not_press_f(qt_app: QApplication) -> None:
+    """Вставка только пишет поля: положение подтверждает сам пользователь."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    _show_object(panel, OTHER)
+    window.movement.press_paste()
+    assert panel.confirm_calls == 0
+
+
+def test_paste_hotkey_is_num_dot(qt_app: QApplication) -> None:
+    """Горячая клавиша «Вставить» по умолчанию — Num ."""
+    assert DEFAULT_HOTKEYS[Action.PASTE] == VK_DECIMAL
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    _show_object(panel, OTHER)
+    window._on_hotkey(VK_DECIMAL, True, True)
+    assert panel.pose() == START
+
+
+def test_paste_button_waits_for_capture(qt_app: QApplication) -> None:
+    """До «Считать» кнопка «Вставить» выключена: нажимать нечего."""
+    window, _panel, _store, _cursor = make_window(qt_app)
+    button = window.movement.paste_button()
+    assert not button.isEnabled()
+    window.movement.press_capture()
+    assert button.isEnabled()
+    window.movement.set_pose(None)
+    assert not button.isEnabled()
+
+
+def test_paste_with_identical_pose_writes_nothing(qt_app: QApplication) -> None:
+    """Получатель уже стоит там же — панель не трогаем, в статусе так и сказано."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    window.movement.press_paste()
+    assert panel.writes == []
+    assert "писать нечего" in window.status_text()

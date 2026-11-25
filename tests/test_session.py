@@ -268,3 +268,116 @@ def test_failed_capture_forgets_the_old_pose() -> None:
     with pytest.raises(ApplicationError):
         session.capture()
     assert session.pose is None
+
+
+# --- вставка координат в другой предмет -----------------------------------
+
+OTHER = Pose(x=310.5, y=-12.25, z=4.5, rx=15.0, ry=90.0, rz=30.0)
+# Второй предмет: другая позиция и другие углы — видно, что переносится всё.
+
+
+def _set_panel(panel: FakePanel, pose: Pose) -> None:
+    """Показать в панели другой предмет (как будто пользователь выбрал его в игре)."""
+    for field in Field:
+        panel.values[field] = f"{pose.value(field):.3f}"
+
+
+def _assert_pose(actual: Pose, expected: Pose) -> None:
+    for field in Field:
+        assert actual.value(field) == pytest.approx(expected.value(field), abs=0.001)
+
+
+def test_paste_writes_the_whole_pose_of_another_object() -> None:
+    """Вставка переписывает все шесть полей получателя значениями источника."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    result = session.paste(OTHER)
+    _assert_pose(result.previous, START)
+    _assert_pose(result.pose, OTHER)
+    _assert_pose(panel.pose(), OTHER)
+    assert set(result.written) == set(PANEL_ORDER)
+    assert session.pose == OTHER
+
+
+def test_paste_skips_fields_that_already_match() -> None:
+    """Совпадающие поля не пишутся: в панель уходит только разница."""
+    same_x = Pose(x=START.x, y=START.y, z=START.z, rx=0.0, ry=0.0, rz=0.0)
+    panel = FakePanel(START)
+    session = make_session(panel)
+    result = session.paste(same_x)
+    assert result.written == ()
+    assert not result.changed
+    assert panel.writes == []
+
+
+def test_paste_ignores_the_previous_capture_of_another_object() -> None:
+    """Сверка «панель та же» не мешает: получатель — намеренно другой предмет."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.capture()
+    _set_panel(panel, OTHER)
+    result = session.paste(START)
+    _assert_pose(panel.pose(), START)
+    _assert_pose(result.previous, OTHER)
+
+
+def test_paste_reads_the_recipient_for_undo() -> None:
+    """Перед записью оверлей читает получателя: иначе отменять было бы нечего."""
+    panel = FakePanel(OTHER)
+    session = make_session(panel)
+    result = session.paste(START)
+    assert panel.reads[:6] == list(PANEL_ORDER)
+    _assert_pose(result.previous, OTHER)
+
+
+def test_paste_requires_calibration() -> None:
+    panel = FakePanel(START, missing=(Field.RZ,))
+    with pytest.raises(NotCalibratedError, match="RZ"):
+        make_session(panel).paste(OTHER)
+
+
+def test_paste_with_garbage_forgets_the_pose() -> None:
+    """Нечитаемое поле получателя — координаты забыты, нужен новый «Считать»."""
+    panel = FakePanel(OTHER)
+    panel.bad_read.add(Field.Y)
+    session = make_session(panel)
+    with pytest.raises(ApplicationError, match="Y"):
+        session.paste(START)
+    assert session.pose is None
+    assert panel.writes == []
+
+
+def test_paste_verifies_every_written_field() -> None:
+    """Панель не приняла значение — ошибка, а не тихая запись «как получилось»."""
+    panel = FakePanel(OTHER)
+    panel.reject.add(Field.RZ)
+    with pytest.raises(PanelRejectedError, match="RZ"):
+        make_session(panel).paste(START)
+
+
+def test_paste_works_without_verification() -> None:
+    panel = FakePanel(OTHER)
+    session = make_session(panel, verify=False)
+    result = session.paste(START)
+    _assert_pose(result.pose, START)
+    assert panel.writes
+
+
+def test_restore_full_returns_angles_too() -> None:
+    """Полная отмена вставки возвращает и углы: вставка их переписала."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.paste(OTHER)
+    session.restore(START, full=True)
+    _assert_pose(panel.pose(), START)
+
+
+def test_plain_restore_keeps_current_angles() -> None:
+    """Обычная отмена шага углы не трогает: шаг их не меняет."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.capture()
+    session.restore(OTHER)
+    _assert_pose(
+        panel.pose(), Pose(x=OTHER.x, y=OTHER.y, z=OTHER.z, rx=START.rx, ry=START.ry, rz=START.rz)
+    )

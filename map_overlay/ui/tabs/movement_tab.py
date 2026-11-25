@@ -63,6 +63,7 @@ class MovementTab(QWidget):
     """Считать координаты, выбрать предмет и двигать его стрелками."""
 
     capture_requested = Signal()
+    paste_requested = Signal()
     confirm_requested = Signal()
     move_requested = Signal(object, float)
     tilt_toggled = Signal(bool)
@@ -100,12 +101,19 @@ class MovementTab(QWidget):
         self._capture_button = button("Считать", widget_role="primary")
         self._capture_button.clicked.connect(self.capture_requested.emit)
         self._capture_button.setToolTip("Прочитать все шесть полей панели")
+        self._paste_button = button("Вставить")
+        self._paste_button.clicked.connect(self.paste_requested.emit)
+        self._paste_button.setToolTip(
+            "Вписать координаты и углы считанного предмета в тот, что открыт в панели сейчас"
+        )
+        self._paste_button.setEnabled(False)
         self._confirm_button = button("Сохранить F")
         self._confirm_button.clicked.connect(self.confirm_requested.emit)
         self._confirm_button.setToolTip(
             "Вставить значения, кликнуть в пустое место панели и нажать F"
         )
         row.addWidget(self._capture_button)
+        row.addWidget(self._paste_button)
         row.addWidget(self._confirm_button)
         row.addStretch(1)
         card.add_layout(row)
@@ -392,10 +400,15 @@ class MovementTab(QWidget):
         self._step_combo.setCurrentText(_format_step(step))
 
     def set_pose(self, pose: Pose | None) -> None:
-        """Обновить координаты и доступность стрелок."""
+        """Обновить координаты и доступность стрелок.
+
+        Кнопка «Вставить» живёт по тем же правилам: пока координаты не считаны, вставлять
+        нечего, и она выключена.
+        """
         self._pose = pose
         self._grid.set_pose(pose)
         self._pad.set_enabled(pose is not None)
+        self._paste_button.setEnabled(pose is not None)
         self._refresh_mode()
 
     def step_text(self) -> str:
@@ -426,6 +439,14 @@ class MovementTab(QWidget):
         if not self._tilt:
             return "8/2 — вперёд/назад"
         return alt_hint()
+
+    def press_paste(self) -> None:
+        """Нажать «Вставить» (для тестов)."""
+        self._paste_button.click()
+
+    def paste_button(self) -> QPushButton:
+        """Кнопка «Вставить»: тесты проверяют, что она включается после «Считать»."""
+        return self._paste_button
 
     def press_confirm(self) -> None:
         """Нажать «Сохранить F» (для тестов)."""

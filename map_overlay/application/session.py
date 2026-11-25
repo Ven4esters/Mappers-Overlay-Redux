@@ -65,6 +65,22 @@ class StepResult:
         return self.pose.z - self.previous.z
 
 
+@dataclass(frozen=True, slots=True)
+class PasteResult:
+    """Итог вставки координат: что было у получателя, что вписали и какие поля изменились."""
+
+    previous: Pose
+    """Поза получателя до вставки: по ней работает Ctrl+Z."""
+    pose: Pose
+    """Поза, которая ушла в панель (координаты и углы источника)."""
+    written: tuple[Field, ...]
+
+    @property
+    def changed(self) -> bool:
+        """Появились ли изменения: если получатель уже стоял там же, писать нечего."""
+        return bool(self.written)
+
+
 class MappingSession:
     """Сценарий: прочитать панель один раз, дальше двигать от считанных значений."""
 
@@ -214,12 +230,56 @@ class MappingSession:
         )
         return result
 
-    def restore(self, pose: Pose) -> StepResult:
+    def paste(self, source: Pose) -> PasteResult:
+        """Вписать позу одного предмета в текущий предмет панели.
+
+        Получатель — тот предмет, что открыт в панели сейчас. Сначала оверлей читает его
+        позу (без этого нечего отменять и незачем сверять), потом переписывает отличающиеся
+        поля на значения ``source``. Сверка «панель та же» здесь не нужна и вредна: старая
+        поза принадлежит другому предмету, а перезапись — намеренная. Нажатие ``F`` вставка
+        не делает: предмет встаёт на место, когда пользователь сам его подтвердит.
+
+        ``source`` — координаты и углы, снятые кнопкой «Считать» (или шагами от них).
+
+        Raises:
+            NotCalibratedError: если калибровка неполная.
+            ApplicationError: если поле получателя вернуло не число.
+            PanelRejectedError: если панель не приняла записанное.
+            OperationCancelledError: если действие прервали.
+        """
+        with timed("вставить координаты"):
+            self.ensure_calibrated()
+            self._panel.reset_cancel()
+            try:
+                before = self._read_pose()
+                note(
+                    "вставка координат: получатель %s, источник %s",
+                    _pose_text(before),
+                    _pose_text(source),
+                )
+                written = self._writer.write_changes(before, source, expect_panel=False)
+            except AppError as exc:
+                logger.warning("Вставка не удалась, координаты забыты: %s", exc)
+                self._invalidate()
+                raise
+        self._pose = source
+        logger.info(
+            "Координаты вставлены: получатель был %s, стал %s; записаны %s",
+            _pose_text(before),
+            _pose_text(source),
+            ", ".join(field.label for field in written) or "ничего",
+        )
+        return PasteResult(previous=before, pose=source, written=written)
+
+    def restore(self, pose: Pose, *, full: bool = False) -> StepResult:
         """Вернуть предмет к сохранённой позе — так работает отмена шага (Ctrl+Z).
 
         Меняются только координаты: углы остаются текущими, потому что шаг их не меняет,
         а отменяется именно сдвиг. Координаты берутся из сохранённой позы, а не считаются
         обратным шагом: так в панель уходят ровно те числа, что были до шага.
+
+        ``full=True`` возвращает и углы: вставка координат переписывает позу целиком, значит
+        и отменять её нужно целиком.
 
         Raises:
             PoseNotCapturedError: если поза ещё не считана.
@@ -231,7 +291,7 @@ class MappingSession:
                 "Сначала нажмите «Считать»: оверлей не знает текущих координат"
             )
         current = self._pose
-        target = replace(current, x=pose.x, y=pose.y, z=pose.z)
+        target = pose if full else replace(current, x=pose.x, y=pose.y, z=pose.z)
         self._panel.reset_cancel()
         note(
             "возврат координат: от %s к %s",
