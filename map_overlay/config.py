@@ -62,6 +62,9 @@ class Settings:
     always_read_pose: bool = False
     # «Всегда считать позицию»: перед каждым нажатием направления оверлей сам читает
     # поля панели, поэтому «Считать» для шага больше не требуется.
+    straight_cardinal: bool = False
+    # «Прямой шаг 4/6/8/2»: при RX/RY ≠ 0 клавиши движения идут по мировым осям,
+    # а высота — строго по Z. По умолчанию выключено: формулы поворота остаются прежними.
     default_step: float = DEFAULT_STEP
     calibration: Mapping[Field, Point] = field(default_factory=dict)
     empty_point: Point | None = None
@@ -128,6 +131,7 @@ class Settings:
             "decimals": self.decimals,
             "verify_writes": self.verify_writes,
             "always_read_pose": self.always_read_pose,
+            "straight_cardinal": self.straight_cardinal,
             "default_step": self.default_step,
             "calibration": {
                 field_name.value: {"x": point.x, "y": point.y}
@@ -172,6 +176,7 @@ class Settings:
             decimals=_as_int(raw.get("decimals", DEFAULT_DECIMALS), "decimals"),
             verify_writes=_as_bool(raw.get("verify_writes", True), "verify_writes"),
             always_read_pose=_as_bool(raw.get("always_read_pose", False), "always_read_pose"),
+            straight_cardinal=_as_bool(raw.get("straight_cardinal", False), "straight_cardinal"),
             default_step=_as_float(raw.get("default_step", DEFAULT_STEP), "шаг по умолчанию"),
             calibration=calibration,
             empty_point=empty_point,

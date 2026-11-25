@@ -105,13 +105,14 @@ class MainWindow(QMainWindow):
         self._history = History()
         self._pending_kind: str | None = None
         self._pending_change: Change | None = None
-        self._last_request: tuple[Direction, float, bool] | None = None
+        self._last_request: tuple[Direction, float, bool, bool] | None = None
         self._runner = TaskRunner(synchronous=synchronous_tasks, parent=self)
         self._router = HotkeyRouter(context.settings.hotkeys)
         self._busy_text = ""
         self._held: tuple[Action, int] | None = None
         self._refresh_on_step = False
         self._tilt_mode = False
+        self._straight = context.settings.straight_cardinal
         self._always_read = context.settings.always_read_pose
         self._num_lock_state: bool | None = None
         self._learn_timer = QTimer(self)
@@ -121,6 +122,7 @@ class MainWindow(QMainWindow):
         self._normal_size: tuple[int, int] | None = None
         self._normal_tab = 0
         self._build()
+        self.movement.set_straight(self._straight)
         self.movement.set_always_read(self._always_read)
         self._refresh_header()
         self._hotkeys = context.hotkeys
@@ -226,6 +228,7 @@ class MainWindow(QMainWindow):
         self.movement.confirm_requested.connect(self._confirm)
         self.movement.move_requested.connect(self._move)
         self.movement.tilt_toggled.connect(self._set_tilt)
+        self.movement.straight_toggled.connect(self._set_straight)
         self.movement.always_read_toggled.connect(self._set_always_read)
         self.calibration.points_changed.connect(self._calibration_changed)
         self.calibration.empty_point_changed.connect(self._empty_point_changed)
@@ -646,9 +649,19 @@ class MainWindow(QMainWindow):
         )
 
     def _move(
-        self, direction: object, step: float, *, tilt: bool = False, refresh: bool | None = None
+        self,
+        direction: object,
+        step: float,
+        *,
+        tilt: bool = False,
+        straight: bool | None = None,
+        refresh: bool | None = None,
     ) -> bool:
         """Сделать шаг; ``tilt`` — режим высоты (клавиша Alt): 8 вверх, 2 вниз.
+
+        ``straight`` — «Прямой шаг 4/6/8/2»: при наклоне клавиши 4/6/8/2 идут по мировым
+        осям, высота — строго по ``Z``. ``None`` означает «как включено в режиме»: так
+        приходят нажатия кнопок крестовины, а удержание клавиши передаёт текущее значение.
 
         ``refresh`` — прочитать поля панели перед шагом (режим «Всегда считать позицию»):
         шаг считается от свежих координат, поэтому «Считать» заранее не нужно. ``None``
@@ -659,6 +672,7 @@ class MainWindow(QMainWindow):
             ``True``, если задача поставлена: ``False`` — шаг невозможен.
         """
         refresh = self._always_read if refresh is None else refresh
+        straight = self._straight if straight is None else straight
         if self._runner.is_busy():
             logger.info("Шаг не начат: занято другим действием")
             note("шаг не начат: занято другим действием")
@@ -677,17 +691,17 @@ class MainWindow(QMainWindow):
             suffix = " (вверх)" if selected is Direction.FORWARD else " (вниз)"
         busy = f"Шаг {selected.label} на {step:g} м{suffix}"
         self._begin_busy(f"{busy}…" if not refresh else f"{busy}: сначала читаю позицию…")
-        self._last_request = (selected, step, tilt)
+        self._last_request = (selected, step, tilt, straight)
         if refresh:
             self._runner.submit(
-                lambda: session.capture_and_step(selected, step, tilt=tilt),
+                lambda: session.capture_and_step(selected, step, tilt=tilt, straight=straight),
                 on_success=self._moved,
                 on_error=self._failed,
                 label=f"шаг {selected.label.lower()} на {step:g} м{suffix}",
             )
             return True
         self._runner.submit(
-            lambda: session.step(selected, step, tilt=tilt),
+            lambda: session.step(selected, step, tilt=tilt, straight=straight),
             on_success=self._moved,
             on_error=self._failed,
             label=f"шаг {selected.label.lower()} на {step:g} м{suffix}",
@@ -761,11 +775,11 @@ class MainWindow(QMainWindow):
         self._last_request = None
         if request is None:
             return None
-        direction, step, tilt = request
+        direction, step, tilt, straight = request
         return Change(
             self._step_label(direction, step, tilt=tilt),
             lambda: self._restore_pose(step_result.previous),
-            lambda: self._repeat_step(direction, step, tilt=tilt),
+            lambda: self._repeat_step(direction, step, tilt=tilt, straight=straight),
         )
 
     def _commit_history(self, change: Change | None) -> str:
@@ -807,9 +821,16 @@ class MainWindow(QMainWindow):
         )
         return True
 
-    def _repeat_step(self, direction: Direction, step: float, *, tilt: bool = False) -> bool:
+    def _repeat_step(
+        self,
+        direction: Direction,
+        step: float,
+        *,
+        tilt: bool = False,
+        straight: bool | None = None,
+    ) -> bool:
         """Повторить шаг: тот же сдвиг от текущей позы."""
-        return self._move(direction, step, tilt=tilt)
+        return self._move(direction, step, tilt=tilt, straight=straight)
 
     def _confirmed(self, _result: object) -> None:
         self._set_busy(False)
@@ -837,6 +858,11 @@ class MainWindow(QMainWindow):
             for field in (Field.RX, Field.RY)
             if abs(pose.value(field)) > 1e-9
         )
+        if self._straight:
+            return (
+                f"{angles}: «Прямой шаг 4/6/8/2» — клавиши 4/6/8/2 идут по мировым осям. "
+                "Нажмите Alt — Num 8 поднимет предмет строго вверх, Num 2 опустит."
+            )
         return (
             f"{angles}: нажмите Alt — Num 8 будет поднимать предмет, Num 2 опускать. "
             "Сейчас они идут вперёд и назад."
@@ -898,6 +924,46 @@ class MainWindow(QMainWindow):
         else:
             logger.info("Режим высоты выключен")
             self._set_status("Режим высоты выключен: Num 8 — вперёд, Num 2 — назад.")
+
+    def _set_straight(self, enabled: bool) -> None:
+        """Включить «Прямой шаг 4/6/8/2» и запомнить выбор.
+
+        Переключатель касается только клавиш ``Num 4/6/8/2`` и режима высоты: при наклоне
+        предмета они идут по мировым осям, без формул поворота. Диагонали считаются по
+        формулам как обычно. Позу и историю переключение не трогает — это настройка
+        движения, а не новые координаты. Выбор живёт в `config/settings.json`.
+        """
+        if enabled == self._straight:
+            self.movement.set_straight(enabled)
+            return
+        self._straight = enabled
+        self.movement.set_straight(enabled)
+        settings = replace(self._context.settings, straight_cardinal=enabled)
+        try:
+            self._context.save_settings(settings)
+        except ConfigError as exc:
+            self._straight = False
+            self.movement.set_straight(False)
+            self._set_status(str(exc), STATUS_ERROR)
+            return
+        # Настройки на вкладке «Настройки» держат свою копию: без этого «Сохранить» там
+        # вернуло бы прежнее значение режима.
+        self.settings_tab.set_base_settings(settings)
+        self._refresh_tilt_warning()
+        if enabled:
+            note("режим «прямой шаг 4/6/8/2» включён")
+            logger.info("Режим «Прямой шаг 4/6/8/2» включён")
+            self._set_status(
+                "«Прямой шаг 4/6/8/2» включён: при RX/RY ≠ 0 клавиши 4/6/8/2 двигают предмет "
+                "по мировым осям, Alt+8/2 — строго по Z. Диагонали — по формулам.",
+                STATUS_OK,
+            )
+            return
+        note("режим «прямой шаг 4/6/8/2» выключен")
+        logger.info("Режим «Прямой шаг 4/6/8/2» выключен")
+        self._set_status(
+            "«Прямой шаг 4/6/8/2» выключен: шаг снова считается по формулам поворота.",
+        )
 
     def _set_always_read(self, enabled: bool) -> None:
         """Включить или выключить режим «Всегда считать позицию» и запомнить выбор.
@@ -1019,7 +1085,9 @@ class MainWindow(QMainWindow):
         # Чтение перед шагом — только для первого шага нажатия, дальше поза уже свежая.
         refresh = self._refresh_on_step
         self._refresh_on_step = False
-        return self._move(direction, step, tilt=self._tilt_mode, refresh=refresh)
+        return self._move(
+            direction, step, tilt=self._tilt_mode, straight=self._straight, refresh=refresh
+        )
 
     def _release_key(self, vk: int) -> None:
         """Отпускание клавиши прекращает удержание."""

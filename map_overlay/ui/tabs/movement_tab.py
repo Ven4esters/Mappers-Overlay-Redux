@@ -40,6 +40,11 @@ from map_overlay.ui.widgets import (
     label,
 )
 
+STRAIGHT_TITLE: Final = "Прямой шаг 4/6/8/2"
+STRAIGHT_SHORT: Final = "Прямой шаг"
+# Переключатель «формулы не влияют на 4/6/8/2»: полная подпись в обычном окне, короткая —
+# в мини-версии, где строка режима узкая.
+
 ALWAYS_READ_TITLE: Final = "Всегда считать позицию"
 ALWAYS_READ_SHORT: Final = "Считать позицию"
 # Подпись переключателя: полная для обычного окна, короткая — для мини-версии, где
@@ -58,6 +63,8 @@ _HINTS: Final = (
     "(при RY ≠ 0 шаг идёт в плоскости X/Z).\n"
     "Остальные клавиши не меняются: Num 4/6 — по горизонтали, диагонали — по наклону\n"
     "предмета.\n"
+    "«Прямой шаг 4/6/8/2» отключает формулы для этих клавиш: при RX/RY ≠ 0 они двигают\n"
+    "предмет по мировым осям, а с Alt — строго по Z.\n"
     "Держать Alt не нужно: пока он зажат, игра не применяет правки панели."
 )
 # Подсказки под крестовиной — списком с выделенными клавишами: их читают в работе,
@@ -72,6 +79,7 @@ class MovementTab(QWidget):
     confirm_requested = Signal()
     move_requested = Signal(object, float)
     tilt_toggled = Signal(bool)
+    straight_toggled = Signal(bool)
     always_read_toggled = Signal(bool)
     size_selected = Signal(object)
 
@@ -79,6 +87,7 @@ class MovementTab(QWidget):
         super().__init__(parent)
         self._pose: Pose | None = None
         self._tilt = False
+        self._straight = False
         self._always_read = False
         self._library = SizeLibrary()
         self._size_buttons: list[QPushButton] = []
@@ -217,7 +226,15 @@ class MovementTab(QWidget):
         grid.addLayout(buttons, 3, 1)
         return holder
 
-    def _build_mode_row(self) -> QHBoxLayout:
+    def _build_mode_row(self) -> QVBoxLayout:
+        """Строки режимов: высота и чтение позиции сверху, «прямой шаг» — под ними.
+
+        Три флажка в одну строку не помещались в мини-версию окна шириной 380: подписи
+        упирались в край карточки, и крестовина обрезалась. Поэтому «Прямой шаг 4/6/8/2»
+        стоит отдельной строкой.
+        """
+        rows = QVBoxLayout()
+        rows.setSpacing(ROW_SPACING)
         row = QHBoxLayout()
         self._tilt_box = QCheckBox("Режим высоты", self)
         self._tilt_box.setToolTip(
@@ -240,7 +257,21 @@ class MovementTab(QWidget):
         self._mode_label = label("8/2 — вперёд/назад", widget_role="muted")
         self._mode_label.setWordWrap(False)
         row.addWidget(self._mode_label)
-        return row
+        rows.addLayout(row)
+        # «Прямой шаг 4/6/8/2» — под режимами: переключатель про то, влияют ли формулы
+        # поворота на клавиши движения 4/6/8/2.
+        straight_row = QHBoxLayout()
+        self._straight_box = QCheckBox(STRAIGHT_TITLE, self)
+        self._straight_box.setToolTip(
+            "При RX/RY ≠ 0 клавиши Num 4/6/8/2 двигают предмет по мировым осям: влево, "
+            "вправо, вперёд, назад. В режиме высоты Alt+8/2 идут строго по Z, без наклона "
+            "RY. Диагонали (Num 7/9/1/3) считаются как обычно."
+        )
+        self._straight_box.toggled.connect(self.straight_toggled.emit)
+        straight_row.addWidget(self._straight_box)
+        straight_row.addStretch(1)
+        rows.addLayout(straight_row)
+        return rows
 
     def _request_move(self, direction: object) -> None:
         try:
@@ -284,6 +315,7 @@ class MovementTab(QWidget):
         # В мини-версии окно узкое: подпись режима уступает место второму переключателю,
         # и он же получает короткую подпись — полная уезжала за границу карточки.
         self._mode_label.setVisible(not enabled)
+        self._straight_box.setText(STRAIGHT_SHORT if enabled else STRAIGHT_TITLE)
         self._always_read_box.setText(ALWAYS_READ_SHORT if enabled else ALWAYS_READ_TITLE)
         # Поиск и выбор предмета прячутся целиком: в мини-версии нечего искать — она про то,
         # чтобы двигать предмет стрелками, а выбор предмета задаёт шаг.
@@ -450,6 +482,22 @@ class MovementTab(QWidget):
             self._always_read_box.setChecked(enabled)
             self._always_read_box.blockSignals(False)
         self._refresh_pad()
+
+    def set_straight(self, enabled: bool) -> None:
+        """Показать, включён ли «Прямой шаг 4/6/8/2»."""
+        self._straight = enabled
+        if self._straight_box.isChecked() != enabled:
+            self._straight_box.blockSignals(True)
+            self._straight_box.setChecked(enabled)
+            self._straight_box.blockSignals(False)
+
+    def straight_enabled(self) -> bool:
+        """Включён ли «Прямой шаг 4/6/8/2» (для тестов)."""
+        return self._straight_box.isChecked()
+
+    def straight_box(self) -> QCheckBox:
+        """Флажок «Прямой шаг 4/6/8/2» (для тестов)."""
+        return self._straight_box
 
     def always_read_enabled(self) -> bool:
         """Включён ли режим «Всегда считать позицию» (для тестов)."""

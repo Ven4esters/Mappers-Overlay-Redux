@@ -52,6 +52,9 @@ class StepResult:
     reread: bool = False
     """Перед шагом поля читались заново (режим «Всегда считать позицию»)."""
 
+    straight: bool = False
+    """Шаг считается по мировым осям: включён «Прямой шаг 4/6/8/2» (см. ``shifted``)."""
+
     @property
     def delta_x(self) -> float:
         """Изменение X."""
@@ -187,10 +190,19 @@ class MappingSession:
             raise
         logger.info("Положение подтверждено клавишей F")
 
-    def step(self, direction: Direction, step: float, *, tilt: bool = False) -> StepResult:
+    def step(
+        self,
+        direction: Direction,
+        step: float,
+        *,
+        tilt: bool = False,
+        straight: bool = False,
+    ) -> StepResult:
         """Сдвинуть предмет на шаг в направлении и записать изменения.
 
         ``tilt`` включает режим высоты: ``Num 8`` поднимает, ``Num 2`` опускает.
+        ``straight`` — «Прямой шаг 4/6/8/2»: при наклоне клавиши 4/6/8/2 идут по
+        мировым осям, высота — строго по ``Z``.
 
         Raises:
             PoseNotCapturedError: если поза ещё не считана.
@@ -203,8 +215,8 @@ class MappingSession:
                 "Сначала нажмите «Считать»: оверлей не знает текущих координат"
             )
         self._panel.reset_cancel()
-        target = shifted(self._pose, direction, validate_step(step), tilt=tilt)
-        label = f"шаг {direction.label} {step:g} м" + (" (высота)" if tilt else "")
+        target = shifted(self._pose, direction, validate_step(step), tilt=tilt, straight=straight)
+        label = f"шаг {direction.label} {step:g} м" + _step_suffix(tilt, straight)
         note(
             "%s: от %s к %s",
             label,
@@ -218,7 +230,13 @@ class MappingSession:
             logger.warning("Шаг отменён, координаты забыты: %s", exc)
             self._invalidate()
             raise
-        result = StepResult(previous=self._pose, pose=target, written=written, tilted=tilt)
+        result = StepResult(
+            previous=self._pose,
+            pose=target,
+            written=written,
+            tilted=tilt,
+            straight=straight,
+        )
         self._pose = target
         if tilt and direction in (Direction.FORWARD, Direction.BACK):
             suffix = " (вверх)" if direction is Direction.FORWARD else " (вниз)"
@@ -275,7 +293,12 @@ class MappingSession:
         return PasteResult(previous=before, pose=source, written=written)
 
     def capture_and_step(
-        self, direction: Direction, step: float, *, tilt: bool = False
+        self,
+        direction: Direction,
+        step: float,
+        *,
+        tilt: bool = False,
+        straight: bool = False,
     ) -> StepResult:
         """Прочитать панель и сразу сдвинуть предмет от прочитанных координат.
 
@@ -285,6 +308,8 @@ class MappingSession:
         всё равно выполняется, просто от свежих чисел.
 
         ``tilt`` включает режим высоты: ``Num 8`` поднимает, ``Num 2`` опускает.
+        ``straight`` — «Прямой шаг 4/6/8/2»: при наклоне клавиши 4/6/8/2 идут по
+        мировым осям, высота — строго по ``Z``.
 
         Raises:
             NotCalibratedError: если калибровка неполная.
@@ -305,8 +330,8 @@ class MappingSession:
         changed = self._pose is None or bool(changed_fields(self._pose, before))
         if changed:
             logger.info("Позиция прочитана заново: %s", _pose_text(before))
-        target = shifted(before, direction, validate_step(step), tilt=tilt)
-        label = f"шаг {direction.label} {step:g} м" + (" (высота)" if tilt else "")
+        target = shifted(before, direction, validate_step(step), tilt=tilt, straight=straight)
+        label = f"шаг {direction.label} {step:g} м" + _step_suffix(tilt, straight)
         note("%s от прочитанного: %s к %s", label, _pose_text(before), _pose_text(target))
         try:
             with timed(label):
@@ -315,7 +340,14 @@ class MappingSession:
             logger.warning("Шаг отменён, координаты забыты: %s", exc)
             self._invalidate()
             raise
-        result = StepResult(previous=before, pose=target, written=written, tilted=tilt, reread=True)
+        result = StepResult(
+            previous=before,
+            pose=target,
+            written=written,
+            tilted=tilt,
+            straight=straight,
+            reread=True,
+        )
         self._pose = target
         logger.info(
             "Шаг %s на %.3f м после чтения: записаны %s",
@@ -370,6 +402,12 @@ class MappingSession:
     def _invalidate(self) -> None:
         """Забыть позу: после сбоя панели двигаться от неё нельзя."""
         self._pose = None
+
+
+def _step_suffix(tilt: bool, straight: bool) -> str:
+    """Пометка шага в журнале: высота и «прямой» режим видны по строке."""
+    parts = [name for name, enabled in (("высота", tilt), ("прямо", straight)) if enabled]
+    return f" ({', '.join(parts)})" if parts else ""
 
 
 def _pose_text(pose: Pose) -> str:

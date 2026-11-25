@@ -35,7 +35,14 @@ def validate_step(step: float) -> float:
     return rounded(step, COORD_DECIMALS)
 
 
-def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False) -> Pose:
+def shifted(
+    pose: Pose,
+    direction: Direction,
+    step: float,
+    *,
+    tilt: bool = False,
+    straight: bool = False,
+) -> Pose:
     """Сдвинуть позу в направлении на шаг.
 
     Направление поворачивается на ``RZ``: ``+RZ`` — против часовой стрелки,
@@ -55,12 +62,21 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     без наклона — обычная диагональ в горизонтали, только с ``RX`` — поворот в
     плоскости ``Y/Z``, с ``RX`` и ``RY`` — поворот ``Rx(RX) · Ry(RY)`` (см. ниже).
 
+    С ``straight=True`` (в интерфейсе — «Прямой шаг 4/6/8/2») формулы поворота не
+    участвуют в движении клавиш ``Num 4/6/8/2``: при ``RX`` или ``RY`` ≠ 0 они двигают
+    предмет по мировым осям — влево ``+Y``, вправо ``−Y``, вперёд ``+X``, назад ``−X``,
+    а в режиме высоты ``Num 8`` поднимает строго по ``Z``, ``Num 2`` опускает (наклон
+    ``RY`` шаг не уводит). ``RZ`` остаётся: это поворот предмета вокруг вертикали, и
+    «вперёд» по-прежнему означает «туда, куда он смотрит». Диагонали считаются по
+    формулам: на них переключатель не действует.
+
     """
     validate_step(step)
     dx, dy = _normalize(direction)
     if tilt and direction in (Direction.FORWARD, Direction.BACK):
-        # Режим высоты: шаг по локальной оси Z, повёрнутой на RY (плоскость X/Z).
-        world_dx, world_dy, world_dz = _height_step(direction, pose)
+        # Режим высоты: шаг по локальной оси Z, повёрнутой на RY (плоскость X/Z),
+        # либо строго по мировой Z в режиме «Прямой шаг 4/6/8/2».
+        world_dx, world_dy, world_dz = _height_step(direction, pose, straight=straight)
     elif direction.is_diagonal:
         world_dx, world_dy, world_dz = _diagonal(direction, pose)
     else:
@@ -76,7 +92,9 @@ def shifted(pose: Pose, direction: Direction, step: float, *, tilt: bool = False
     return moved
 
 
-def _height_step(direction: Direction, pose: Pose) -> tuple[float, float, float]:
+def _height_step(
+    direction: Direction, pose: Pose, *, straight: bool = False
+) -> tuple[float, float, float]:
     """Шаг режима высоты: локальная ось ``Z``, повёрнутая на ``RY``.
 
     ``Δ_local = (0, 0, ±1)`` — «вверх/вниз» в осях предмета. Поворот вокруг ``Y``
@@ -96,8 +114,14 @@ def _height_step(direction: Direction, pose: Pose) -> tuple[float, float, float]
     При ``RY = 0`` это прежний шаг строго по ``Z``. ``RX`` и ``RZ`` на высоту не влияют:
     поворот вокруг ``X`` не меняет ``Z``-ось по величине, а ``RZ`` в формуле высоты не
     участвует.
+
+    С ``straight=True`` («Прямой шаг 4/6/8/2») наклон предмета не учитывается совсем:
+    шаг идёт строго по мировой оси ``Z`` — ``Δ = (0, 0, ±1)``. Так высота не уводит
+    предмет вбок, когда он наклонён по ``RY``.
     """
     sign = 1.0 if direction is Direction.FORWARD else -1.0
+    if straight and pose.has_tilt:
+        return 0.0, 0.0, sign
     angle = math.radians(pose.ry)
     return sign * math.sin(angle), 0.0, sign * math.cos(angle)
 

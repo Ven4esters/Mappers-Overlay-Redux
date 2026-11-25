@@ -2437,3 +2437,74 @@ def test_always_read_works_with_the_tilt_mode(qt_app: QApplication) -> None:
     hotkeys.press(VK_NUMPAD8)
     assert panel.pose().z == pytest.approx(START.z + 0.5, abs=0.001)
     assert panel.pose().x == pytest.approx(START.x, abs=0.001)
+
+
+# --- «Прямой шаг 4/6/8/2» --------------------------------------------------
+
+
+def test_straight_cardinal_is_off_by_default(qt_app: QApplication) -> None:
+    """Переключатель выключен по умолчанию: формулы поворота работают как раньше."""
+    window, _panel, _store, _cursor = make_window(qt_app)
+    assert not window.movement.straight_enabled()
+    assert window.movement.straight_box().text() == "Прямой шаг 4/6/8/2"
+
+
+def test_straight_cardinal_toggle_is_saved_to_settings(qt_app: QApplication) -> None:
+    """Выбор переключателя сохраняется в settings.json и переживает перезапуск."""
+    window, _panel, store, _cursor = make_window(qt_app)
+    window.movement.straight_box().setChecked(True)
+    assert store.saved[-1].straight_cardinal is True
+    assert "«Прямой шаг 4/6/8/2» включён" in window.status_text()
+    window.movement.straight_box().setChecked(False)
+    assert store.saved[-1].straight_cardinal is False
+    assert "выключен" in window.status_text()
+
+
+def test_straight_cardinal_restores_from_settings(qt_app: QApplication) -> None:
+    """Сохранённый режим включается при запуске и виден на вкладке."""
+    settings = replace(Settings(), straight_cardinal=True)
+    window, _panel, _store, _cursor = make_window(qt_app, settings=settings)
+    assert window.movement.straight_enabled()
+
+
+def test_straight_cardinal_height_ignores_the_tilt(qt_app: QApplication) -> None:
+    """С режимом Alt+Num 8 поднимает предмет строго по Z: наклон RY шаг вбок не уводит."""
+    pose = Pose(x=1850.0, y=1850.0, z=128.326, rx=37.0, ry=10.0)
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, pose=pose, hotkeys=hotkeys)
+    window.movement.straight_box().setChecked(True)
+    window._set_tilt(True)
+    window.movement.press_capture()
+    hotkeys.press(VK_NUMPAD8)
+    assert panel.pose().z == pytest.approx(pose.z + 0.5, abs=0.001)
+    assert panel.pose().x == pytest.approx(pose.x, abs=0.001)
+    assert panel.pose().y == pytest.approx(pose.y, abs=0.001)
+
+
+def test_straight_cardinal_uses_the_short_title_in_mini(qt_app: QApplication) -> None:
+    """В мини-версии подпись короче: три флажка с полными подписями не влезали в окно."""
+    window, _panel, _store, _cursor = make_window(qt_app)
+    window.set_mini(True)
+    assert window.movement.straight_box().text() == "Прямой шаг"
+    window.set_mini(False)
+    assert window.movement.straight_box().text() == "Прямой шаг 4/6/8/2"
+
+
+def test_straight_cardinal_changes_the_tilt_warning(qt_app: QApplication) -> None:
+    """Подсказка про наклон говорит, что предмет пойдёт строго вверх."""
+    pose = Pose(x=1850.0, y=1850.0, z=128.326, rx=37.0)
+    window, _panel, _store, _cursor = make_window(qt_app, pose=pose)
+    window.movement.press_capture()
+    assert "нажмите Alt" in window.movement.warning_text()
+    window.movement.straight_box().setChecked(True)
+    assert "строго вверх" in window.movement.warning_text()
+
+
+def test_straight_cardinal_keeps_pose_and_history(qt_app: QApplication) -> None:
+    """Переключение режима — настройка, а не новые координаты: поза и история целы."""
+    window, _panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    window.movement.arrow(Direction.FORWARD).click()
+    window.movement.straight_box().setChecked(True)
+    assert window.history().can_undo
+    assert window.undo()

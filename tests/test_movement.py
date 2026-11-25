@@ -568,3 +568,56 @@ def test_tilt_is_rounded_to_millimetres() -> None:
 
 def test_changed_fields_sees_height_on_tilt() -> None:
     assert changed_fields(ALT, shifted(ALT, Direction.FORWARD, 0.5, tilt=True)) == (Field.Z,)
+
+
+# --- «Прямой шаг 4/6/8/2»: формулы не влияют на клавиши 4/6/8/2 -----------------
+
+
+def test_straight_height_ignores_ry() -> None:
+    """С «Прямым шагом» высота идёт строго по ``Z``: ``RY`` шаг вбок не уводит.
+
+    Без переключателя тот же шаг считается по локальной оси ``Z`` и даёт
+    ``(0.5209, 0, 2.9544)`` при ``RY = 10°``.
+    """
+    pose = Pose(x=0.0, y=0.0, z=0.0, ry=10.0)
+    result = shifted(pose, Direction.FORWARD, 3.0, tilt=True, straight=True)
+    assert (result.x, result.y, result.z) == (0.0, 0.0, 3.0)
+
+
+def test_straight_height_goes_down_for_back() -> None:
+    """``Num 2`` с ``Alt`` опускает строго по ``Z``, наклон не участвует."""
+    pose = Pose(x=5.0, y=6.0, z=7.0, rx=37.0, ry=25.0)
+    result = shifted(pose, Direction.BACK, 2.0, tilt=True, straight=True)
+    assert (result.x, result.y, result.z) == (5.0, 6.0, 5.0)
+
+
+@pytest.mark.parametrize("direction", [Direction.LEFT, Direction.RIGHT])
+def test_straight_keeps_horizontal_step_as_usual(direction: Direction) -> None:
+    """``Num 4/6`` при включённом переключателе идут как обычно: ``Y`` с поворотом ``RZ``."""
+    pose = Pose(x=10.0, y=20.0, z=30.0, rx=40.0, ry=25.0, rz=30.0)
+    assert shifted(pose, direction, 1.0, straight=True) == shifted(pose, direction, 1.0)
+
+
+@pytest.mark.parametrize(
+    "direction", [Direction.FORWARD, Direction.BACK, Direction.LEFT, Direction.RIGHT]
+)
+def test_straight_does_not_change_cardinal_step_without_alt(direction: Direction) -> None:
+    """Без Alt формулы наклона в 4/6/8/2 не участвовали и раньше: результат тот же."""
+    pose = Pose(x=10.0, y=20.0, z=30.0, rx=55.0, ry=17.0, rz=15.0)
+    assert shifted(pose, direction, 2.5, straight=True) == shifted(pose, direction, 2.5)
+
+
+def test_straight_leaves_diagonals_to_the_formulas() -> None:
+    """Диагонали переключатель не трогает: ``Rx(RX)·Ry(RY)`` считается как прежде."""
+    pose = Pose(x=0.0, y=0.0, z=0.0, rx=55.0, ry=17.0)
+    assert shifted(pose, Direction.FORWARD_LEFT, 3.0, straight=True) == shifted(
+        pose, Direction.FORWARD_LEFT, 3.0
+    )
+
+
+def test_straight_without_tilt_matches_the_usual_height() -> None:
+    """Без наклона прямой шаг совпадает с обычным: ``RY = 0`` и так ведёт строго по ``Z``."""
+    pose = Pose(x=1.0, y=2.0, z=3.0)
+    assert shifted(pose, Direction.FORWARD, 2.0, tilt=True, straight=True) == shifted(
+        pose, Direction.FORWARD, 2.0, tilt=True
+    )

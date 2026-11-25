@@ -459,3 +459,28 @@ def test_capture_and_step_keeps_the_height_mode() -> None:
     assert result.tilted
     assert result.pose.z == pytest.approx(START.z + 0.5, abs=0.001)
     assert result.pose.x == pytest.approx(START.x, abs=0.001)
+
+
+def test_straight_step_lifts_strictly_up_when_tilted() -> None:
+    """«Прямой шаг»: при наклоне высота идёт строго по ``Z``, а не по ``RY``."""
+    pose = Pose(x=-1848.763, y=409.366, z=125.002, rx=37.0, ry=10.0)
+    panel = FakePanel(pose)
+    session = make_session(panel)
+    session.capture()
+    result = session.step(Direction.FORWARD, 1.0, tilt=True, straight=True)
+    assert result.straight is True
+    assert result.pose.z == pytest.approx(126.002, abs=0.001)
+    assert result.pose.x == pytest.approx(pose.x, abs=0.001)
+    assert result.pose.y == pytest.approx(pose.y, abs=0.001)
+    assert panel.pose().z == pytest.approx(126.002, abs=0.001)
+
+
+def test_straight_is_reported_in_the_step_result() -> None:
+    """Итог шага помнит режим: по нему повтор шага идёт тем же способом."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.capture()
+    assert session.step(Direction.LEFT, 0.5, straight=False).straight is False
+    reread = session.capture_and_step(Direction.LEFT, 0.5, straight=True)
+    assert reread.straight is True
+    assert reread.reread is True

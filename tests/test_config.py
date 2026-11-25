@@ -178,3 +178,23 @@ def test_always_read_pose_roundtrip() -> None:
 def test_always_read_pose_is_checked_as_bool() -> None:
     with pytest.raises(ConfigError, match="always_read_pose"):
         Settings.from_dict({"schema_version": SCHEMA_VERSION, "always_read_pose": "да"})
+
+
+def test_straight_cardinal_is_off_by_default() -> None:
+    """«Прямой шаг 4/6/8/2» по умолчанию выключен: формулы поворота остаются прежними."""
+    assert Settings().straight_cardinal is False
+    restored = Settings.from_dict(Settings().to_dict())
+    assert restored.straight_cardinal is False
+
+
+def test_straight_cardinal_roundtrip() -> None:
+    """Выбор переключателя сохраняется в файл настроек и читается обратно."""
+    settings = Settings(straight_cardinal=True)
+    assert settings.to_dict()["straight_cardinal"] is True
+    assert Settings.from_dict(settings.to_dict()).straight_cardinal is True
+
+
+def test_straight_cardinal_is_checked_as_bool() -> None:
+    """Строка вместо true/false — ошибка настроек, а не «почти включено»."""
+    with pytest.raises(ConfigError, match="straight_cardinal"):
+        Settings.from_dict({"schema_version": SCHEMA_VERSION, "straight_cardinal": "да"})
