@@ -251,6 +251,13 @@ QComboBox, QSpinBox, QDoubleSpinBox {{
     min-height: 20px;
 }}
 QComboBox::drop-down {{ border: none; width: 18px; }}
+/* Поле ввода внутри выпадающего списка — часть списка, а не отдельное поле:
+   общая рамка и отступы QLineEdit внутри него обрезали текст и прятали курсор. */
+QComboBox QLineEdit {{
+    background: transparent;
+    border: none;
+    padding: 0 4px;
+}}
 QComboBox QAbstractItemView {{
     background: {SURFACE_RAISED};
     border: 1px solid {BORDER};

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
@@ -14,7 +13,6 @@ from PySide6.QtGui import (
     QPolygonF,
     QResizeEvent,
     QShowEvent,
-    QValidator,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -48,6 +46,7 @@ from map_overlay.ui.widgets import (
     ROW_SPACING,
     SECTION_GAP,
     Card,
+    DecimalSpinBox,
     button,
     label,
 )
@@ -618,12 +617,13 @@ def _trash_icon(color: QColor, *, hover: QColor | None = None) -> QIcon:
     return icon
 
 
-class SizeSpin(QDoubleSpinBox):
+class SizeSpin(DecimalSpinBox):
     """Поле размера с единицей внутри: «2.5 м».
 
     Единица измерения живёт в тексте поля (``setSuffix``), а не отдельной подписью:
     сетка не разъезжается, и глаз не прыгает между числом и «м».
-    Запятая принимается наравне с точкой — так размеры пишут в игре.
+    Запятая принимается наравне с точкой — так размеры пишут в игре, а локаль C
+    не даёт системе подменить разделитель в поле.
     """
 
     def __init__(self, value: float, parent: QWidget | None = None) -> None:
@@ -638,17 +638,9 @@ class SizeSpin(QDoubleSpinBox):
         self.setMinimumWidth(SIZE_FIELD_WIDTH)
         self.setValue(value)
 
-    def validate(self, text: str, position: int) -> QValidator.State:
-        """Разрешить запятую как десятичный разделитель при наборе."""
-        return cast(QValidator.State, super().validate(text.replace(",", "."), position))
-
     def valueFromText(self, text: str) -> float:  # noqa: N802 - имя из Qt
-        """Прочитать «2,5 м» и «2.5 м» одинаково."""
-        raw = text.replace(SUFFIX, "").replace(",", ".").strip()
-        try:
-            return float(raw)
-        except ValueError:
-            return self.value()
+        """Прочитать «2,5 м» и «2.5 м» одинаково (единица в тексте не мешает)."""
+        return super().valueFromText(text.replace(SUFFIX, ""))
 
     def textFromValue(self, value: float) -> str:  # noqa: N802 - имя из Qt
         """Показать число без хвостовых нулей: «2 м», а не «2.000 м»."""

@@ -30,6 +30,7 @@ from map_overlay.ui.widgets import (
     ROW_SPACING,
     SECTION_GAP,
     Card,
+    DecimalSpinBox,
     button,
     label,
 )
@@ -133,7 +134,7 @@ class SettingsTab(QWidget):
         self._decimals.setRange(MIN_DECIMALS, MAX_DECIMALS)
         self._decimals.setValue(settings.decimals)
         _compact(self._decimals)
-        self._default_step = QDoubleSpinBox(self)
+        self._default_step = DecimalSpinBox(self)
         self._default_step.setRange(MIN_STEP, MAX_STEP)
         self._default_step.setDecimals(STEP_SPIN_DECIMALS)
         self._default_step.setSingleStep(0.1)
@@ -269,7 +270,7 @@ def _compact(widget: QAbstractSpinBox) -> None:
 
 
 def _delay_spin(value: float) -> QDoubleSpinBox:
-    widget = QDoubleSpinBox()
+    widget = DecimalSpinBox()
     widget.setRange(MIN_DELAY_S, MAX_DELAY_S)
     widget.setDecimals(2)
     widget.setSingleStep(DELAY_STEP_S)

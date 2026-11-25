@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Final
 
 from PySide6.QtCore import QLocale, Signal
-from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -34,6 +33,7 @@ from map_overlay.ui.widgets import (
     ROW_SPACING,
     SECTION_GAP,
     Card,
+    DecimalValidator,
     DirectionPad,
     PoseGrid,
     button,
@@ -136,9 +136,14 @@ class MovementTab(QWidget):
         self._step_combo.setEditable(True)
         self._step_combo.addItems(STEP_PRESETS)
         self._step_combo.setCurrentText(_format_step(default_step))
-        self._step_combo.setValidator(QDoubleValidator(MIN_STEP, MAX_STEP, STEP_DECIMALS, self))
+        self._step_combo.setValidator(DecimalValidator(MIN_STEP, MAX_STEP, STEP_DECIMALS, self))
         self._step_combo.setLocale(QLocale.c())
         self._step_combo.setMinimumWidth(96)
+        # После правки поле показывает число в обычном виде: «0,50» превращается в «0.5»,
+        # и видно, что ввод принят.
+        step_edit = self._step_combo.lineEdit()
+        if step_edit is not None:  # setEditable(True) выше всегда создаёт поле ввода
+            step_edit.editingFinished.connect(self._normalize_step_text)
         row.addWidget(self._step_combo)
         row.addWidget(label("м", widget_role="muted"))
         row.addStretch(1)
@@ -217,6 +222,16 @@ class MovementTab(QWidget):
             self.set_warning(str(exc))
             return
         self.move_requested.emit(direction, step)
+
+    def _normalize_step_text(self) -> None:
+        """Привести запись шага к обычному виду, если она читается как число в допуске."""
+        raw = self._step_combo.currentText().replace(",", ".").strip()
+        try:
+            value = float(raw)
+        except ValueError:
+            return
+        if MIN_STEP <= value <= MAX_STEP:
+            self._step_combo.setCurrentText(_format_step(rounded(value, STEP_DECIMALS)))
 
     def current_step(self) -> float:
         """Шаг из поля ввода.

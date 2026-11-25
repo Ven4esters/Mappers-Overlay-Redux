@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
@@ -22,7 +24,8 @@ from map_overlay.infrastructure.size_store import JsonSizeStore
 from map_overlay.trace import JOURNAL
 from map_overlay.ui.tabs.movement_tab import MovementTab
 from map_overlay.ui.window import MainWindow
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, QLocale, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -182,6 +185,101 @@ def test_broken_settings_message(qt_app: QApplication) -> None:
     )
     window = MainWindow(context, synchronous_tasks=True)
     assert "испорчен" in window.status_text()
+
+
+@contextmanager
+def _russian_locale() -> Iterator[None]:
+    """Временно включить русскую локаль: на Windows с ней приходит десятичная запятая."""
+    previous = QLocale()
+    QLocale.setDefault(QLocale("ru_RU"))
+    try:
+        yield
+    finally:
+        QLocale.setDefault(previous)
+
+
+def test_step_field_takes_dot_and_comma_in_russian_locale(qt_app: QApplication) -> None:
+    """«Шаг» принимает «1.25» и «0,75» даже когда система просит запятую."""
+    with _russian_locale():
+        tab = MovementTab(default_step=0.5)
+        tab.show()
+        qt_app.processEvents()
+        edit = tab._step_combo.lineEdit()
+        for typed, expected in (("1.25", 1.25), ("0,75", 0.75), ("2", 2.0)):
+            tab._step_combo.setCurrentText("0.5")
+            edit.setFocus()
+            qt_app.processEvents()
+            QTest.keyClick(edit, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+            QTest.keyClicks(edit, typed)
+            edit.editingFinished.emit()
+            qt_app.processEvents()
+            assert tab.current_step() == pytest.approx(expected)
+            # После правки поле показывает число с точкой, а не с запятой.
+            assert "," not in tab.step_text()
+
+
+def test_sizes_fields_take_dot_and_comma_in_russian_locale(qt_app: QApplication) -> None:
+    """«Длина» и «Ширина» читают точку и запятую одинаково при русской локали."""
+    with _russian_locale():
+        window, _panel, _store, _cursor = make_window(qt_app)
+        window.show()
+        window._tabs.setCurrentIndex(1)
+        qt_app.processEvents()
+        tab = window.sizes
+        for field, typed, expected in ((tab._length, "2.5", 2.5), (tab._width, "1,5", 1.5)):
+            edit = field.lineEdit()
+            edit.setFocus()
+            QTest.keyClick(edit, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+            QTest.keyClicks(edit, typed)
+            field.interpretText()
+            qt_app.processEvents()
+            assert field.value() == pytest.approx(expected)
+
+
+def test_delay_field_takes_dot_in_russian_locale(qt_app: QApplication) -> None:
+    """Задержка набирается с точкой: «0.2» остаётся 0.2, а не превращается в 2."""
+    with _russian_locale():
+        window, _panel, _store, _cursor = make_window(qt_app)
+        window.show()
+        window._tabs.setCurrentIndex(3)
+        qt_app.processEvents()
+        spin = window.settings_tab._click
+        edit = spin.lineEdit()
+        edit.setFocus()
+        QTest.keyClick(edit, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClicks(edit, "0.2")
+        spin.interpretText()
+        qt_app.processEvents()
+        assert spin.value() == pytest.approx(0.2, abs=0.001)
+
+
+def test_step_field_opens_for_typing_on_click(qt_app: QApplication) -> None:
+    """Клик по «Шагу» ставит курсор в поле, и там есть место для цифр.
+
+    Проверка ловит тот же класс поломки, что схлопнул поля «Длина»/«Ширина»:
+    общая таблица стилей оставляла от поля ввода внутри списка одну полоску.
+    """
+    from PySide6.QtCore import QPoint
+
+    tab = MovementTab(default_step=0.5)
+    tab.show()
+    qt_app.processEvents()
+    combo = tab._step_combo
+    edit = combo.lineEdit()
+    assert combo.isEditable()
+    assert edit.width() > 40
+    assert edit.height() >= 14
+    QTest.mouseClick(
+        combo,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(16, combo.height() // 2),
+    )
+    qt_app.processEvents()
+    assert edit.hasFocus()
+    QTest.keyClick(edit, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClicks(edit, "3")
+    assert tab.current_step() == pytest.approx(3.0)
 
 
 def test_step_field_is_validated(qt_app: QApplication) -> None:

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Final, cast
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPaintEvent, QPen, QPixmap
+from PySide6.QtCore import QEvent, QLocale, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QDoubleValidator, QPainter, QPaintEvent, QPen, QPixmap, QValidator
 from PySide6.QtWidgets import (
+    QDoubleSpinBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -122,6 +123,50 @@ def button(
     if tooltip:
         item.setToolTip(tooltip)
     return item
+
+
+def _dot_separator(text: str) -> str:
+    """Заменить запятую на точку: числа в оверлее всегда записаны с точкой."""
+    return text.replace(",", ".")
+
+
+class DecimalValidator(QDoubleValidator):
+    """Валидатор числа с точкой: локаль C, запятая понимается как разделитель.
+
+    Локаль Windows с десятичной запятой (ru_RU) иначе молча выбрасывает точку: в поле
+    «Шаг» «1.25» превращалось в «125», и правка выглядела сломанной.
+    """
+
+    def __init__(
+        self, bottom: float, top: float, decimals: int, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(bottom, top, decimals, parent)
+        self.setLocale(QLocale.c())
+        self.setNotation(QDoubleValidator.Notation.StandardNotation)
+
+    def validate(self, text: str, position: int) -> QValidator.State:
+        """Проверить число, приняв запятую наравне с точкой."""
+        return cast(QValidator.State, super().validate(_dot_separator(text), position))
+
+    def fixup(self, text: str) -> str:
+        """Привести запись к точке, если Qt просит исправить текст."""
+        return _dot_separator(text)
+
+
+class DecimalSpinBox(QDoubleSpinBox):
+    """Числовое поле с точкой: та же локаль C и терпимость к запятой, что у валидатора."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setLocale(QLocale.c())
+
+    def validate(self, text: str, position: int) -> QValidator.State:
+        """Разрешить запятую как десятичный разделитель при наборе."""
+        return cast(QValidator.State, super().validate(_dot_separator(text), position))
+
+    def valueFromText(self, text: str) -> float:  # noqa: N802 - имя из Qt
+        """Прочитать «2,5» и «2.5» одинаково."""
+        return super().valueFromText(_dot_separator(text))
 
 
 INFO_PX = 14
