@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mappers-overlay-redux"
-version = "1.22.2"
+version = "1.22.3"
 description = "Mapper's Overlay Redux — оверлей для мапперов LSP (FiveM): калибровка полей панели, запись координат и сдвиг по 8 направлениям."
 readme = "README.md"
 requires-python = ">=3.12"
