@@ -82,14 +82,17 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          set -o pipefail
+          # bash запускается с -e, поэтому статус pytest снимаем вручную: иначе шаг
+          # завершается до печати аннотаций.
+          set +e
           pytest --cov=map_overlay --cov-report=term-missing --cov-fail-under=80 \
             --tb=short -rf 2>&1 | tee pytest.log
           status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             # Журнал шага бывает недоступен, а аннотации видны в интерфейсе и через API.
             # Печатаем хвост журнала: он объясняет и упавшие тесты, и падение самого pytest.
-            tail -8 pytest.log | while IFS= read -r line; do
+            tail -8 pytest.log | sed -e 's/\r//g' | while IFS= read -r line; do
               echo "::error title=Хвост журнала pytest::${line//::/--}"
             done
           fi
