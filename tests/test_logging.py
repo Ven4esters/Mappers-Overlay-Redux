@@ -90,3 +90,50 @@ def test_console_stays_quiet_without_debug(tmp_path: Path) -> None:
 def test_console_is_verbose_with_debug(tmp_path: Path) -> None:
     setup_logging(tmp_path / "overlay.log", console=True, debug=True)
     assert _console_levels() == [logging.DEBUG]
+
+
+def test_correlation_id_marks_operation(tmp_path: Path) -> None:
+    """Все строки одной операции несут один correlation_id — так они ищутся вместе."""
+    import logging as logging_module
+
+    from map_overlay.logging_setup import correlation_scope
+
+    path = tmp_path / "overlay.log"
+    setup_logging(path)
+    with correlation_scope("step") as operation:
+        logging_module.getLogger("test").info("первая строка")
+        logging_module.getLogger("test").warning("вторая строка")
+    logging_module.getLogger("test").info("вне операции")
+    for handler in logging_module.getLogger().handlers:
+        handler.flush()
+    payloads = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert payloads[0]["correlation_id"] == operation
+    assert payloads[1]["correlation_id"] == operation
+    assert "correlation_id" not in payloads[2]
+
+
+def test_nested_scope_keeps_outer_operation() -> None:
+    from map_overlay.logging_setup import correlation_scope, current_correlation_id
+
+    with correlation_scope("outer") as outer, correlation_scope("inner") as inner:
+        assert inner == outer
+        assert current_correlation_id() == outer
+    assert current_correlation_id() == ""
+
+
+def test_timed_operation_sets_correlation(tmp_path: Path) -> None:
+    """Замер операции — та же единица работы: журнал панели попадает под тот же id."""
+    from map_overlay import logging_setup
+    from map_overlay.trace import timed
+
+    path = tmp_path / "overlay.log"
+    setup_logging(path)
+    with timed("проверка операции", slow_ms=10_000):
+        marker = logging_setup.current_correlation_id()
+        logging.getLogger("panel").info("обмен с панелью")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    payloads = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    panel_lines = [item for item in payloads if item["logger"] == "panel"]
+    assert marker
+    assert panel_lines[0]["correlation_id"] == marker

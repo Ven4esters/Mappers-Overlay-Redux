@@ -105,16 +105,18 @@ class MovementTab(QWidget):
         self._grid = PoseGrid(self)
         card.add(self._grid)
         row = QHBoxLayout()
-        self._capture_button = button("Считать", widget_role="primary")
+        self._capture_button = button(
+            "Считать", widget_role="primary", accessible="Считать координаты"
+        )
         self._capture_button.clicked.connect(self.capture_requested.emit)
         self._capture_button.setToolTip("Прочитать все шесть полей панели")
-        self._paste_button = button("Вставить")
+        self._paste_button = button("Вставить", accessible="Вставить координаты")
         self._paste_button.clicked.connect(self.paste_requested.emit)
         self._paste_button.setToolTip(
             "Вписать координаты и углы считанного предмета в тот, что открыт в панели сейчас"
         )
         self._paste_button.setEnabled(False)
-        self._confirm_button = button("Сохранить F")
+        self._confirm_button = button("Сохранить F", accessible="Сохранить F")
         self._confirm_button.clicked.connect(self.confirm_requested.emit)
         self._confirm_button.setToolTip(
             "Вставить значения, кликнуть в пустое место панели и нажать F"

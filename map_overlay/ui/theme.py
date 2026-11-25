@@ -81,7 +81,7 @@ QPushButton[role="badge"]:pressed {{ background: #1d2740; }}
 QPushButton[role="badge"]:disabled {{ color: {TEXT_DISABLED}; }}
 QLabel[role="muted"] {{ color: {MUTED}; }}
 QLabel[role="warn"] {{ color: {WARNING}; }}
-QLabel[role="error"] {{ color: {ERROR}; }}
+QLabel[role="error"] {{ color: {DANGER_TEXT}; }}
 QLabel[role="ok"] {{ color: {SUCCESS}; }}
 QLabel[role="appTitle"] {{ font-size: 17px; font-weight: 700; }}
 QLabel[role="stepLabel"] {{
@@ -102,6 +102,12 @@ QPushButton:disabled {{
     background: rgba(22, 29, 43, 0.45);
     border-color: #1b2333;
 }}
+/* Фокус виден всегда: без обводки клавиатурный пользователь не знает, где он. */
+QPushButton:focus {{
+    border-color: {ACCENT};
+}}
+QCheckBox:focus {{ color: #ffffff; }}
+QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {ACCENT}; }}
 QPushButton[role="primary"] {{
     background: #2563eb;
     border: 1px solid {ACCENT};
@@ -113,7 +119,8 @@ QPushButton[role="primary"]:disabled {{
     border-color: #26324a;
     color: #55627a;
 }}
-/* «Прервать» — аварийная остановка: в покое серая кнопка, во время обмена красная. */
+/* «Прервать» — аварийная остановка: в покое серая кнопка, во время обмена красная.
+   Текст ошибки на карточке — DANGER_TEXT, а не ERROR: у заливки и у текста разные пороги. */
 QPushButton[role="abort"] {{
     background: {SURFACE_RAISED};
     border: 1px solid {BORDER};

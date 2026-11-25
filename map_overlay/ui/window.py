@@ -189,6 +189,7 @@ class MainWindow(QMainWindow):
             "Прервать",
             widget_role="abort",
             tooltip="Бросить текущее действие, если панель не отвечает",
+            accessible="Прервать действие",
         )
         self._abort_button.setEnabled(False)
         self._abort_button.clicked.connect(self._abort_action)
@@ -268,6 +269,7 @@ class MainWindow(QMainWindow):
             "Мини",
             widget_role="badge",
             tooltip="Свернуть окно до крестовины и шага",
+            accessible="Мини-версия окна",
         )
         self._mini_button.clicked.connect(self.toggle_mini)
         layout.addSpacing(ROW_SPACING)

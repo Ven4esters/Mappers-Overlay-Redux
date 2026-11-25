@@ -2,6 +2,8 @@
 
 - Статус: принято
 - Дата: 2026-11-19
+- Владелец: @Ven4esters
+- Пересмотр: 2027-11-19
 - Версия: 1.14.0
 
 ## Контекст
@@ -58,7 +60,7 @@
 | `.exe` | `icon=str(ICON)` в `MappersOverlayRedux.spec` |
 | Сборка | spec падает, если `app.ico` нет: иначе exe молча получил бы значок по умолчанию |
 | Пакет | `[tool.setuptools.package-data]` → `data/*.ico` |
-| README | `<img src="docs/app-icon.png">` в заголовке |
+| README | `<img src="docs/app-icon.png" alt="Иконка приложения">` в заголовке |
 
 ## Последствия
 

@@ -1,0 +1,81 @@
+name: Сообщение об ошибке
+description: Что-то работает не так, как описано в README
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за сообщение. Чем точнее шаги и журналы, тем быстрее найдётся причина.
+        Для уязвимостей используйте приватный канал из SECURITY.md, а не этот шаблон.
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: По шагам, с конкретными числами и клавишами.
+      placeholder: |
+        1. Запустить run_overlay.bat
+        2. Нажать «Считать»
+        3. Нажать Num 8 при шаге 0.5
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое и фактическое
+      placeholder: |
+        Ожидалось: предмет сдвинулся на 0.5 м вперёд.
+        Фактически: шаг не начался, в статусе «координаты не считаны».
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия оверлея
+      description: Видна в шапке окна или в выводе `run_overlay.bat --check-only`.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Окружение
+      description: Windows, Python, режим игры (окно без рамки), права (обычные или администратор).
+      placeholder: Windows 11, Python 3.12.4, игра в окне без рамки, оба процесса от администратора
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Журналы
+      description: |
+        Приложите фрагмент `logs/overlay.log` вокруг момента ошибки (JSON, одна запись на
+        строку; полезен `correlation_id` этого действия) и, если было падение, `logs/crash.log`.
+      render: text
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Серьёзность
+      options:
+        - "SEV-3: мешает, но есть обходной путь"
+        - "SEV-2: основное действие не работает"
+        - "SEV-1: данные испорчены или клавиатура не возвращается игре"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Перед отправкой
+      options:
+        - label: Прочитал раздел «Если что-то не работает» в README
+          required: true
+        - label: В журналах нет токенов, паролей и персональных данных
+          required: true

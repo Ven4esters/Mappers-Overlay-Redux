@@ -31,6 +31,11 @@ GRID_SPACING: Final = 8
 SECTION_GAP: Final = 16
 # Расстояние между карточками. Должно быть больше, чем внутри карточки (CARD_SPACING),
 # иначе блоки слипаются и непонятно, где кончается один и начинается другой.
+ARROW_MIN_WIDTH: Final = 62
+ARROW_MIN_HEIGHT: Final = 48
+# Зона клика стрелки: заметно больше иконки, чтобы промах был невозможен.
+# Те же числа стоят в QSS (``QPushButton[role="arrow"]``) — меняются вместе.
+
 ROW_SPACING: Final = 8
 LABEL_COLUMN_WIDTH: Final = 66
 VALUE_MIN_WIDTH: Final = 170
@@ -109,11 +114,14 @@ def button(
     widget_role: str | None = None,
     tooltip: str = "",
     danger: bool = False,
+    accessible: str = "",
 ) -> AppButton:
     """Кнопка с необязательной ролью (например, ``primary``).
 
     ``danger`` помечает опасное действие красной рамкой, не меняя размер кнопки:
-    свойство ``severity`` складывается с ролью ``small``.
+    свойство ``severity`` складывается с ролью ``small``. ``accessible`` задаёт имя для
+    скрин-ридера: у кнопки-значка подписи нет, и без имени она для него не существует.
+    Подсказка становится описанием — она и есть объяснение действия.
     """
     item = AppButton(text)
     if widget_role:
@@ -122,6 +130,10 @@ def button(
         item.setProperty("severity", "danger")
     if tooltip:
         item.setToolTip(tooltip)
+    if accessible:
+        item.setAccessibleName(accessible)
+    if tooltip:
+        item.setAccessibleDescription(tooltip)
     return item
 
 
@@ -222,6 +234,8 @@ class Card(QFrame):
         self._info.setPixmap(info_pixmap())
         self._info.setFixedSize(INFO_PX, INFO_PX)
         self._info.setToolTip(hint)
+        self._info.setAccessibleName("Справка")
+        self._info.setAccessibleDescription(hint)
         self._info.setVisible(bool(hint))
         self._info.setCursor(Qt.CursorShape.WhatsThisCursor)
         self._info.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
@@ -235,6 +249,7 @@ class Card(QFrame):
     def set_hint(self, text: str) -> None:
         """Заменить справку карточки (например, при переходе в режим правки)."""
         self._info.setToolTip(text)
+        self._info.setAccessibleDescription(text)
         self._info.setVisible(bool(text))
 
     def hint(self) -> str:
@@ -361,7 +376,13 @@ class DirectionPad(QWidget):
         return f"{direction.label}: {', '.join(parts)} на шаг"
 
     def _arrow(self, direction: Direction) -> QPushButton:
-        item = button(direction.glyph, widget_role="arrow", tooltip=self._axis_tooltip(direction))
+        item = button(
+            direction.glyph,
+            widget_role="arrow",
+            tooltip=self._axis_tooltip(direction),
+            accessible=direction.label,
+        )
+        item.setMinimumSize(ARROW_MIN_WIDTH, ARROW_MIN_HEIGHT)
         item.clicked.connect(lambda _checked=False, d=direction: self.direction_clicked.emit(d))
         self._buttons.append(item)
         self._by_direction[direction] = item

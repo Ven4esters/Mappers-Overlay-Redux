@@ -1,0 +1,52 @@
+# Те же проверки, что в CI, но до коммита: правило, которое ловится через полчаса
+# в чужом конвейере, стоит дороже, чем через секунду на своей машине.
+#
+# Хуки локальные (repo: local), а не удалённые: они вызывают уже установленные ruff, mypy
+# и наши инструменты. CI не скачивает окружения хуков, а версии инструментов остаются
+# ровно те, что в pyproject.toml.
+#
+# Установка: pre-commit install  (или .venv/bin/pre-commit install)
+# Ручной прогон по всем файлам: pre-commit run --all-files
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format (проверка)
+        entry: ruff format --check
+        language: system
+        types: [python]
+
+      - id: ruff
+        name: ruff check
+        entry: ruff check
+        language: system
+        types: [python]
+
+      - id: mypy
+        name: mypy (strict)
+        entry: mypy
+        language: system
+        pass_filenames: false
+        files: ^(map_overlay|tools)/.*\.py$
+
+      - id: docs
+        name: документация (ссылки, якоря, разделы, версия)
+        entry: python -m tools.check_docs
+        language: system
+        pass_filenames: false
+        files: \.md$
+
+      - id: exceptions
+        name: политика исключений (владелец и срок)
+        entry: python -m tools.check_exceptions
+        language: system
+        pass_filenames: false
+        files: ^docs/quality/exceptions\.md$
+
+      - id: whitespace
+        name: пробелы в конце строк и пустая строка в конце файла
+        entry: python -m tools.check_whitespace
+        language: system
+        pass_filenames: true
+        types: [text]

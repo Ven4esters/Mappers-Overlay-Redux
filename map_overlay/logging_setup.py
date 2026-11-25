@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -14,8 +18,45 @@ LOG_MAX_BYTES: Final = 2 * 1024 * 1024
 # Сколько места журнал может занять: старые записи вытесняются, диск не переполняется.
 LOG_BACKUP_COUNT: Final = 3
 
+CORRELATION_FIELD: Final = "correlation_id"
+# Имя поля со сквозным идентификатором операции: по нему в журнале собирается всё,
+# что относится к одному нажатию, — от клавиши до ответа панели.
+
 _OWN_HANDLERS: list[logging.Handler] = []
 # Обработчики, добавленные этим модулем: чужие (например, в тестах) не трогаем.
+
+_correlation_id: ContextVar[str] = ContextVar("correlation_id", default="")
+_operation_numbers = itertools.count(1)
+
+
+@contextmanager
+def correlation_scope(prefix: str = "op") -> Iterator[str]:
+    """Пометить всё, что пишется внутри блока, одним идентификатором операции.
+
+    Идентификатор попадает в каждую JSON-строку журнала полем ``correlation_id``.
+    Вложенный вызов продолжает внешнюю операцию: внутренний блок не разрывает связь.
+
+    Args:
+        prefix: короткое имя операции — попадает в начало идентификатора.
+
+    Yields:
+        Идентификатор вида ``step-0007``.
+    """
+    current = _correlation_id.get()
+    if current:
+        yield current
+        return
+    value = f"{prefix}-{next(_operation_numbers):04d}"
+    token = _correlation_id.set(value)
+    try:
+        yield value
+    finally:
+        _correlation_id.reset(token)
+
+
+def current_correlation_id() -> str:
+    """Идентификатор текущей операции или пустая строка вне операции."""
+    return _correlation_id.get()
 
 
 class JsonFormatter(logging.Formatter):
@@ -32,6 +73,9 @@ class JsonFormatter(logging.Formatter):
         }
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
+        correlation = _correlation_id.get()
+        if correlation:
+            payload[CORRELATION_FIELD] = correlation
         return json.dumps(payload, ensure_ascii=False)
 
 

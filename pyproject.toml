@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mappers-overlay-redux"
-version = "1.21.0"
+version = "1.22.0"
 description = "Mapper's Overlay Redux — оверлей для мапперов LSP (FiveM): калибровка полей панели, запись координат и сдвиг по 8 направлениям."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,12 +18,13 @@ dependencies = [
 dev = [
     "mypy==1.11.2",
     "ruff==0.7.4",
-    "pytest==8.3.3",
+    "pytest==9.0.3",
     "pytest-cov==5.0.0",
     "pip-audit==2.7.3",
     "bandit==1.7.10",
     "build==1.2.2",
     "detect-secrets==1.5.0",
+    "pre-commit==4.0.1",
     "pyinstaller==6.10.0",
 ]
 
@@ -43,9 +44,24 @@ target-version = "py312"
 src = ["map_overlay", "tests", "tools"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF", "RET", "ARG", "PTH", "D1"]
+select = [
+    "E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF", "RET", "ARG", "PTH", "D1",
+    # Пороги из инженерного стандарта: сложность, ветвления, длина функции, число аргументов.
+    "C90", "PLR0912", "PLR0913", "PLR0915",
+]
 # D105/D107: поведение __init__ и магических методов описано в docstring класса.
 ignore = ["RUF001", "RUF002", "RUF003", "D105", "D107"]
+
+[tool.ruff.lint.mccabe]
+# Стандарт: цикломатическая сложность ≤ 10–15. Держим 12 — середину диапазона.
+max-complexity = 12
+
+[tool.ruff.lint.pylint]
+# Стандарт: параметров ≤ 4–5. Порог 7 и исключение для конструкторов с внедрением
+# зависимостей записаны в docs/quality/exceptions.md — правило видно и проверяется.
+max-args = 7
+max-branches = 12
+max-statements = 50
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D1", "ARG", "PLR2004"]

@@ -25,8 +25,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
 
+from map_overlay.logging_setup import correlation_scope
+
 MAX_EVENTS: Final = 150
 # Сколько последних действий держим в памяти. Хватает на несколько полных шагов.
+
+OPERATION_PREFIX: Final = "op"
+# Начало correlation_id: все строки одного действия собираются по одному префиксу.
 
 SLOW_OP_MS: Final = 1200.0
 # Дольше этого одна операция быть не должна: обмен с панелью занимает десятки-сотни мс.
@@ -126,13 +131,14 @@ def timed(label: str, *, slow_ms: float = SLOW_OP_MS) -> Iterator[None]:
         label: что делаем — попадает в журнал как есть.
         slow_ms: порог медленной операции в миллисекундах.
     """
-    note("начал: %s", label)
-    started = time.monotonic()
-    try:
-        yield
-    finally:
-        elapsed_ms = (time.monotonic() - started) * 1000
-        if elapsed_ms >= slow_ms:
-            note_slow(label, elapsed_ms)
-        else:
-            note("готово: %s — %.0f мс", label, elapsed_ms)
+    with correlation_scope(OPERATION_PREFIX):
+        note("начал: %s", label)
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            elapsed_ms = (time.monotonic() - started) * 1000
+            if elapsed_ms >= slow_ms:
+                note_slow(label, elapsed_ms)
+            else:
+                note("готово: %s — %.0f мс", label, elapsed_ms)

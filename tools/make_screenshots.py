@@ -248,6 +248,12 @@ def _grab(window: MainWindow, app: QApplication, path: Path) -> None:
     # второй проход расставляет виджеты по новым местам.
     app.processEvents()
     app.processEvents()
+    # Снимок показывает нейтральное состояние: обводка фокуса на «Мини» читалась бы как
+    # «эта кнопка здесь главная», хотя главное действие — «Считать».
+    focused = app.focusWidget()
+    if focused is not None:
+        focused.clearFocus()
+    app.processEvents()
     window.repaint()
     pixmap = window.grab()
     if not pixmap.save(str(path), "PNG"):
