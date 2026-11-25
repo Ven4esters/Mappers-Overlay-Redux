@@ -81,7 +81,19 @@ jobs:
       - name: Тесты
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pytest --cov=map_overlay --cov-report=term-missing --cov-fail-under=80
+        run: |
+          set -o pipefail
+          pytest --cov=map_overlay --cov-report=term-missing --cov-fail-under=80 \
+            --tb=short -rf 2>&1 | tee pytest.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Журнал шага бывает недоступен, а аннотации видны в интерфейсе и через API.
+            grep -E "^(FAILED|ERROR|E +|Required test coverage)" pytest.log | tail -20 |
+              while IFS= read -r line; do
+                echo "::error title=Тесты не прошли::${line:0:900}"
+              done
+          fi
+          exit "$status"
 
   security:
     name: Безопасность
