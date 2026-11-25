@@ -381,3 +381,81 @@ def test_plain_restore_keeps_current_angles() -> None:
     _assert_pose(
         panel.pose(), Pose(x=OTHER.x, y=OTHER.y, z=OTHER.z, rx=START.rx, ry=START.ry, rz=START.rz)
     )
+
+
+# --- режим «всегда считать позицию» ---------------------------------------
+
+MOVED_IN_GAME = Pose(x=10.0, y=20.0, z=3.0, rx=5.0, ry=6.0, rz=7.0)
+# Позиция, которую предмет получил в игре: оверлей о ней ещё не знает.
+
+
+def test_capture_and_step_reads_before_moving() -> None:
+    """Шаг начинается с чтения всех шести полей, а не с запомненной позы."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    result = session.capture_and_step(Direction.FORWARD, 0.5)
+    assert panel.reads[:6] == list(PANEL_ORDER)
+    assert result.reread
+    assert result.previous.x == pytest.approx(START.x)
+    assert result.pose.x == pytest.approx(START.x + 0.5, abs=0.001)
+    assert result.written == (Field.X,)
+    assert session.pose == result.pose
+
+
+def test_capture_and_step_works_without_a_previous_capture() -> None:
+    """«Считать» заранее не нужно: координаты приходят из самого шага."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    assert session.pose is None
+    result = session.capture_and_step(Direction.BACK, 0.25)
+    assert panel.pose().x == pytest.approx(START.x - 0.25 * math.cos(0.0), abs=0.001)
+    assert result.reread
+
+
+def test_capture_and_step_uses_the_panel_not_the_memory() -> None:
+    """Позицию изменили в игре — шаг всё равно выполняется, от свежих чисел."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.capture()
+    _set_panel(panel, MOVED_IN_GAME)
+    result = session.capture_and_step(Direction.FORWARD, 0.5)
+    # Поворот RZ = 7° наклоняет шаг: ΔX = 0.5 · cos(7°).
+    arm = 0.5 * math.cos(math.radians(MOVED_IN_GAME.rz))
+    assert result.previous.x == pytest.approx(MOVED_IN_GAME.x)
+    assert panel.pose().x == pytest.approx(MOVED_IN_GAME.x + arm, abs=0.001)
+
+
+def test_capture_and_step_undo_returns_to_the_read_pose() -> None:
+    """Отмена возвращает туда, где предмет стоял по панели, а не по памяти оверлея."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.capture()
+    _set_panel(panel, MOVED_IN_GAME)
+    result = session.capture_and_step(Direction.FORWARD, 0.5)
+    session.restore(result.previous)
+    assert panel.pose().x == pytest.approx(MOVED_IN_GAME.x, abs=0.001)
+
+
+def test_capture_and_step_requires_calibration() -> None:
+    panel = FakePanel(START, missing=(Field.RX,))
+    with pytest.raises(NotCalibratedError, match="RX"):
+        make_session(panel).capture_and_step(Direction.FORWARD, 0.5)
+
+
+def test_capture_and_step_with_garbage_forgets_the_pose() -> None:
+    panel = FakePanel(START)
+    panel.bad_read.add(Field.Z)
+    session = make_session(panel)
+    with pytest.raises(ApplicationError, match="Z"):
+        session.capture_and_step(Direction.FORWARD, 0.5)
+    assert session.pose is None
+    assert panel.writes == []
+
+
+def test_capture_and_step_keeps_the_height_mode() -> None:
+    """Режим высоты работает и с чтением: Num 8 поднимает, а не идёт вперёд."""
+    panel = FakePanel(START)
+    result = make_session(panel).capture_and_step(Direction.FORWARD, 0.5, tilt=True)
+    assert result.tilted
+    assert result.pose.z == pytest.approx(START.z + 0.5, abs=0.001)
+    assert result.pose.x == pytest.approx(START.x, abs=0.001)

@@ -40,6 +40,11 @@ from map_overlay.ui.widgets import (
     label,
 )
 
+ALWAYS_READ_TITLE: Final = "Всегда считать позицию"
+ALWAYS_READ_SHORT: Final = "Считать позицию"
+# Подпись переключателя: полная для обычного окна, короткая — для мини-версии, где
+# строка режима не помещалась в карточку.
+
 STEP_PRESETS: Final[tuple[str, ...]] = ("0.1", "0.25", "0.5", "1", "2", "5", "10")
 SIZE_COMBO_WIDTH: Final = 150
 SIZE_COMBO_CHARS: Final = 14
@@ -67,12 +72,14 @@ class MovementTab(QWidget):
     confirm_requested = Signal()
     move_requested = Signal(object, float)
     tilt_toggled = Signal(bool)
+    always_read_toggled = Signal(bool)
     size_selected = Signal(object)
 
     def __init__(self, *, default_step: float, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._pose: Pose | None = None
         self._tilt = False
+        self._always_read = False
         self._library = SizeLibrary()
         self._size_buttons: list[QPushButton] = []
         self._size_engine = NameSearch()
@@ -90,7 +97,7 @@ class MovementTab(QWidget):
         self._warning.hide()
         layout.addWidget(self._warning)
         layout.addStretch(1)
-        self._pad.set_enabled(False)
+        self._refresh_pad()
 
     def _build_pose_card(self) -> Card:
         """Карточка координат и углов с кнопками «Считать» и «Сохранить F»."""
@@ -217,6 +224,16 @@ class MovementTab(QWidget):
         )
         self._tilt_box.toggled.connect(self.tilt_toggled.emit)
         row.addWidget(self._tilt_box)
+        # «Всегда считать позицию» — рядом с режимом высоты: оба переключателя про то,
+        # как считается шаг.
+        self._always_read_box = QCheckBox(ALWAYS_READ_TITLE, self)
+        self._always_read_box.setToolTip(
+            "Перед каждым нажатием направления оверлей сам читает поля панели и двигает "
+            "предмет от прочитанных координат. «Считать» для шага больше не нужно: шаг "
+            "применяется даже если позицию изменили в игре."
+        )
+        self._always_read_box.toggled.connect(self.always_read_toggled.emit)
+        row.addWidget(self._always_read_box)
         row.addStretch(1)
         self._mode_label = label("8/2 — вперёд/назад", widget_role="muted")
         self._mode_label.setWordWrap(False)
@@ -262,6 +279,10 @@ class MovementTab(QWidget):
         не помещались в узкое окно, и крестовина обрезалась справа.
         """
         self._pose_card.setVisible(not enabled)
+        # В мини-версии окно узкое: подпись режима уступает место второму переключателю,
+        # и он же получает короткую подпись — полная уезжала за границу карточки.
+        self._mode_label.setVisible(not enabled)
+        self._always_read_box.setText(ALWAYS_READ_SHORT if enabled else ALWAYS_READ_TITLE)
         # Поиск и выбор предмета прячутся целиком: в мини-версии нечего искать — она про то,
         # чтобы двигать предмет стрелками, а выбор предмета задаёт шаг.
         self._picker.setVisible(not enabled)
@@ -407,7 +428,7 @@ class MovementTab(QWidget):
         """
         self._pose = pose
         self._grid.set_pose(pose)
-        self._pad.set_enabled(pose is not None)
+        self._refresh_pad()
         self._paste_button.setEnabled(pose is not None)
         self._refresh_mode()
 
@@ -418,6 +439,27 @@ class MovementTab(QWidget):
     def mode_text(self) -> str:
         """Подпись режима движения (для тестов)."""
         return self._mode_label.text()
+
+    def set_always_read(self, enabled: bool) -> None:
+        """Показать, включён ли режим «Всегда считать позицию»."""
+        self._always_read = enabled
+        if self._always_read_box.isChecked() != enabled:
+            self._always_read_box.blockSignals(True)
+            self._always_read_box.setChecked(enabled)
+            self._always_read_box.blockSignals(False)
+        self._refresh_pad()
+
+    def always_read_enabled(self) -> bool:
+        """Включён ли режим «Всегда считать позицию» (для тестов)."""
+        return self._always_read_box.isChecked()
+
+    def always_read_box(self) -> QCheckBox:
+        """Флажок «Всегда считать позицию» (для тестов)."""
+        return self._always_read_box
+
+    def _refresh_pad(self) -> None:
+        """Крестовина активна, когда есть координаты или режим прочитает их сам."""
+        self._pad.set_enabled(self._pose is not None or self._always_read)
 
     def set_tilt(self, enabled: bool) -> None:
         """Показать, включён ли режим высоты."""

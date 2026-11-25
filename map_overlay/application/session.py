@@ -9,7 +9,7 @@ from map_overlay.application.ports import PanelAutomation
 from map_overlay.application.writer import PoseWriter
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import PANEL_ORDER, Field
-from map_overlay.domain.movement import shifted, validate_step
+from map_overlay.domain.movement import changed_fields, shifted, validate_step
 from map_overlay.domain.parsing import parse_number
 from map_overlay.domain.pose import Pose
 from map_overlay.errors import (
@@ -48,6 +48,9 @@ class StepResult:
     written: tuple[Field, ...]
     tilted: bool = False
     """Шаг считался в режиме высоты (в интерфейсе — Alt): менялся ``Z``."""
+
+    reread: bool = False
+    """Перед шагом поля читались заново (режим «Всегда считать позицию»)."""
 
     @property
     def delta_x(self) -> float:
@@ -270,6 +273,57 @@ class MappingSession:
             ", ".join(field.label for field in written) or "ничего",
         )
         return PasteResult(previous=before, pose=source, written=written)
+
+    def capture_and_step(
+        self, direction: Direction, step: float, *, tilt: bool = False
+    ) -> StepResult:
+        """Прочитать панель и сразу сдвинуть предмет от прочитанных координат.
+
+        Так работает режим «Всегда считать позицию»: шаг считается не от запомненной позы,
+        а от той, что стоит в полях прямо сейчас, поэтому «Считать» перед каждым шагом не
+        нужно, а расхождение (предмет подвинули в игре или выбрали другой) не мешает: шаг
+        всё равно выполняется, просто от свежих чисел.
+
+        ``tilt`` включает режим высоты: ``Num 8`` поднимает, ``Num 2`` опускает.
+
+        Raises:
+            NotCalibratedError: если калибровка неполная.
+            ApplicationError: если поле панели вернуло не число.
+            ValidationError: если шаг недопустим.
+            PanelRejectedError: если панель не приняла записанное.
+            OperationCancelledError: если действие прервали.
+        """
+        self.ensure_calibrated()
+        self._panel.reset_cancel()
+        note("режим «всегда считать позицию»: читаю поля перед шагом")
+        try:
+            before = self._read_pose()
+        except AppError as exc:
+            logger.warning("Чтение перед шагом не удалось, координаты забыты: %s", exc)
+            self._invalidate()
+            raise
+        changed = self._pose is None or bool(changed_fields(self._pose, before))
+        if changed:
+            logger.info("Позиция прочитана заново: %s", _pose_text(before))
+        target = shifted(before, direction, validate_step(step), tilt=tilt)
+        label = f"шаг {direction.label} {step:g} м" + (" (высота)" if tilt else "")
+        note("%s от прочитанного: %s к %s", label, _pose_text(before), _pose_text(target))
+        try:
+            with timed(label):
+                written = self._writer.write_changes(before, target, expect_panel=False)
+        except PANEL_TROUBLE as exc:
+            logger.warning("Шаг отменён, координаты забыты: %s", exc)
+            self._invalidate()
+            raise
+        result = StepResult(previous=before, pose=target, written=written, tilted=tilt, reread=True)
+        self._pose = target
+        logger.info(
+            "Шаг %s на %.3f м после чтения: записаны %s",
+            direction.label,
+            step,
+            ", ".join(field.label for field in written) or "ничего",
+        )
+        return result
 
     def restore(self, pose: Pose, *, full: bool = False) -> StepResult:
         """Вернуть предмет к сохранённой позе — так работает отмена шага (Ctrl+Z).

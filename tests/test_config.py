@@ -159,3 +159,22 @@ def test_negative_schema_version_is_rejected() -> None:
     raw["schema_version"] = -1
     with pytest.raises(ConfigError, match="отрицательной"):
         Settings.from_dict(raw)
+
+
+def test_always_read_pose_is_off_by_default() -> None:
+    """Режим «Всегда считать позицию» по умолчанию выключен: старые файлы читаются как есть."""
+    assert Settings().always_read_pose is False
+    restored = Settings.from_dict({"schema_version": SCHEMA_VERSION})
+    assert restored.always_read_pose is False
+
+
+def test_always_read_pose_roundtrip() -> None:
+    """Включённый режим сохраняется в settings.json и читается обратно."""
+    settings = Settings(always_read_pose=True)
+    assert settings.to_dict()["always_read_pose"] is True
+    assert Settings.from_dict(settings.to_dict()).always_read_pose is True
+
+
+def test_always_read_pose_is_checked_as_bool() -> None:
+    with pytest.raises(ConfigError, match="always_read_pose"):
+        Settings.from_dict({"schema_version": SCHEMA_VERSION, "always_read_pose": "да"})

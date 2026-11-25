@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import cast
 
 from PySide6.QtCore import QEvent, Qt, QTimer
@@ -109,7 +110,9 @@ class MainWindow(QMainWindow):
         self._router = HotkeyRouter(context.settings.hotkeys)
         self._busy_text = ""
         self._held: tuple[Action, int] | None = None
+        self._refresh_on_step = False
         self._tilt_mode = False
+        self._always_read = context.settings.always_read_pose
         self._num_lock_state: bool | None = None
         self._learn_timer = QTimer(self)
         self._learn_timer.setSingleShot(True)
@@ -118,6 +121,7 @@ class MainWindow(QMainWindow):
         self._normal_size: tuple[int, int] | None = None
         self._normal_tab = 0
         self._build()
+        self.movement.set_always_read(self._always_read)
         self._refresh_header()
         self._hotkeys = context.hotkeys
         self._hotkeys.start_listening(self._on_hotkey)
@@ -221,6 +225,7 @@ class MainWindow(QMainWindow):
         self.movement.confirm_requested.connect(self._confirm)
         self.movement.move_requested.connect(self._move)
         self.movement.tilt_toggled.connect(self._set_tilt)
+        self.movement.always_read_toggled.connect(self._set_always_read)
         self.calibration.points_changed.connect(self._calibration_changed)
         self.calibration.empty_point_changed.connect(self._empty_point_changed)
         self.calibration.status_message.connect(self._set_calibration_status)
@@ -638,18 +643,26 @@ class MainWindow(QMainWindow):
             label="сохранить F",
         )
 
-    def _move(self, direction: object, step: float, *, tilt: bool = False) -> bool:
+    def _move(
+        self, direction: object, step: float, *, tilt: bool = False, refresh: bool | None = None
+    ) -> bool:
         """Сделать шаг; ``tilt`` — режим высоты (клавиша Alt): 8 вверх, 2 вниз.
+
+        ``refresh`` — прочитать поля панели перед шагом (режим «Всегда считать позицию»):
+        шаг считается от свежих координат, поэтому «Считать» заранее не нужно. ``None``
+        означает «как включено в режиме»: так приходят нажатия кнопок крестовины, а
+        удержание клавиши передаёт ``False`` со второго шага, чтобы не читать поля зря.
 
         Returns:
             ``True``, если задача поставлена: ``False`` — шаг невозможен.
         """
+        refresh = self._always_read if refresh is None else refresh
         if self._runner.is_busy():
             logger.info("Шаг не начат: занято другим действием")
             note("шаг не начат: занято другим действием")
             return False
-        session = self._session
-        if session is None or session.pose is None or self._pose is None:
+        session = self._ensure_session()
+        if not refresh and (session.pose is None or self._pose is None):
             logger.warning("Шаг не начат: координаты не считаны")
             note("шаг не начат: координаты не считаны")
             self._set_status(
@@ -660,8 +673,17 @@ class MainWindow(QMainWindow):
         suffix = ""
         if tilt and selected in (Direction.FORWARD, Direction.BACK):
             suffix = " (вверх)" if selected is Direction.FORWARD else " (вниз)"
-        self._begin_busy(f"Шаг {selected.label} на {step:g} м{suffix}…")
+        busy = f"Шаг {selected.label} на {step:g} м{suffix}"
+        self._begin_busy(f"{busy}…" if not refresh else f"{busy}: сначала читаю позицию…")
         self._last_request = (selected, step, tilt)
+        if refresh:
+            self._runner.submit(
+                lambda: session.capture_and_step(selected, step, tilt=tilt),
+                on_success=self._moved,
+                on_error=self._failed,
+                label=f"шаг {selected.label.lower()} на {step:g} м{suffix}",
+            )
+            return True
         self._runner.submit(
             lambda: session.step(selected, step, tilt=tilt),
             on_success=self._moved,
@@ -694,6 +716,8 @@ class MainWindow(QMainWindow):
             deltas = f"{deltas} · ΔZ {format_delta(step_result.delta_z)}"
         if step_result.tilted:
             slope = " · Alt: вверх/вниз"
+        if step_result.reread:
+            slope = f"{slope} · позиция считана заново"
         prefix = self._commit_history(self._step_change(step_result))
         self._set_status(
             f"{prefix}Шаг: {deltas} → {pose_text(step_result.pose)} · записано: {written}{slope}",
@@ -873,6 +897,44 @@ class MainWindow(QMainWindow):
             logger.info("Режим высоты выключен")
             self._set_status("Режим высоты выключен: Num 8 — вперёд, Num 2 — назад.")
 
+    def _set_always_read(self, enabled: bool) -> None:
+        """Включить или выключить режим «Всегда считать позицию» и запомнить выбор.
+
+        Режим живёт в `config/settings.json`: включённый однажды, он остаётся включённым
+        после перезапуска. Позу и историю переключение не трогает — это настройка движения,
+        а не новые координаты.
+        """
+        if enabled == self._always_read:
+            self.movement.set_always_read(enabled)
+            return
+        self._always_read = enabled
+        self.movement.set_always_read(enabled)
+        settings = replace(self._context.settings, always_read_pose=enabled)
+        try:
+            self._context.save_settings(settings)
+        except ConfigError as exc:
+            self._always_read = False
+            self.movement.set_always_read(False)
+            self._set_status(str(exc), STATUS_ERROR)
+            return
+        # Настройки на вкладке «Настройки» держат свою копию: без этого «Сохранить» там
+        # вернуло бы прежнее значение режима.
+        self.settings_tab.set_base_settings(settings)
+        if enabled:
+            note("режим «всегда считать позицию» включён")
+            logger.info("Режим «Всегда считать позицию» включён")
+            self._set_status(
+                "Режим «Всегда считать позицию» включён: перед каждым нажатием направления "
+                "оверлей сам читает поля панели. «Считать» заранее не нужно.",
+                STATUS_OK,
+            )
+            return
+        note("режим «всегда считать позицию» выключен")
+        logger.info("Режим «Всегда считать позицию» выключен")
+        self._set_status(
+            "Режим «Всегда считать позицию» выключен: шаг считается от считанных координат.",
+        )
+
     def _dispatch(self, action: Action, vk: int) -> None:
         if action is Action.CAPTURE:
             self._capture()
@@ -892,8 +954,14 @@ class MainWindow(QMainWindow):
     # --- удержание направления -------------------------------------------
 
     def _start_hold(self, action: Action, vk: int) -> None:
-        """Начать удержание: первый шаг сразу, следующие — друг за другом."""
+        """Начать удержание: первый шаг сразу, следующие — друг за другом.
+
+        В режиме «Всегда считать позицию» поля читаются один раз, на первом шаге нажатия:
+        повторные шаги идут от позы, которую оверлей только что записал. Читать перед
+        каждым шагом удержания значило бы удвоить паузу между шагами.
+        """
         self._stop_hold()
+        self._refresh_on_step = self._always_read
         self._held = (action, vk)
         note("удержание: %s (клавиша %s)", action.label, key_name(vk))
         self._hold_tick(force=True)
@@ -946,7 +1014,10 @@ class MainWindow(QMainWindow):
             logger.warning("Шаг не начат: %s", exc)
             self._set_status(str(exc), STATUS_WARN)
             return False
-        return self._move(direction, step, tilt=self._tilt_mode)
+        # Чтение перед шагом — только для первого шага нажатия, дальше поза уже свежая.
+        refresh = self._refresh_on_step
+        self._refresh_on_step = False
+        return self._move(direction, step, tilt=self._tilt_mode, refresh=refresh)
 
     def _release_key(self, vk: int) -> None:
         """Отпускание клавиши прекращает удержание."""
@@ -954,6 +1025,7 @@ class MainWindow(QMainWindow):
             self._stop_hold()
 
     def _stop_hold(self) -> None:
+        self._refresh_on_step = False
         if self._held is not None:
             note("удержание остановлено: %s", self._held[0].label)
         self._hold_timer.stop()
@@ -1244,6 +1316,8 @@ class MainWindow(QMainWindow):
             self._set_status(str(exc), STATUS_ERROR)
             return False
         self._reset_session()
+        self._always_read = settings.always_read_pose
+        self.movement.set_always_read(settings.always_read_pose)
         self.movement.set_default_step(settings.default_step)
         self.calibration.set_points(settings.calibration)
         self.calibration.set_empty_point(settings.empty_point)

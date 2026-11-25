@@ -15,6 +15,7 @@ from map_overlay.context import AppContext
 from map_overlay.domain.actions import Action
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import Field
+from map_overlay.domain.keynames import VK_NUMPAD8
 from map_overlay.domain.movement import alt_hint
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
@@ -2347,3 +2348,92 @@ def test_mini_button_reacts_to_hover() -> None:
     hover = APP_QSS.split('QPushButton[role="badge"]:hover {', 1)[1].split("}", 1)[0]
     assert "background:" in hover
     assert "color: #ffffff" in hover
+
+
+# --- режим «всегда считать позицию» ---------------------------------------
+
+
+def test_always_read_is_off_by_default(qt_app: QApplication) -> None:
+    """Режим выключен по умолчанию: шаг по-прежнему требует «Считать»."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    assert not window.movement.always_read_enabled()
+    assert not window.movement.arrow(Direction.FORWARD).isEnabled()
+    window.movement.arrow(Direction.FORWARD).click()
+    assert "Считать" in window.status_text()
+    assert panel.writes == []
+
+
+def test_always_read_moves_without_capture(qt_app: QApplication) -> None:
+    """С режимом шаг выполняется сразу: координаты оверлей читает сам."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.always_read_box().setChecked(True)
+    assert window.movement.arrow(Direction.FORWARD).isEnabled()
+    window.movement.arrow(Direction.FORWARD).click()
+    assert panel.reads[:6] == list(Field)
+    assert panel.pose().x == pytest.approx(START.x + 0.5, abs=0.001)
+    assert "позиция считана заново" in window.status_text()
+
+
+def test_always_read_follows_the_position_changed_in_game(qt_app: QApplication) -> None:
+    """Позицию двигали в игре — режим не ругается, а шагает от свежих чисел."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    window.movement.always_read_box().setChecked(True)
+    panel.values[Field.X] = "10.500"
+    window.movement.arrow(Direction.FORWARD).click()
+    assert panel.pose().x == pytest.approx(11.0, abs=0.001)
+    assert "Нажмите «Считать»" not in window.status_text()
+
+
+def test_always_read_toggle_is_saved_to_settings(qt_app: QApplication) -> None:
+    """Выбор режима сохраняется в settings.json и переживает перезапуск."""
+    window, _panel, store, _cursor = make_window(qt_app)
+    window.movement.always_read_box().setChecked(True)
+    assert store.saved[-1].always_read_pose is True
+    assert "Режим «Всегда считать позицию» включён" in window.status_text()
+    window.movement.always_read_box().setChecked(False)
+    assert store.saved[-1].always_read_pose is False
+
+
+def test_always_read_restores_from_settings(qt_app: QApplication) -> None:
+    """Сохранённый режим включается при запуске и виден на вкладке."""
+    settings = replace(Settings(), always_read_pose=True)
+    window, _panel, _store, _cursor = make_window(qt_app, settings=settings)
+    assert window.movement.always_read_enabled()
+    assert window.movement.arrow(Direction.FORWARD).isEnabled()
+
+
+def test_always_read_toggle_keeps_pose_and_history(qt_app: QApplication) -> None:
+    """Переключение режима — настройка, а не новые координаты: поза и история целы."""
+    window, _panel, _store, _cursor = make_window(qt_app)
+    window.movement.press_capture()
+    window.movement.arrow(Direction.FORWARD).click()
+    window.movement.always_read_box().setChecked(True)
+    assert window.history().can_undo
+    assert window.movement.step_text()
+    assert window.undo()
+
+
+def test_always_read_hold_reads_once_per_press(qt_app: QApplication) -> None:
+    """Удержание читает поля один раз: дальше шаги идут от только что записанной позы."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.always_read_box().setChecked(True)
+    hotkeys.press(VK_NUMPAD8)
+    assert len(panel.reads) >= 6
+    for _ in range(3):
+        window._hold_tick()
+    # Поля целиком читаются только на нажатии: повторные шаги уходят от записанной позы.
+    assert panel.reads.count(Field.RZ) == 1
+    assert panel.pose().x == pytest.approx(START.x + 2.0, abs=0.001)
+
+
+def test_always_read_works_with_the_tilt_mode(qt_app: QApplication) -> None:
+    """Режим высоты работает вместе с чтением: Num 8 поднимает предмет."""
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.always_read_box().setChecked(True)
+    window._set_tilt(True)
+    hotkeys.press(VK_NUMPAD8)
+    assert panel.pose().z == pytest.approx(START.z + 0.5, abs=0.001)
+    assert panel.pose().x == pytest.approx(START.x, abs=0.001)

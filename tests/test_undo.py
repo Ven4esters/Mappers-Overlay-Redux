@@ -394,3 +394,33 @@ def test_paste_with_identical_pose_writes_nothing(qt_app: QApplication) -> None:
     window.movement.press_paste()
     assert panel.writes == []
     assert "писать нечего" in window.status_text()
+
+
+# --- отмена при режиме «всегда считать позицию» ---------------------------
+
+
+def test_undo_after_always_read_step_returns_to_the_panel_pose(
+    qt_app: QApplication,
+) -> None:
+    """Отмена возвращает туда, где предмет стоял по панели, а не по памяти оверлея."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.always_read_box().setChecked(True)
+    panel.values[Field.X] = "10.500"
+    window.movement.arrow(Direction.FORWARD).click()
+    assert panel.pose().x == pytest.approx(11.0, abs=0.001)
+
+    assert window.undo()
+    assert panel.pose().x == pytest.approx(10.5, abs=0.001)
+
+
+def test_always_read_step_can_be_repeated(qt_app: QApplication) -> None:
+    """Повтор работает и без предварительного «Считать»: шаг уже записал позу."""
+    window, panel, _store, _cursor = make_window(qt_app)
+    window.movement.always_read_box().setChecked(True)
+    window.movement.arrow(Direction.FORWARD).click()
+    moved = panel.pose()
+
+    assert window.undo()
+    assert panel.pose().x == pytest.approx(START.x, abs=0.001)
+    assert window.redo()
+    assert panel.pose().x == pytest.approx(moved.x, abs=0.001)
