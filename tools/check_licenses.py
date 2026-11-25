@@ -14,7 +14,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from importlib.metadata import distributions
+from importlib.metadata import Distribution, distributions
 
 STRONG_COPYLEFT: tuple[str, ...] = ("gpl", "general public license", "agpl")
 # Признаки сильного копилефта в тексте лицензии.
@@ -65,17 +65,22 @@ def find_blocked(dependencies: Iterable[Dependency]) -> tuple[Dependency, ...]:
     return tuple(item for item in dependencies if is_strong_copyleft(item.license))
 
 
+def _distribution_name(dist: Distribution) -> str:
+    """Имя пакета из метаданных: пустая строка, если поля нет."""
+    return dist.metadata.get("Name") or ""
+
+
 def installed_dependencies(skip: Iterable[str] = DEFAULT_SKIP) -> Iterator[Dependency]:
     """Обойти установленные пакеты и вернуть пары «имя — лицензия»."""
     skipped = {name.lower() for name in skip}
-    for dist in sorted(distributions(), key=lambda item: item.metadata["Name"].lower()):
+    for dist in sorted(distributions(), key=_distribution_name):
         metadata = dist.metadata
-        name = metadata["Name"]
+        name = metadata.get("Name")
         if not name or name.lower() in skipped:
             continue
         yield Dependency(
             name=name,
-            license=license_text(metadata["License"], metadata.get_all("Classifier") or []),
+            license=license_text(metadata.get("License"), metadata.get_all("Classifier") or []),
         )
 
 

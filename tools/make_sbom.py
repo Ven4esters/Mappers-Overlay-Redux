@@ -65,7 +65,7 @@ def installed_components() -> list[Component]:
     """Установленные в окружении пакеты — из них и состоит поставка."""
     pairs: list[tuple[str, str]] = []
     for distribution in distributions():
-        name = distribution.metadata["Name"]
+        name = distribution.metadata.get("Name")
         if not name:
             continue
         pairs.append((name, distribution.version))

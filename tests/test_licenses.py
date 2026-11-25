@@ -70,3 +70,52 @@ def test_build_tools_are_skipped() -> None:
 def test_installed_environment_has_no_blocked_licenses() -> None:
     """Тот же прогон, что и в CI: сильного копилефта в зависимостях нет."""
     assert main([]) == 0
+
+
+class _StrictMetadata:
+    """Метаданные, которые не отдают необязательные поля через ``[]``.
+
+    На Python 3.12 ``PackageMetadata.__getitem__`` для отсутствующего поля печатает
+    DeprecationWarning, а тесты запускаются с ``-W error`` — обращение через ``[]``
+    превращается в падение. Здесь оно запрещено на любой версии Python.
+    """
+
+    def __init__(self, headers: dict[str, str]) -> None:
+        self._headers = headers
+
+    def __getitem__(self, key: str) -> str:
+        raise AssertionError(f"метаданные читаются через []: {key} — нужен .get()")
+
+    def get(self, key: str, default: str | None = None) -> str | None:
+        return self._headers.get(key, default)
+
+    def get_all(self, key: str) -> list[str] | None:
+        if key != "Classifier":
+            return None
+        return [
+            "Programming Language :: Python",
+            "License :: OSI Approved :: MIT License",
+        ]
+
+
+class _FakeDistribution:
+    """Установленный пакет с подставными метаданными."""
+
+    def __init__(self, headers: dict[str, str]) -> None:
+        self.metadata = _StrictMetadata(headers)
+
+
+def test_metadata_is_read_without_index_operator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Необязательные поля читаются через .get(): иначе на Python 3.12 будет предупреждение."""
+    fake = _FakeDistribution({"Name": "pyside6-essentials", "License": "LGPL"})
+    monkeypatch.setattr("tools.check_licenses.distributions", lambda: [fake])
+    dependencies = list(installed_dependencies())
+    assert [item.name for item in dependencies] == ["pyside6-essentials"]
+    assert dependencies[0].license == "LGPL; MIT License"
+
+
+def test_distribution_without_name_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Пакет без поля Name пропускается: имя нужно для отчёта и сортировки."""
+    fake = _FakeDistribution({"License": "MIT"})
+    monkeypatch.setattr("tools.check_licenses.distributions", lambda: [fake])
+    assert list(installed_dependencies()) == []

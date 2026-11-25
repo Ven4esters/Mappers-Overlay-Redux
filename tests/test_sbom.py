@@ -58,3 +58,21 @@ def test_main_writes_file(tmp_path: Path, capsys) -> None:
     assert main(["--out", str(tmp_path / "sbom.json")], root=tmp_path) == 0
     assert (tmp_path / "sbom.json").exists()
     assert "SBOM:" in capsys.readouterr().out
+
+
+def test_metadata_is_read_without_index_operator(monkeypatch) -> None:
+    """SBOM читает имя пакета через .get(): на Python 3.12 ``[]`` даёт предупреждение."""
+
+    class StrictMetadata:
+        def __getitem__(self, key: str) -> str:
+            raise AssertionError(f"метаданные читаются через []: {key} — нужен .get()")
+
+        def get(self, key: str, default: str | None = None) -> str | None:
+            return {"Name": "PySide6-Essentials"}.get(key, default)
+
+    class FakeDistribution:
+        metadata = StrictMetadata()
+        version = "6.8.1"
+
+    monkeypatch.setattr("tools.make_sbom.distributions", lambda: [FakeDistribution()])
+    assert [item.name for item in installed_components()] == ["PySide6-Essentials"]
