@@ -12,7 +12,7 @@ from typing import cast
 
 import pytest
 from map_overlay.config import Settings
-from map_overlay.context import AppContext
+from map_overlay.context import AppContext, AppPorts
 from map_overlay.domain.actions import Action
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import Field
@@ -61,12 +61,13 @@ def make_window(
     store = FakeStore(settings)
     cursor = FakeCursor()
     context = AppContext(
-        store=store,
-        cursor=cursor,
-        panel_factory=lambda _settings: panel,
-        hotkeys=hotkeys or FakeHotkeySource(),
-        config_path=None,
-        size_store=size_store,
+        AppPorts(
+            store=store,
+            cursor=cursor,
+            panel_factory=lambda _settings: panel,
+            hotkeys=hotkeys or FakeHotkeySource(),
+            size_store=size_store,
+        )
     )
     window = MainWindow(context, synchronous_tasks=True)
     return window, panel, store, cursor
@@ -180,11 +181,12 @@ def test_broken_settings_message(qt_app: QApplication) -> None:
             raise ConfigError("файл настроек испорчен")
 
     context = AppContext(
-        store=BrokenStore(),
-        cursor=FakeCursor(),
-        panel_factory=lambda _settings: FakePanel(START),
-        hotkeys=FakeHotkeySource(),
-        config_path=None,
+        AppPorts(
+            store=BrokenStore(),
+            cursor=FakeCursor(),
+            panel_factory=lambda _settings: FakePanel(START),
+            hotkeys=FakeHotkeySource(),
+        )
     )
     window = MainWindow(context, synchronous_tasks=True)
     assert "испорчен" in window.status_text()
@@ -310,10 +312,10 @@ def test_step_field_is_validated(qt_app: QApplication) -> None:
 
 
 def test_calibration_countdown_captures_point(qt_app: QApplication) -> None:
-    from map_overlay.ui.tabs.calibration_tab import CalibrationTab
+    from map_overlay.ui.tabs.calibration_tab import CalibrationTab, Countdown
 
     cursor = FakeCursor(Point(700, 500))
-    tab = CalibrationTab(cursor=cursor, points={}, countdown_seconds=0, tick_ms=0)
+    tab = CalibrationTab(cursor=cursor, settings=Settings(), countdown=Countdown(0, 0))
     tab.start_capture(Field.RZ)
     for _ in range(5):
         qt_app.processEvents()
@@ -1938,11 +1940,11 @@ def test_value_field_shows_dash_for_missing_value(qt_app: QApplication) -> None:
 
 def test_calibration_points_are_display_fields(qt_app: QApplication) -> None:
     """Точки панели — такие же поля-показания, как координаты на «Навигации»."""
-    from map_overlay.ui.tabs.calibration_tab import CalibrationTab
+    from map_overlay.ui.tabs.calibration_tab import CalibrationTab, Countdown
     from map_overlay.ui.widgets import ValueField
 
     cursor = FakeCursor(Point(700, 500))
-    tab = CalibrationTab(cursor=cursor, points={}, countdown_seconds=0, tick_ms=0)
+    tab = CalibrationTab(cursor=cursor, settings=Settings(), countdown=Countdown(0, 0))
     values = list(tab._value_labels.values())
     assert len(values) == len(Field) + 1
     assert all(isinstance(item, ValueField) for item in values)
@@ -1958,10 +1960,10 @@ def test_calibration_points_are_display_fields(qt_app: QApplication) -> None:
 
 def test_calibration_show_is_disabled_without_point(qt_app: QApplication) -> None:
     """«Показать» без сохранённой точки недоступна — кнопка не обещает переход."""
-    from map_overlay.ui.tabs.calibration_tab import CalibrationTab
+    from map_overlay.ui.tabs.calibration_tab import CalibrationTab, Countdown
 
     cursor = FakeCursor(Point(640, 480))
-    tab = CalibrationTab(cursor=cursor, points={}, countdown_seconds=0, tick_ms=0)
+    tab = CalibrationTab(cursor=cursor, settings=Settings(), countdown=Countdown(0, 0))
     show = tab._show_buttons[Field.Y.value]
     assert not show.isEnabled()
     assert "Сначала задайте" in show.toolTip()
@@ -1977,7 +1979,7 @@ def test_calibration_help_hides_behind_the_card_icon(qt_app: QApplication) -> No
     from map_overlay.ui.tabs.calibration_tab import CalibrationTab
     from PySide6.QtWidgets import QLabel
 
-    tab = CalibrationTab(cursor=FakeCursor(), points={})
+    tab = CalibrationTab(cursor=FakeCursor(), settings=Settings())
     help_text = tab._card.hint()
     for key in ("Задать", "Показать", "Сохранить F", "зелёным"):
         assert key in help_text

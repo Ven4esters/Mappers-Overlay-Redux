@@ -11,6 +11,7 @@ from map_overlay.infrastructure.panel import (
     MODIFIER_POLL_S,
     MODIFIER_WAIT_S,
     CalibratedPanel,
+    PanelConfig,
 )
 from map_overlay.trace import JOURNAL
 
@@ -29,12 +30,14 @@ def make_panel(
     input_port = FakeInput(clipboard=clipboard, values=dict(VALUES), field_points=FULL_CALIBRATION)
     clock = FakeClock()
     panel = CalibratedPanel(
-        input_port=input_port,
-        clipboard=clipboard,
-        clock=clock,
-        points=FULL_CALIBRATION if points is None else points,
-        delays=delays or Delays(),
-        empty_point=empty_point,
+        input_port,
+        clipboard,
+        clock,
+        PanelConfig(
+            points=FULL_CALIBRATION if points is None else points,
+            delays=delays or Delays(),
+            empty_point=empty_point,
+        ),
     )
     return panel, input_port, clipboard, clock
 
@@ -263,11 +266,10 @@ def test_restore_failure_does_not_break_step() -> None:
     clipboard = RestoreFails("пользователь")
     input_port = FakeInput(clipboard=clipboard, values=dict(VALUES), field_points=FULL_CALIBRATION)
     panel = CalibratedPanel(
-        input_port=input_port,
-        clipboard=clipboard,
-        clock=FakeClock(),
-        points=FULL_CALIBRATION,
-        delays=Delays(),
+        input_port,
+        clipboard,
+        FakeClock(),
+        PanelConfig(points=FULL_CALIBRATION, delays=Delays()),
     )
     panel.write_field(Field.X, "10.000")
     assert input_port.panel_value(Field.X) == "10.000"

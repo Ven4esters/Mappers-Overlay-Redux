@@ -167,8 +167,7 @@ class MainWindow(QMainWindow):
         self.movement = MovementTab(default_step=settings.default_step)
         self.calibration = CalibrationTab(
             cursor=self._context.cursor,
-            points=settings.calibration,
-            empty_point=settings.empty_point,
+            settings=settings,
         )
         self.sizes = SizesTab(
             library=self._context.sizes,

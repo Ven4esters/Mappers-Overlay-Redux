@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from map_overlay.application.ports import (
@@ -26,39 +27,53 @@ PanelFactory = Callable[[Settings], PanelAutomation]
 # Фабрика панели под текущие настройки (точки калибровки и задержки).
 
 
+@dataclass(frozen=True, slots=True)
+class AppPorts:
+    """Порты приложения: чем оверлей читает настройки, двигает мышь и ловит клавиши.
+
+    Один объект вместо семи аргументов конструктора: набор портов меняется редко, а
+    вызов — один на приложение, поэтому перечислять их по одному в подписи незачем.
+    """
+
+    store: SettingsStore
+    cursor: CursorPort
+    panel_factory: PanelFactory
+    hotkeys: HotkeySource
+    size_store: SizeStore | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AppPaths:
+    """Где лежат файлы настроек и размеров — для подсказок в интерфейсе."""
+
+    config: Path | None = None
+    sizes: Path | None = None
+
+
 class AppContext:
     """Хранит настройки и собирает сессию под них."""
 
-    def __init__(
-        self,
-        *,
-        store: SettingsStore,
-        cursor: CursorPort,
-        panel_factory: PanelFactory,
-        hotkeys: HotkeySource,
-        config_path: Path | None = None,
-        size_store: SizeStore | None = None,
-        sizes_path: Path | None = None,
-    ) -> None:
-        self._store = store
-        self._cursor = cursor
-        self._panel_factory = panel_factory
-        self._hotkeys = hotkeys
-        self._config_path = config_path
-        self._size_store = size_store
-        self._sizes_path = sizes_path
+    def __init__(self, ports: AppPorts, paths: AppPaths | None = None) -> None:
+        paths = paths or AppPaths()
+        self._store = ports.store
+        self._cursor = ports.cursor
+        self._panel_factory = ports.panel_factory
+        self._hotkeys = ports.hotkeys
+        self._config_path = paths.config
+        self._size_store = ports.size_store
+        self._sizes_path = paths.sizes
         self.settings_error: str | None = None
         self.sizes_error: str | None = None
         try:
-            self._settings = store.load()
+            self._settings = self._store.load()
         except ConfigError as exc:
             logger.error("Настройки не загружены: %s", exc)
             self._settings = Settings()
             self.settings_error = str(exc)
         self._sizes = SizeLibrary()
-        if size_store is not None:
+        if self._size_store is not None:
             try:
-                self._sizes = size_store.load()
+                self._sizes = self._size_store.load()
             except ConfigError as exc:
                 # Библиотека размеров — не жизненно важные данные: работаем с пустой.
                 logger.error("Размеры предметов не загружены: %s", exc)

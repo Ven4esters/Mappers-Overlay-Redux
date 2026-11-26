@@ -6,12 +6,13 @@ import ctypes
 import sys
 from typing import ClassVar, Final
 
+from map_overlay.domain.input_events import combo_events, press_events, set_dpi_awareness
 from map_overlay.domain.point import Point
 from map_overlay.errors import InputError, UnsupportedPlatformError
 
 VK_CONTROL: Final = 0x11
 MODIFIER_KEYS: Final = (0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5)
-# ``Shift``, ``Ctrl``, ``Alt`` и их версии со стороной.
+# ``Shift``, ``Ctrl``, ``Alt`` и их версии со стороной: зажатый модификатор отменяет шаг.
 VK_F: Final = 0x46
 VK_A: Final = 0x41
 VK_C: Final = 0x43
@@ -74,17 +75,14 @@ def enable_dpi_awareness() -> bool:
     if sys.platform != "win32":
         return False
     windll = ctypes.windll
-    try:
-        if windll.user32.SetProcessDpiAwarenessContext(
-            ctypes.c_void_p(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
-        ):
-            return True
-    except (AttributeError, OSError):
-        pass
-    try:
-        return bool(windll.user32.SetProcessDPIAware())
-    except (AttributeError, OSError):
-        return False
+    return set_dpi_awareness(
+        lambda: bool(
+            windll.user32.SetProcessDpiAwarenessContext(
+                ctypes.c_void_p(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+            )
+        ),
+        lambda: bool(windll.user32.SetProcessDPIAware()),
+    )
 
 
 class WindowsInput:
@@ -122,7 +120,7 @@ class WindowsInput:
 
     def press_f(self) -> None:
         """Нажать ``F``."""
-        self._send_keys(((VK_F, True), (VK_F, False)))
+        self._send_keys(press_events(VK_F))
 
     def cursor_position(self) -> Point:
         """Текущая позиция курсора в физических пикселях."""
@@ -141,7 +139,8 @@ class WindowsInput:
             raise InputError(f"Не удалось перевести курсор в точку {point}")
 
     def _send_combo(self, key: int) -> None:
-        self._send_keys(((VK_CONTROL, True), (key, True), (key, False), (VK_CONTROL, False)))
+        """Нажать ``Ctrl + клавиша`` и отпустить: зажатых клавиш не остаётся."""
+        self._send_keys(combo_events(key))
 
     def _send_keys(self, events: tuple[tuple[int, bool], ...]) -> None:
         payload = (_Input * len(events))()

@@ -14,14 +14,14 @@ from map_overlay import __version__, diagnostics
 from map_overlay.application.ports import HotkeySource, PanelAutomation
 from map_overlay.config import Settings
 from map_overlay.console import use_utf8_console
-from map_overlay.context import AppContext
+from map_overlay.context import AppContext, AppPaths, AppPorts
 from map_overlay.domain import lemmas
 from map_overlay.domain.fields import PANEL_ORDER
 from map_overlay.errors import AppError, ConfigError
 from map_overlay.infrastructure.clipboard import SystemClipboard
 from map_overlay.infrastructure.clock import SystemClock
 from map_overlay.infrastructure.hotkeys import WindowsHotkeySource
-from map_overlay.infrastructure.panel import CalibratedPanel
+from map_overlay.infrastructure.panel import CalibratedPanel, PanelConfig
 from map_overlay.infrastructure.settings_store import JsonSettingsStore
 from map_overlay.infrastructure.single_instance import InstanceLock, is_busy
 from map_overlay.infrastructure.size_store import JsonSizeStore
@@ -107,22 +107,25 @@ def _run_locked() -> int:
 
     def panel_factory(settings: Settings) -> PanelAutomation:
         return CalibratedPanel(
-            input_port=input_port,
-            clipboard=SystemClipboard(),
-            clock=SystemClock(),
-            points=settings.calibration,
-            delays=settings.delays,
-            empty_point=settings.empty_point,
+            input_port,
+            SystemClipboard(),
+            SystemClock(),
+            PanelConfig(
+                points=settings.calibration,
+                delays=settings.delays,
+                empty_point=settings.empty_point,
+            ),
         )
 
     context = AppContext(
-        store=store,
-        cursor=input_port,
-        panel_factory=panel_factory,
-        hotkeys=hotkey_source,
-        config_path=store.path,
-        size_store=size_store,
-        sizes_path=size_store.path,
+        AppPorts(
+            store=store,
+            cursor=input_port,
+            panel_factory=panel_factory,
+            hotkeys=hotkey_source,
+            size_store=size_store,
+        ),
+        AppPaths(config=store.path, sizes=size_store.path),
     )
     settings = context.settings
     note(

@@ -52,6 +52,16 @@ def split_row(line: str) -> tuple[str, ...]:
     return tuple(cell.strip() for cell in inner.split("|"))
 
 
+def has_table(text: str) -> bool:
+    """Есть ли в файле таблица исключений (заголовок с разделителем).
+
+    Пустая таблица — это не ошибка: исключений может не быть вовсе, и это хорошая
+    новость, а не повод для красного CI. Ошибка — когда таблицы нет совсем: тогда
+    политика потерялась вместе с файлом.
+    """
+    return any(SEPARATOR_RE.match(line.strip()) for line in text.splitlines())
+
+
 def parse_rows(text: str) -> list[ExceptionRow]:
     """Все строки таблицы исключений, кроме заголовка и разделителя."""
     rows: list[ExceptionRow] = []
@@ -100,14 +110,15 @@ def collect_problems(root: Path = ROOT, *, today: date | None = None) -> list[st
     path = root / EXCEPTIONS_FILE
     if not path.exists():
         return [f"нет файла {EXCEPTIONS_FILE.as_posix()}"]
-    rows = parse_rows(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    rows = parse_rows(text)
     problems = [
         f"{EXCEPTIONS_FILE.as_posix()}:{row.line}: {message}"
         for row in rows
         for message in check_row(row, moment)
     ]
-    if not rows:
-        problems.append(f"{EXCEPTIONS_FILE.as_posix()}: таблица исключений пуста или не найдена")
+    if not has_table(text):
+        problems.append(f"{EXCEPTIONS_FILE.as_posix()}: таблица исключений не найдена")
     return problems
 
 

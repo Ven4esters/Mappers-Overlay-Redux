@@ -12,7 +12,8 @@ from map_overlay.domain.keynames import (
     VK_Y,
     VK_Z,
 )
-from map_overlay.infrastructure.hotkeys import WindowsHotkeySource, blocks_key
+from map_overlay.domain.keyrules import KeyBinding, KeyState, blocks_key
+from map_overlay.infrastructure.hotkeys import WindowsHotkeySource
 
 BINDINGS = {Action.CAPTURE: VK_NUMPAD0, Action.MOVE_FORWARD: VK_NUMPAD8}
 
@@ -68,16 +69,26 @@ def test_defaults_use_numpad_and_are_unique() -> None:
 
 
 def _blocked(*, vk: int = 0x68, is_down: bool = True, **kwargs: object) -> bool:
-    options: dict[str, object] = {
-        "bound": frozenset({0x68}),
-        "bound_ctrl": frozenset(),
+    """Проверить правило перехвата с настройками по умолчанию.
+
+    Правила живут в домене (``map_overlay.domain.keyrules``): их можно проверить без
+    Windows, а хук только передаёт им состояние системы.
+    """
+    binding_options: dict[str, object] = {"bound": frozenset({0x68}), "bound_ctrl": frozenset()}
+    state_options: dict[str, object] = {
         "ctrl_down": False,
         "learning": False,
         "overlay_active": False,
         "swallowed": frozenset(),
     }
-    options.update(kwargs)
-    return blocks_key(vk=vk, is_down=is_down, **options)  # type: ignore[arg-type]
+    for name, value in kwargs.items():
+        (binding_options if name in ("bound", "bound_ctrl") else state_options)[name] = value
+    return blocks_key(
+        vk=vk,
+        is_down=is_down,
+        binding=KeyBinding(**binding_options),  # type: ignore[arg-type]
+        state=KeyState(**state_options),  # type: ignore[arg-type]
+    )
 
 
 def test_unbound_key_is_passed_to_the_game() -> None:

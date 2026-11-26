@@ -6,6 +6,7 @@ import logging
 import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Final
 
 from map_overlay.application.ports import ClipboardPort, Clock, InputPort
@@ -29,6 +30,15 @@ MODIFIER_POLL_S: Final = 0.05
 # Столько пикселей курсор может «дрожать» между нашими действиями.
 
 
+@dataclass(frozen=True, slots=True)
+class PanelConfig:
+    """Всё, что берётся из настроек: точки полей, задержки и точка «пустого места»."""
+
+    points: Mapping[Field, Point]
+    delays: Delays
+    empty_point: Point | None = None
+
+
 class CalibratedPanel:
     """Реализация :class:`map_overlay.application.ports.PanelAutomation`.
 
@@ -39,20 +49,17 @@ class CalibratedPanel:
 
     def __init__(
         self,
-        *,
         input_port: InputPort,
         clipboard: ClipboardPort,
         clock: Clock,
-        points: Mapping[Field, Point],
-        delays: Delays,
-        empty_point: Point | None = None,
+        config: PanelConfig,
     ) -> None:
         self._input = input_port
         self._clipboard = clipboard
         self._clock = clock
-        self._points = dict(points)
-        self._delays = delays
-        self._empty_point = empty_point
+        self._points = dict(config.points)
+        self._delays = config.delays
+        self._empty_point = config.empty_point
         self._expected_cursor: Point | None = None
         # Флаг отмены ставит интерфейс (кнопка «Прервать» или таймаут), читает рабочий поток.
         self._cancel = threading.Event()

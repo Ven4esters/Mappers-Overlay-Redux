@@ -89,3 +89,20 @@ def test_main_counts_active_exceptions(tmp_path: Path, capsys) -> None:
     )
     assert main([], root=tmp_path, today=TODAY) == 0
     assert "активных: 1" in capsys.readouterr().out
+
+
+def test_table_without_rows_is_not_a_problem(tmp_path: Path, capsys) -> None:
+    """Пустая таблица — это «исключений нет», а не потерянная политика."""
+    _write(tmp_path, [])
+    assert collect_problems(root=tmp_path, today=TODAY) == []
+    assert main([], root=tmp_path, today=TODAY) == 0
+    assert "активных: 0" in capsys.readouterr().out
+
+
+def test_missing_table_is_reported(tmp_path: Path) -> None:
+    """Файл есть, а таблицы нет — политику потеряли, и это видно."""
+    path = tmp_path / "docs" / "quality"
+    path.mkdir(parents=True)
+    (path / "exceptions.md").write_text("# Политика исключений\n\nТаблицы нет.\n", encoding="utf-8")
+    problems = collect_problems(root=tmp_path, today=TODAY)
+    assert problems and "не найдена" in problems[0]

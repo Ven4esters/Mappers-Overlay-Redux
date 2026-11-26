@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-from map_overlay.context import AppContext
+from map_overlay.context import AppContext, AppPorts
 from map_overlay.domain.pose import Pose
 from map_overlay.domain.sizes import ObjectSize, SizeLibrary
 from map_overlay.errors import ConfigError
@@ -72,11 +72,13 @@ def test_context_keeps_library_between_runs(tmp_path: Path) -> None:
 
     def make_context() -> AppContext:
         return AppContext(
-            store=FakeStore(),
-            cursor=FakeCursor(),
-            panel_factory=lambda _settings: FakePanel(Pose(x=0.0, y=0.0, z=0.0)),
-            hotkeys=FakeHotkeySource(),
-            size_store=JsonSizeStore(path),
+            AppPorts(
+                store=FakeStore(),
+                cursor=FakeCursor(),
+                panel_factory=lambda _settings: FakePanel(Pose(x=0.0, y=0.0, z=0.0)),
+                hotkeys=FakeHotkeySource(),
+                size_store=JsonSizeStore(path),
+            )
         )
 
     first = make_context()
@@ -93,11 +95,13 @@ def test_context_reports_broken_library_and_keeps_working(tmp_path: Path) -> Non
     path = tmp_path / "sizes.json"
     path.write_text("{сломано", encoding="utf-8")
     context = AppContext(
-        store=FakeStore(),
-        cursor=FakeCursor(),
-        panel_factory=lambda _settings: FakePanel(Pose(x=0.0, y=0.0, z=0.0)),
-        hotkeys=FakeHotkeySource(),
-        size_store=JsonSizeStore(path),
+        AppPorts(
+            store=FakeStore(),
+            cursor=FakeCursor(),
+            panel_factory=lambda _settings: FakePanel(Pose(x=0.0, y=0.0, z=0.0)),
+            hotkeys=FakeHotkeySource(),
+            size_store=JsonSizeStore(path),
+        )
     )
     assert context.sizes.items == ()
     assert context.sizes_error is not None

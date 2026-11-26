@@ -222,41 +222,79 @@ def read_book(path: Path) -> LemmaBook:
 
 
 def _build_book(raw: object, name: str) -> LemmaBook:
+    """Собрать словарь из разобранного JSON: сначала проверки, потом данные."""
+    data = _checked_book(raw, name)
+    lemmas = _parse_lemmas(data.get("groups", []), name)
+    return LemmaBook(
+        lemmas=lemmas,
+        aliases=_alias_groups(lemmas.values(), data.get("aliases", []), name),
+        letters=_letter_map(data.get("letters")),
+        homoglyphs=_letter_map(data.get("homoglyphs")),
+    )
+
+
+def _checked_book(raw: object, name: str) -> Mapping[str, object]:
+    """Проверить общий вид словаря: объект, поддерживаемая схема, список групп.
+
+    Raises:
+        ConfigError: если структура не та или схема новее приложения.
+    """
     if not isinstance(raw, Mapping):
         raise ConfigError(f"Словарь лемм {name}: ожидался объект")
     version = raw.get("schema_version", SCHEMA_VERSION)
     if not isinstance(version, int) or isinstance(version, bool) or version > SCHEMA_VERSION:
         raise ConfigError(f"Словарь лемм {name}: неподдерживаемая схема {version!r}")
-    groups = raw.get("groups", [])
-    if not isinstance(groups, list):
+    if not isinstance(raw.get("groups", []), list):
         raise ConfigError(f"Словарь лемм {name}: ожидался список групп")
+    return raw
+
+
+def _parse_lemmas(groups: object, name: str) -> dict[str, str]:
+    """Слово → лемма по всем группам.
+
+    Raises:
+        ConfigError: если группа описана неверно или слово попало в две леммы.
+    """
     lemmas: dict[str, str] = {}
-    for group in groups:
-        if not isinstance(group, Mapping):
-            raise ConfigError(f"Словарь лемм {name}: группа должна быть объектом")
-        lemma = group.get("lemma")
-        words = group.get("words")
-        if not isinstance(lemma, str) or not lemma.strip():
-            raise ConfigError(f"Словарь лемм {name}: у группы нет леммы")
-        if not isinstance(words, list) or not all(isinstance(word, str) for word in words):
-            raise ConfigError(f"Словарь лемм {name}: ожидался список слов у «{lemma}»")
-        key = lemma.strip().casefold()
-        for word in words:
-            folded = word.strip().casefold().replace("ё", "е")
-            if not folded:
-                continue
-            known = lemmas.get(folded)
-            if known is not None and known != key:
-                raise ConfigError(
-                    f"Словарь лемм {name}: слово «{word}» есть и в «{known}», и в «{key}»"
-                )
-            lemmas[folded] = key
-    return LemmaBook(
-        lemmas=lemmas,
-        aliases=_alias_groups(lemmas.values(), raw.get("aliases", []), name),
-        letters=_letter_map(raw.get("letters")),
-        homoglyphs=_letter_map(raw.get("homoglyphs")),
-    )
+    for group in groups if isinstance(groups, list) else []:
+        key, words = _parse_group(group, name)
+        _add_group(lemmas, key, words, name)
+    return lemmas
+
+
+def _parse_group(group: object, name: str) -> tuple[str, list[str]]:
+    """Проверить одну группу: у неё есть лемма и список слов.
+
+    Raises:
+        ConfigError: если группа описана неверно.
+    """
+    if not isinstance(group, Mapping):
+        raise ConfigError(f"Словарь лемм {name}: группа должна быть объектом")
+    lemma = group.get("lemma")
+    words = group.get("words")
+    if not isinstance(lemma, str) or not lemma.strip():
+        raise ConfigError(f"Словарь лемм {name}: у группы нет леммы")
+    if not isinstance(words, list) or not all(isinstance(word, str) for word in words):
+        raise ConfigError(f"Словарь лемм {name}: ожидался список слов у «{lemma}»")
+    return lemma.strip().casefold(), words
+
+
+def _add_group(lemmas: dict[str, str], key: str, words: Iterable[str], name: str) -> None:
+    """Дописать слова группы, следя, чтобы слово не оказалось в двух леммах.
+
+    Raises:
+        ConfigError: если слово уже принадлежит другой лемме.
+    """
+    for word in words:
+        folded = word.strip().casefold().replace("ё", "е")
+        if not folded:
+            continue
+        known = lemmas.get(folded)
+        if known is not None and known != key:
+            raise ConfigError(
+                f"Словарь лемм {name}: слово «{word}» есть и в «{known}», и в «{key}»"
+            )
+        lemmas[folded] = key
 
 
 def _alias_groups(lemmas: Iterable[str], raw: object, name: str) -> dict[str, frozenset[str]]:
@@ -265,36 +303,54 @@ def _alias_groups(lemmas: Iterable[str], raw: object, name: str) -> dict[str, fr
     Raises:
         ConfigError: если пара ссылается на лемму, которой нет в словаре.
     """
-    if raw is None:
-        return {}
-    if not isinstance(raw, list):
-        raise ConfigError(f"Словарь лемм {name}: ожидался список связок")
+    pairs = _alias_pairs(raw, name)
     known = set(lemmas)
     parent: dict[str, str] = {}
+    for left, right in pairs:
+        for lemma in (left, right):
+            if lemma not in known:
+                raise ConfigError(f"Словарь лемм {name}: в связке нет леммы «{lemma}»")
+        first, second = _root(parent, left), _root(parent, right)
+        if first != second:
+            parent[second] = first
+    return _group_members(parent)
 
-    def root(lemma: str) -> str:
-        parent.setdefault(lemma, lemma)
-        while parent[lemma] != lemma:
-            lemma = parent[lemma]
-        return lemma
 
+def _alias_pairs(raw: object, name: str) -> list[tuple[str, str]]:
+    """Проверить связки и привести их к парам строк.
+
+    Raises:
+        ConfigError: если связка — не пара строк.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ConfigError(f"Словарь лемм {name}: ожидался список связок")
+    pairs: list[tuple[str, str]] = []
     for pair in raw:
         if (
             not isinstance(pair, list)
             or len(pair) != 2
-            or not all(isinstance(x, str) for x in pair)
+            or not all(isinstance(item, str) for item in pair)
         ):
             raise ConfigError(f"Словарь лемм {name}: связка должна быть парой строк")
-        left, right = pair[0].strip().casefold(), pair[1].strip().casefold()
-        for lemma in (left, right):
-            if lemma not in known:
-                raise ConfigError(f"Словарь лемм {name}: в связке нет леммы «{lemma}»")
-        first, second = root(left), root(right)
-        if first != second:
-            parent[second] = first
+        pairs.append((pair[0].strip().casefold(), pair[1].strip().casefold()))
+    return pairs
+
+
+def _root(parent: dict[str, str], lemma: str) -> str:
+    """Корень группы связок: по нему видно, к какому набору относится лемма."""
+    parent.setdefault(lemma, lemma)
+    while parent[lemma] != lemma:
+        lemma = parent[lemma]
+    return lemma
+
+
+def _group_members(parent: dict[str, str]) -> dict[str, frozenset[str]]:
+    """Разложить связки по группам: каждая лемма знает все леммы своей группы."""
     members: dict[str, set[str]] = {}
     for lemma in parent:
-        members.setdefault(root(lemma), set()).add(lemma)
+        members.setdefault(_root(parent, lemma), set()).add(lemma)
     return {lemma: frozenset(group) for group in members.values() for lemma in group}
 
 

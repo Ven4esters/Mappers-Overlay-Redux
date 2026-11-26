@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from functools import partial
 from typing import Final
 
@@ -10,6 +11,7 @@ from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QGridLayout, QPushButton, QVBoxLayout, QWidget
 
 from map_overlay.application.ports import CursorPort
+from map_overlay.config import Settings
 from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.point import Point
 from map_overlay.ui.widgets import (
@@ -23,6 +25,16 @@ from map_overlay.ui.widgets import (
 
 COUNTDOWN_SECONDS: Final = 3
 COUNTDOWN_TICK_MS: Final = 1000
+
+
+@dataclass(frozen=True, slots=True)
+class Countdown:
+    """Сколько ждать перед снятием точки и как часто обновлять счётчик."""
+
+    seconds: int = COUNTDOWN_SECONDS
+    tick_ms: int = COUNTDOWN_TICK_MS
+
+
 EMPTY_SPOT_KEY: Final = "empty"
 EMPTY_SPOT_LABEL: Final = "Пустое место (для F)"
 
@@ -51,23 +63,22 @@ class CalibrationTab(QWidget):
         self,
         *,
         cursor: CursorPort,
-        points: Mapping[Field, Point],
-        empty_point: Point | None = None,
-        countdown_seconds: int = COUNTDOWN_SECONDS,
-        tick_ms: int = COUNTDOWN_TICK_MS,
+        settings: Settings,
+        countdown: Countdown | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        countdown = countdown or Countdown()
         self._cursor = cursor
-        self._points: dict[Field, Point] = dict(points)
-        self._empty_point = empty_point
-        self._countdown_seconds = countdown_seconds
+        self._points: dict[Field, Point] = dict(settings.calibration)
+        self._empty_point = settings.empty_point
+        self._countdown_seconds = countdown.seconds
         self._pending: Callable[[], None] | None = None
         self._pending_label = ""
         self._countdown_key = ""
         self._seconds_left = 0
         self._timer = QTimer(self)
-        self._timer.setInterval(tick_ms)
+        self._timer.setInterval(countdown.tick_ms)
         self._timer.timeout.connect(self._tick)
         self._value_labels: dict[str, ValueField] = {}
         self._show_buttons: dict[str, QPushButton] = {}

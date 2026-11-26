@@ -39,7 +39,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(ROOT))
 
 from map_overlay.config import Settings  # noqa: E402
-from map_overlay.context import AppContext  # noqa: E402
+from map_overlay.context import AppContext, AppPaths, AppPorts  # noqa: E402
 from map_overlay.domain.directions import Direction  # noqa: E402
 from map_overlay.domain.fields import Field  # noqa: E402
 from map_overlay.domain.formatting import format_value  # noqa: E402
@@ -230,13 +230,17 @@ def _build_window(app: QApplication) -> MainWindow:
     settings = _demo_settings()
     panel = DemoPanel(DEMO_POSE)
     context = AppContext(
-        store=DemoSettings(settings),
-        cursor=DemoCursor(),
-        panel_factory=lambda _settings: panel,
-        hotkeys=DemoHotkeys(),
-        config_path=Path("config") / "settings.json",
-        size_store=DemoSizes(_demo_library()),
-        sizes_path=Path("config") / "sizes.json",
+        AppPorts(
+            store=DemoSettings(settings),
+            cursor=DemoCursor(),
+            panel_factory=lambda _settings: panel,
+            hotkeys=DemoHotkeys(),
+            size_store=DemoSizes(_demo_library()),
+        ),
+        AppPaths(
+            config=Path("config") / "settings.json",
+            sizes=Path("config") / "sizes.json",
+        ),
     )
     window = MainWindow(context, synchronous_tasks=True)
     window.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
