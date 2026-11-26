@@ -424,3 +424,28 @@ def test_always_read_step_can_be_repeated(qt_app: QApplication) -> None:
     assert panel.pose().x == pytest.approx(START.x, abs=0.001)
     assert window.redo()
     assert panel.pose().x == pytest.approx(moved.x, abs=0.001)
+
+
+def test_global_ctrl_z_undoes_without_window_focus(qt_app: QApplication) -> None:
+    """Ctrl+Z через хук отменяет шаг, когда фокус у игры: окно не в фокусе вообще.
+
+    Ради этого пункт и делался: в бою клавиатура у игры, и нажать Ctrl+Z в самом окне
+    нельзя — нужно кликать по оверлею, теряя управление.
+    """
+    from map_overlay.domain.keynames import VK_Y, VK_Z
+
+    from fakes import FakeHotkeySource
+
+    hotkeys = FakeHotkeySource()
+    window, panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
+    window.movement.press_capture()
+    _step(window, Direction.FORWARD)
+    assert panel.pose() != START
+
+    hotkeys.press(VK_Z, ctrl=True)
+    hotkeys.release(VK_Z)
+    assert panel.pose() == START, "Ctrl+Z из хука должен отменить шаг"
+
+    hotkeys.press(VK_Y, ctrl=True)
+    hotkeys.release(VK_Y)
+    assert panel.pose() != START, "Ctrl+Y из хука должен повторить шаг"

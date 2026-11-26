@@ -21,7 +21,14 @@ from typing import ClassVar, Final
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from map_overlay.domain.keynames import VK_MENU, VK_NUMLOCK, generic_vk, key_name
+from map_overlay.domain.keynames import (
+    MODIFIER_KEYS,
+    VK_CONTROL,
+    VK_MENU,
+    VK_NUMLOCK,
+    generic_vk,
+    key_name,
+)
 from map_overlay.trace import note
 
 logger = logging.getLogger(__name__)
@@ -74,11 +81,13 @@ class _Message(ctypes.Structure):
 _HOOK_PROC = ctypes.CFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t)
 
 
-def blocks_key(
+def blocks_key(  # noqa: PLR0913 - параметры читаются как правила, а не как позиции
     *,
     vk: int,
     is_down: bool,
     bound: Collection[int],
+    bound_ctrl: Collection[int],
+    ctrl_down: bool,
     learning: bool,
     overlay_active: bool,
     swallowed: Collection[int],
@@ -88,6 +97,9 @@ def blocks_key(
     Правила:
 
     * в обычном режиме перехватываются только назначенные клавиши;
+    * клавиши отмены и повтора (``bound_ctrl``) забираются только с зажатым Ctrl и
+      только когда окно оверлея не активно: без Ctrl это обычные Z и Y, а при
+      открытом окне их обрабатывает оно само (в полях ввода Ctrl+Z правит текст);
     * при записи новой привязки — любые клавиши, но только пока окно оверлея активно:
       в игре клавиатура должна работать всегда;
     * отпускание клавиши забирается лишь тогда, когда было забрано её нажатие —
@@ -95,7 +107,11 @@ def blocks_key(
     """
     if is_down:
         if learning:
-            return overlay_active
+            # Модификаторы при записи привязки только мешают: Ctrl+Z должен дать «Z»,
+            # а не привязку к Ctrl.
+            return overlay_active and vk not in MODIFIER_KEYS
+        if vk in bound_ctrl:
+            return ctrl_down and not overlay_active
         return vk in bound
     return vk in swallowed
 
@@ -107,14 +123,15 @@ class WindowsHotkeySource(QThread):
     потоке (Qt ставит его в очередь), поэтому интерфейс обновляется безопасно.
     """
 
-    key_event = Signal(int, bool, bool)
+    key_event = Signal(int, bool, bool, bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._bound: frozenset[int] = frozenset()
+        self._bound_ctrl: frozenset[int] = frozenset()
         self._learning = False
         self._enabled = True
-        self._callback: Callable[[int, bool, bool], None] | None = None
+        self._callback: Callable[[int, bool, bool, bool], None] | None = None
         self._thread_id = 0
         self._hook: int | None = None
         self._proc: object | None = None
@@ -130,7 +147,7 @@ class WindowsHotkeySource(QThread):
         self._error_logged = False
         self.failed = False
 
-    def start_listening(self, on_key: Callable[[int, bool, bool], None]) -> None:
+    def start_listening(self, on_key: Callable[[int, bool, bool, bool], None]) -> None:
         """Запустить хук и доставлять нажатия в ``on_key``."""
         self._callback = on_key
         self.key_event.connect(self._deliver)
@@ -185,9 +202,20 @@ class WindowsHotkeySource(QThread):
         if self.isRunning():
             self.wait(HOOK_TIMEOUT_MS)
 
-    def configure(self, *, bound_keys: Collection[int], learning: bool) -> None:
-        """Сказать хуку, какие клавиши перехватывать."""
+    def configure(
+        self,
+        *,
+        bound_keys: Collection[int],
+        bound_ctrl_keys: Collection[int] = (),
+        learning: bool,
+    ) -> None:
+        """Сказать хуку, какие клавиши перехватывать.
+
+        ``bound_ctrl_keys`` перехватываются только при зажатом Ctrl: сюда попадают
+        отмена и повтор шага, чтобы обычные Z и Y остались игре.
+        """
         self._bound = frozenset(bound_keys)
+        self._bound_ctrl = frozenset(bound_ctrl_keys)
         self._learning = learning
 
     @property
@@ -269,9 +297,9 @@ class WindowsHotkeySource(QThread):
         self._owner_of = owner
         self._own_pid = ctypes.windll.kernel32.GetCurrentProcessId
 
-    def _deliver(self, vk: int, is_down: bool, fresh: bool) -> None:
+    def _deliver(self, vk: int, is_down: bool, fresh: bool, ctrl: bool) -> None:
         if self._callback is not None:
-            self._callback(vk, is_down, fresh)
+            self._callback(vk, is_down, fresh, ctrl)
 
     def _handle(self, code: int, wparam: int, lparam: int) -> int:
         try:
@@ -301,12 +329,18 @@ class WindowsHotkeySource(QThread):
             )
             return self._swallow(is_down, vk)
         self._observe_alt(vk, is_down, injected)
+        ctrl_down = not injected and self.key_down(VK_CONTROL)
+        # Активное окно нужно знать только там, где от него зависит решение: при записи
+        # привязки и для клавиш отмены с Ctrl. В остальных случаях — два вызова Win32 зря.
+        needs_foreground = self._learning or (ctrl_down and vk in self._bound_ctrl)
         block = self._enabled and blocks_key(
             vk=vk,
             is_down=is_down,
             bound=self._bound,
+            bound_ctrl=self._bound_ctrl,
+            ctrl_down=ctrl_down,
             learning=self._learning,
-            overlay_active=self._learning and self._foreground_is_ours(),
+            overlay_active=needs_foreground and self._foreground_is_ours(),
             swallowed=self._swallowed,
         )
         fresh = is_down and block and vk not in self._swallowed
@@ -322,7 +356,7 @@ class WindowsHotkeySource(QThread):
         if fresh:
             logger.debug("Хук забрал клавишу %s", key_name(vk))
             note("хук: клавиша %s забрана у игры", key_name(vk))
-        self.key_event.emit(vk, is_down, fresh)
+        self.key_event.emit(vk, is_down, fresh, ctrl_down)
         return HOOK_BLOCK
 
     def _swallow(self, is_down: bool, vk: int) -> int:
@@ -362,7 +396,7 @@ class WindowsHotkeySource(QThread):
             self._alt_alone = False
             if alone and self._enabled and not self._learning:
                 logger.info("Alt нажат один: переключаю режим высоты")
-                self.key_event.emit(VK_MENU, True, True)
+                self.key_event.emit(VK_MENU, True, True, False)
             return
         if self._alt_down:
             self._alt_alone = False
