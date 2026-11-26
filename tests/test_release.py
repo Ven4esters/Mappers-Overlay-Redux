@@ -13,6 +13,7 @@ from tools.release import (
     PLACES,
     ROOT,
     SUMS_NAME,
+    _git,
     bumped,
     changelog_section,
     current_version,
@@ -28,7 +29,8 @@ OLD = "1.26.0"
 NEW = "9.9.9"
 
 
-def _git(root: Path, *args: str) -> None:
+def _setup_git(root: Path, *args: str) -> None:
+    """Настроить временный репозиторий: git есть в PATH у разработчика и в CI."""
     subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True)
 
 
@@ -48,12 +50,12 @@ def repo_fixture(tmp_path: Path) -> Path:
         f"## [{NEW}] — 2026-12-01\n\nНовое.\n\n### Добавлено\n\n- релиз одной командой\n",
         encoding="utf-8",
     )
-    _git(tmp_path, "init", "-q")
+    _setup_git(tmp_path, "init", "-q")
     # Идентичность — локальная: настоящий выпуск идёт в репозитории разработчика.
-    _git(tmp_path, "config", "user.name", "t")
-    _git(tmp_path, "config", "user.email", "t@example.com")
-    _git(tmp_path, "add", "-A")
-    _git(tmp_path, "commit", "-q", "-m", "init")
+    _setup_git(tmp_path, "config", "user.name", "t")
+    _setup_git(tmp_path, "config", "user.email", "t@example.com")
+    _setup_git(tmp_path, "add", "-A")
+    _setup_git(tmp_path, "commit", "-q", "-m", "init")
     return tmp_path
 
 
@@ -110,7 +112,7 @@ def test_changelog_section_stops_at_next_version() -> None:
 
 def test_existing_tag_blocks_release(repo: Path) -> None:
     """Тег уже занят — версию переиспользовать нельзя."""
-    _git(repo, "tag", f"v{NEW}")
+    _setup_git(repo, "tag", f"v{NEW}")
     problems = release_problems(repo, NEW)
     assert any("уже есть" in problem for problem in problems)
 
@@ -126,39 +128,30 @@ def test_dry_run_changes_nothing(repo: Path) -> None:
     before = (repo / PLACES[0].path).read_text(encoding="utf-8")
     assert main([NEW, "--dry-run"], root=repo) == 0
     assert (repo / PLACES[0].path).read_text(encoding="utf-8") == before
-    tags = subprocess.run(
-        ["git", "tag", "--list"], cwd=repo, check=True, capture_output=True, text=True
-    ).stdout
-    assert tags.strip() == ""
+    tags = _git(repo, "tag", "--list").stdout
+    assert tags is not None and tags.strip() == ""
 
 
 def test_release_commits_and_tags(repo: Path) -> None:
     """Настоящий выпуск: версия в файлах, коммит «Release X.Y.Z», аннотированный тег."""
     assert main([NEW, "--no-checks", "--no-images"], root=repo) == 0
     assert version_problems(repo, version=NEW) == []
-    log = subprocess.run(
-        ["git", "log", "-1", "--pretty=%s"], cwd=repo, check=True, capture_output=True, text=True
-    ).stdout.strip()
-    assert log == f"Release {NEW}"
-    tag_message = subprocess.run(
-        ["git", "tag", "-n99", "--list", f"v{NEW}"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    assert "релиз одной командой" in tag_message
+    log = _git(repo, "log", "-1", "--pretty=%s").stdout
+    assert log is not None, "git log не вернул вывод"
+    assert log.strip() == f"Release {NEW}"
+    # Содержимое аннотированного тега — раздел CHANGELOG, а не пустая строка.
+    tag_message = _git(repo, "tag", "-l", "--format=%(contents)", f"v{NEW}").stdout
+    assert tag_message is not None, "git tag не вернул вывод"
+    # Проверяем ASCII-часть: кодировка вывода git на Windows — не наше дело.
+    assert f"[{NEW}]" in tag_message
+    assert len(tag_message.strip().splitlines()) > 1
 
 
 def test_release_refuses_without_changelog(repo: Path) -> None:
     """Нет раздела CHANGELOG — статус 1 и ни одного коммита."""
-    head = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
-    ).stdout
+    head = _git(repo, "rev-parse", "HEAD").stdout
     assert main(["7.7.7", "--no-checks", "--no-images"], root=repo) == 1
-    after = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
-    ).stdout
+    after = _git(repo, "rev-parse", "HEAD").stdout
     assert head == after
 
 

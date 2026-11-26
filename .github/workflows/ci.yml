@@ -230,6 +230,15 @@ jobs:
             }
           }
           exit $status
+      - name: Журнал pytest
+        # Log шага на раннере недоступен через API, а аннотации показывают только
+        # последнюю строку ошибки: артефакт с журналом объясняет, что именно упало.
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-log-windows
+          path: pytest.log
+          if-no-files-found: ignore
       - name: Проверка окружения без окна
         env:
           MAP_OVERLAY_HOME: ${{ runner.temp }}\overlay-home
