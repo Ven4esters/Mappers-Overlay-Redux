@@ -20,9 +20,8 @@ from PySide6.QtWidgets import (
 )
 
 from map_overlay.config import MAX_DELAY_S, MIN_DELAY_S, Delays, Settings
-from map_overlay.domain.actions import ACTION_ORDER, Action
+from map_overlay.domain.actions import ACTION_ORDER, Action, hotkey_name
 from map_overlay.domain.formatting import MAX_DECIMALS, MIN_DECIMALS
-from map_overlay.domain.keynames import key_name
 from map_overlay.domain.movement import MAX_STEP, MIN_STEP
 from map_overlay.errors import AppError
 from map_overlay.ui.widgets import (
@@ -196,7 +195,7 @@ class SettingsTab(QWidget):
     ) -> None:
         name = label(action.label, widget_role="muted")
         name.setMinimumWidth(NAME_COLUMN_WIDTH)
-        key = label(key_name(settings.hotkeys.get(action)), widget_role="poseValue")
+        key = label(hotkey_name(action, settings.hotkeys.get(action)), widget_role="poseValue")
         key.setMinimumWidth(KEY_COLUMN_WIDTH)
         change = button("Изменить", widget_role="small")
         change.clicked.connect(
@@ -250,7 +249,7 @@ class SettingsTab(QWidget):
     def set_hotkeys(self, hotkeys: Mapping[Action, int | None]) -> None:
         """Показать текущие привязки клавиш."""
         for action, widget in self._key_labels.items():
-            widget.setText(key_name(hotkeys.get(action)))
+            widget.setText(hotkey_name(action, hotkeys.get(action)))
 
     def set_num_lock_warning(self, text: str) -> None:
         """Предупредить о выключенном NumLock."""

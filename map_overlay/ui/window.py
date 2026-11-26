@@ -923,8 +923,12 @@ class MainWindow(QMainWindow):
 
     # --- горячие клавиши --------------------------------------------------
 
-    def _on_hotkey(self, vk: int, is_down: bool, fresh: bool = True) -> None:
-        """Событие клавиатуры: сюда приходит даже автоповтор зажатой клавиши."""
+    def _on_hotkey(self, vk: int, is_down: bool, fresh: bool = True, ctrl: bool = False) -> None:
+        """Событие клавиатуры: сюда приходит даже автоповтор зажатой клавиши.
+
+        ``ctrl`` говорит, была ли нажата клавиша с зажатым Ctrl: от этого зависит,
+        наша это клавиша или игра должна получить её как обычную Z/Y.
+        """
         repeat = " (автоповтор)" if is_down and not fresh else ""
         note("клавиша %s %s%s", key_name(vk), "нажата" if is_down else "отпущена", repeat)
         if not self.settings_tab.hotkeys_enabled():
@@ -938,7 +942,7 @@ class MainWindow(QMainWindow):
         if vk == VK_MENU and is_down and fresh:
             self._toggle_tilt()
             return
-        action = self._router.handle(vk, is_down, fresh)
+        action = self._router.handle(vk, is_down, fresh, ctrl)
         if action is not None:
             logger.info("Клавиша %s → %s", key_name(vk), action.label)
             note("клавиша %s → команда «%s»", key_name(vk), action.label)
@@ -1057,6 +1061,12 @@ class MainWindow(QMainWindow):
         )
 
     def _dispatch(self, action: Action, vk: int) -> None:
+        if action is Action.UNDO:
+            self.undo()
+            return
+        if action is Action.REDO:
+            self.redo()
+            return
         if action is Action.CAPTURE:
             self._capture()
             return
@@ -1240,7 +1250,9 @@ class MainWindow(QMainWindow):
         self._router.bind(hotkeys)
         self._router.reset()
         self._hotkeys.configure(
-            bound_keys=self._router.bound_keys, learning=self._learning is not None
+            bound_keys=self._router.bound_keys,
+            bound_ctrl_keys=self._router.bound_ctrl_keys,
+            learning=self._learning is not None,
         )
         self.settings_tab.set_hotkeys(hotkeys)
 

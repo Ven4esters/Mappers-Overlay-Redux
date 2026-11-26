@@ -32,7 +32,13 @@ VK_SUBTRACT: Final = 0x6D
 VK_DECIMAL: Final = 0x6E
 VK_DIVIDE: Final = 0x6F
 VK_F1: Final = 0x70
+#: Z и Y — для отмены и повтора шага: работают только с зажатым Ctrl.
+VK_Z: Final = 0x5A
+VK_Y: Final = 0x59
 VK_NUMLOCK: Final = 0x90
+
+#: Модификаторы: сами по себе не команды, их нажатия не привязываются и не забираются.
+MODIFIER_KEYS: Final[frozenset[int]] = frozenset({VK_CONTROL, VK_SHIFT, VK_MENU})
 
 #: Низкоуровневый хук присылает клавишу со стороной: ``VK_LMENU`` вместо ``VK_MENU``.
 _SIDE_VARIANTS: Final[dict[int, int]] = {

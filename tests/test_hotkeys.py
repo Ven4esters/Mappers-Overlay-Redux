@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from map_overlay.application.hotkeys import HotkeyRouter
-from map_overlay.domain.actions import DEFAULT_HOTKEYS, Action
+from map_overlay.domain.actions import DEFAULT_HOTKEYS, Action, hotkey_name
 from map_overlay.domain.keynames import (
     VK_F1,
     VK_NUMPAD0,
     VK_NUMPAD2,
     VK_NUMPAD8,
+    VK_Y,
+    VK_Z,
 )
 from map_overlay.infrastructure.hotkeys import WindowsHotkeySource, blocks_key
 
@@ -68,6 +70,8 @@ def test_defaults_use_numpad_and_are_unique() -> None:
 def _blocked(*, vk: int = 0x68, is_down: bool = True, **kwargs: object) -> bool:
     options: dict[str, object] = {
         "bound": frozenset({0x68}),
+        "bound_ctrl": frozenset(),
+        "ctrl_down": False,
         "learning": False,
         "overlay_active": False,
         "swallowed": frozenset(),
@@ -131,3 +135,42 @@ def test_reset_forgets_stuck_keys() -> None:
     router.reset()
     assert router.is_pressed(VK_NUMPAD8) is False
     assert router.handle(VK_NUMPAD8, True, None) is Action.MOVE_FORWARD
+
+
+def test_ctrl_actions_need_ctrl() -> None:
+    """Отмена и повтор срабатывают только с Ctrl: обычная Z принадлежит игре."""
+    router = HotkeyRouter(DEFAULT_HOTKEYS)
+    assert router.handle(VK_Z, True, True, ctrl=True) is Action.UNDO
+    assert router.handle(VK_Z, True, True, ctrl=False) is None
+    assert router.handle(VK_Y, True, True, ctrl=True) is Action.REDO
+    assert router.bound_ctrl_keys == frozenset({VK_Z, VK_Y})
+
+
+def test_ctrl_keys_are_blocked_only_with_ctrl_and_outside_the_window() -> None:
+    """Клавиши отмены забираются у игры только с Ctrl; в окне их обрабатывает окно."""
+    assert _blocked(vk=VK_Z, bound={VK_Z}, bound_ctrl={VK_Z}, ctrl_down=True) is True
+    assert _blocked(vk=VK_Z, bound={VK_Z}, bound_ctrl={VK_Z}, ctrl_down=False) is False
+    assert (
+        _blocked(
+            vk=VK_Z,
+            bound={VK_Z},
+            bound_ctrl={VK_Z},
+            ctrl_down=True,
+            overlay_active=True,
+        )
+        is False
+    )
+
+
+def test_modifiers_are_not_taken_while_learning() -> None:
+    """При записи привязки Ctrl не забирается: иначе Ctrl+Z записался бы как «Ctrl»."""
+    assert _blocked(vk=0x11, learning=True, overlay_active=True) is False
+    assert _blocked(vk=0x5A, learning=True, overlay_active=True) is True
+
+
+def test_hotkey_names_show_ctrl_for_undo_and_redo() -> None:
+    """В настройках видно, что отмена и повтор — с Ctrl."""
+    assert hotkey_name(Action.UNDO, VK_Z) == "Ctrl+Z"
+    assert hotkey_name(Action.REDO, VK_Y) == "Ctrl+Y"
+    assert hotkey_name(Action.CAPTURE, VK_NUMPAD0) == "Num 0"
+    assert hotkey_name(Action.UNDO, None) == "не назначена"

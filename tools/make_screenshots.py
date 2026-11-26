@@ -165,7 +165,7 @@ class DemoSizes:
 class DemoHotkeys:
     """Перехват клавиш, который ничего не перехватывает: на скриншоте клавиши не жмут."""
 
-    def start_listening(self, on_key: Callable[[int, bool, bool], None]) -> None:
+    def start_listening(self, on_key: Callable[[int, bool, bool, bool], None]) -> None:
         """Запомнить обработчик и сразу замолчать."""
         del on_key
         return
@@ -174,9 +174,15 @@ class DemoHotkeys:
         """Слушать нечего."""
         return
 
-    def configure(self, *, bound_keys: Collection[int], learning: bool) -> None:
+    def configure(
+        self,
+        *,
+        bound_keys: Collection[int],
+        bound_ctrl_keys: Collection[int] = (),
+        learning: bool,
+    ) -> None:
         """Принять список клавиш: он на скриншот не влияет."""
-        del bound_keys, learning
+        del bound_keys, bound_ctrl_keys, learning
         return
 
     def set_enabled(self, enabled: bool) -> None:

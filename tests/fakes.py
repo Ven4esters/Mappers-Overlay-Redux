@@ -250,7 +250,7 @@ class FakeHotkeySource:
         self._num_lock = num_lock
         self._down: set[int] = set()
 
-    def start_listening(self, on_key: Callable[[int, bool, bool], None]) -> None:
+    def start_listening(self, on_key: Callable[[int, bool, bool, bool], None]) -> None:
         self._callback = on_key
         self.started = True
 
@@ -258,8 +258,15 @@ class FakeHotkeySource:
         self.started = False
         self._callback = None
 
-    def configure(self, *, bound_keys: Collection[int], learning: bool) -> None:
+    def configure(
+        self,
+        *,
+        bound_keys: Collection[int],
+        bound_ctrl_keys: Collection[int] = (),
+        learning: bool,
+    ) -> None:
         self.bound_keys = frozenset(bound_keys)
+        self.bound_ctrl_keys = frozenset(bound_ctrl_keys)
         self.learning = learning
 
     def set_enabled(self, enabled: bool) -> None:
@@ -277,11 +284,12 @@ class FakeHotkeySource:
     def key_down(self, vk: int) -> bool:
         return vk in self._down
 
-    def press(self, vk: int, *, is_down: bool = True) -> None:
+    def press(self, vk: int, *, is_down: bool = True, ctrl: bool = False) -> None:
         """Имитировать нажатие клавиши.
 
         Автоповтор отличается так же, как в хуке: «свежее» нажатие — то, после
-        которого клавишу ещё не отпускали.
+        которого клавишу ещё не отпускали. ``ctrl`` — зажат ли Ctrl (хук берёт это
+        из состояния клавиатуры).
         """
         if self.frozen and is_down:
             # Хук съедает нажатие: до интерфейса оно не доходит.
@@ -292,7 +300,7 @@ class FakeHotkeySource:
         else:
             self._down.discard(vk)
         if self._callback is not None:
-            self._callback(vk, is_down, fresh)
+            self._callback(vk, is_down, fresh, ctrl)
 
     def release(self, vk: int) -> None:
         self.press(vk, is_down=False)

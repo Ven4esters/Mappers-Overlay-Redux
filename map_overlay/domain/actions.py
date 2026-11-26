@@ -18,6 +18,9 @@ from map_overlay.domain.keynames import (
     VK_NUMPAD7,
     VK_NUMPAD8,
     VK_NUMPAD9,
+    VK_Y,
+    VK_Z,
+    key_name,
 )
 
 
@@ -35,6 +38,8 @@ class Action(StrEnum):
     MOVE_FORWARD_RIGHT = "move_forward_right"
     MOVE_BACK_LEFT = "move_back_left"
     MOVE_BACK_RIGHT = "move_back_right"
+    UNDO = "undo"
+    REDO = "redo"
 
     @property
     def label(self) -> str:
@@ -70,7 +75,13 @@ _LABELS: Final[dict[Action, str]] = {
     Action.MOVE_FORWARD_RIGHT: "Вперёд-вправо",
     Action.MOVE_BACK_LEFT: "Назад-влево",
     Action.MOVE_BACK_RIGHT: "Назад-вправо",
+    Action.UNDO: "Отменить шаг",
+    Action.REDO: "Повторить шаг",
 }
+
+CTRL_ACTIONS: Final[frozenset[Action]] = frozenset({Action.UNDO, Action.REDO})
+#: Действия, которые срабатывают только с зажатым Ctrl. Клавиша без Ctrl уходит игре:
+#: иначе обычная Z перестала бы работать в игре и в чате.
 
 ACTION_ORDER: Final[tuple[Action, ...]] = (
     Action.CAPTURE,
@@ -84,6 +95,8 @@ ACTION_ORDER: Final[tuple[Action, ...]] = (
     Action.MOVE_BACK_RIGHT,
     Action.MOVE_LEFT,
     Action.MOVE_RIGHT,
+    Action.UNDO,
+    Action.REDO,
 )
 
 
@@ -99,5 +112,15 @@ DEFAULT_HOTKEYS: Final[dict[Action, int | None]] = {
     Action.MOVE_BACK_RIGHT: VK_NUMPAD3,
     Action.MOVE_LEFT: VK_NUMPAD4,
     Action.MOVE_RIGHT: VK_NUMPAD6,
+    Action.UNDO: VK_Z,
+    Action.REDO: VK_Y,
 }
 # Клавиши по умолчанию: цифровой блок при включённом NumLock.
+
+
+def hotkey_name(action: Action, vk: int | None) -> str:
+    """Подпись привязки: «Ctrl+Z» для действий, которым нужен Ctrl, иначе имя клавиши."""
+    name = key_name(vk)
+    if action in CTRL_ACTIONS and vk is not None:
+        return f"Ctrl+{name}"
+    return name
