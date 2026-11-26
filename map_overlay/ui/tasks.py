@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 Work = Callable[[], object]
 SuccessHandler = Callable[[object], None]
 ErrorHandler = Callable[[str], None]
+Clock = Callable[[], float]
 
 
 def execute(work: Work) -> object:
@@ -81,8 +82,17 @@ class TaskRunner(QObject):
     работе: иначе одно исключение оставило бы окно «занятым» навсегда.
     """
 
-    def __init__(self, *, synchronous: bool = False, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        synchronous: bool = False,
+        parent: QObject | None = None,
+        clock: Clock | None = None,
+    ) -> None:
         super().__init__(parent)
+        # Часы подменяются в тестах: ждать реальные полсекунды значит зависеть от
+        # планировщика раннера, и проверка «сколько идёт задача» падала на Windows.
+        self._clock: Clock = clock or time.monotonic
         self._synchronous = synchronous
         self._generation = 0
         self._thread: QThread | None = None
@@ -121,7 +131,7 @@ class TaskRunner(QObject):
         """Сколько секунд выполняется текущая задача."""
         if self._active is None:
             return 0.0
-        return time.monotonic() - self._started_at
+        return self._clock() - self._started_at
 
     def submit(
         self,
@@ -154,7 +164,7 @@ class TaskRunner(QObject):
         self._on_success = on_success
         self._on_error = on_error
         self._label = label
-        self._started_at = time.monotonic()
+        self._started_at = self._clock()
         note(
             "задача «%s» ставится (%s)",
             label,
