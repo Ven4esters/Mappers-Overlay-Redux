@@ -48,11 +48,20 @@ REQUIRED_README_SECTIONS: Final = (
     "Быстрый старт",
     "Использование",
     "Конфигурация",
-    "Архитектура",
-    "Тесты",
     "Лицензия",
 )
 # Минимальный набор разделов витрины из книги «README под ключ» (глава 2).
+
+README_DEVELOPER_SECTIONS: Final = (
+    "Архитектура",
+    "Тесты",
+    "Разработка",
+    "Сборка .exe",
+    "Roadmap",
+    "Contributing",
+)
+# Витрина — для пользователя. Инструкции по сборке, тестам и архитектуре живут в
+# docs/DEVELOPMENT.md: пользователю они не нужны, а в README занимают половину страницы.
 
 README_VERSION = re.compile(r"Версия\s+—\s+(\d+\.\d+\.\d+)")
 README_BADGE = re.compile(r"badge/version-(\d+\.\d+\.\d+)-")
@@ -279,6 +288,13 @@ def check_readme(root: Path) -> list[Problem]:
                 f"версия в README {match.group(1)} не совпадает с приложением {__version__}",
             )
         )
+    problems.extend(
+        Problem(
+            "README.md", 1, f"раздел «{title}» — для разработчика, его место в docs/DEVELOPMENT.md"
+        )
+        for title in README_DEVELOPER_SECTIONS
+        if slugify(title) in present
+    )
     badge = README_BADGE.search(text)
     if badge is None:
         problems.append(Problem("README.md", 1, "нет бейджа версии"))
