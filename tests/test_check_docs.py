@@ -103,9 +103,13 @@ def test_project_documentation_is_clean() -> None:
 
 
 def test_main_returns_zero_on_clean_project(tmp_path: Path) -> None:
-    from tools.check_docs import REQUIRED_README_SECTIONS
+    from tools.check_docs import REQUIRED_README_SECTIONS, ROOT
 
     (tmp_path / "README.md").write_text(_readme(*REQUIRED_README_SECTIONS), encoding="utf-8")
+    # Таблица эталонов тоже часть «чистого проекта»: её сверяет отдельная проверка.
+    formulas = tmp_path / "docs" / "FORMULAS.md"
+    formulas.parent.mkdir()
+    formulas.write_bytes((ROOT / "docs" / "FORMULAS.md").read_bytes())
     assert main([], root=tmp_path) == 0
 
 

@@ -124,12 +124,15 @@ def note_slow(label: str, elapsed_ms: float) -> None:
 
 
 @contextmanager
-def timed(label: str, *, slow_ms: float = SLOW_OP_MS) -> Iterator[None]:
+def timed(label: str, *, slow_ms: float = SLOW_OP_MS, phase: str | None = None) -> Iterator[None]:
     """Замерить операцию: «начал» и «готово» в журнале, медленные — предупреждением.
 
     Args:
         label: что делаем — попадает в журнал как есть.
         slow_ms: порог медленной операции в миллисекундах.
+        phase: фаза шага для сводки (``чтение``, ``сверка``, ``запись``). ``None`` — замер
+            идёт только в журнал. Импорт метрик здесь, а не сверху: ``trace`` нужен и
+            инструментам, которым интерфейс не нужен.
     """
     with correlation_scope(OPERATION_PREFIX):
         note("начал: %s", label)
@@ -138,6 +141,10 @@ def timed(label: str, *, slow_ms: float = SLOW_OP_MS) -> Iterator[None]:
             yield
         finally:
             elapsed_ms = (time.monotonic() - started) * 1000
+            if phase is not None:
+                from map_overlay.application.metrics import METRICS
+
+                METRICS.record(phase, elapsed_ms)
             if elapsed_ms >= slow_ms:
                 note_slow(label, elapsed_ms)
             else:

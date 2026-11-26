@@ -163,3 +163,30 @@ def test_check_only_survives_narrow_console_encoding(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "Экземпляр:" in result.stdout
+
+
+def test_check_only_shows_last_session_phases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Сводка фаз прошлой сессии видна без запуска окна: это ответ на «что тормозило»."""
+    from map_overlay.application.metrics import StepMetrics
+
+    monkeypatch.setenv("MAP_OVERLAY_HOME", str(tmp_path))
+    metrics = StepMetrics()
+    for value in (120.0, 250.0, 380.0):
+        metrics.record("итого", value)
+        metrics.record("запись", value / 2)
+    assert metrics.save(tmp_path / "logs" / "metrics.json") is True
+    assert main(["--check-only"]) == 0
+    output = capsys.readouterr().out
+    assert "Фазы шага (последняя сессия): шагов: 3" in output
+    assert "запись" in output
+
+
+def test_check_only_without_metrics_says_there_are_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Первый запуск: файла замеров нет — так и говорим, а не показываем пустоту."""
+    monkeypatch.setenv("MAP_OVERLAY_HOME", str(tmp_path))
+    assert main(["--check-only"]) == 0
+    assert "Фазы шага (последняя сессия): замеров нет" in capsys.readouterr().out

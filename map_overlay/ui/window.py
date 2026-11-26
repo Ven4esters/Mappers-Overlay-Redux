@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 from map_overlay import __version__, diagnostics
 from map_overlay.application.history import Change, History
 from map_overlay.application.hotkeys import HotkeyRouter
+from map_overlay.application.metrics import METRICS
 from map_overlay.application.session import MappingSession
 from map_overlay.config import Settings
 from map_overlay.context import AppContext
@@ -47,6 +48,7 @@ from map_overlay.domain.fields import PANEL_ORDER, Field
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
 from map_overlay.errors import ConfigError
+from map_overlay.paths import metrics_path
 from map_overlay.trace import note
 from map_overlay.ui.appicon import icon as app_icon
 from map_overlay.ui.tabs.calibration_tab import CalibrationTab
@@ -424,6 +426,8 @@ class MainWindow(
         """Снять хук и дождаться фоновой задачи, чтобы не оставить поток висеть."""
         note("окно закрывается: занято=%s", "да" if self._runner.is_busy() else "нет")
         self._stop_timers()
+        if METRICS.save(metrics_path()):
+            note("замеры фаз записаны: %s", METRICS.summary())
         self._hotkeys.stop_listening()
         self._runner.shutdown()
         super().closeEvent(event)

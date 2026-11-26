@@ -38,13 +38,10 @@ jobs:
       - name: Зависимости
         run: uv pip install --system -e ".[lint]"
       - name: Pre-commit (те же хуки, что у разработчика)
+        # Один шаг вместо четырёх: хуки уже вызывают ruff format --check, ruff check и mypy,
+        # повторять их отдельными шагами значило платить за те же секунды дважды.
+        # Хуки — локальные (repo: local), поэтому pre-commit ничего не скачивает.
         run: pre-commit run --all-files --show-diff-on-failure
-      - name: Форматирование
-        run: ruff format --check .
-      - name: Линтер
-        run: ruff check .
-      - name: Типы
-        run: mypy
 
   tests:
     name: Тесты
@@ -56,11 +53,14 @@ jobs:
         with:
           python-version: "3.12"
       - name: Системные библиотеки для Qt
+        # `apt-get update` — самая долгая часть шага (10–20 с), а индекс пакетов в образе
+        # раннера уже лежит. Сначала пробуем без обновления; не вышло — обновляем и
+        # повторяем, так что шаг либо быстрый, либо честный.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libdbus-1-3 \
-            libfontconfig1 libfreetype6 libglib2.0-0 libxcb-cursor0
+          libs="libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libdbus-1-3"
+          libs="$libs libfontconfig1 libfreetype6 libglib2.0-0 libxcb-cursor0"
+          sudo apt-get install -y -qq --no-install-recommends $libs ||
+            { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends $libs; }
       # uv ставит зависимости параллельно и с дисковым кэшем: тот же набор за секунды.
       # Кэш каталога uv ведёт сам экшен (свой на каждую ОС), поэтому путь не задаём.
       - uses: astral-sh/setup-uv@v6
@@ -151,6 +151,9 @@ jobs:
       - name: Пакет без зависимостей (нужна только версия)
         # Документации нужен только пакет: Qt и инструменты здесь не участвуют.
         run: uv pip install --system -e . --no-deps
+      - name: Версия в коде и README совпадает
+        # Та же сверка, что делает выпуск: разошлись номера — релиз не выпустить.
+        run: python -m tools.release --check
       - name: Документация (ссылки, якоря, разделы, версия)
         run: python -m tools.check_docs
       - name: Политика исключений (владелец и срок)
