@@ -11,7 +11,9 @@
 * якоря ``#раздел`` совпадают с заголовками целевого файла (правила GitHub: нижний
   регистр, пробелы → дефисы, кириллица сохраняется, повторы получают ``-1``);
 * у каждой картинки есть непустой ``alt``;
-* в README есть обязательные разделы витрины и актуальная версия приложения.
+* в README есть обязательные разделы витрины и актуальная версия приложения;
+* таблица эталонов движения в ``docs/FORMULAS.md`` совпадает со свежесобранной из кода
+  (``tools/make_formulas.py``): числа в документации не могут разойтись с формулами.
 
 Запуск::
 
@@ -30,6 +32,8 @@ from urllib.parse import unquote
 
 from map_overlay import __version__
 from map_overlay.console import use_utf8_console
+from tools.make_formulas import TARGET as FORMULAS_TARGET
+from tools.make_formulas import mismatches, stale
 
 ROOT: Final = Path(__file__).resolve().parent.parent
 
@@ -325,6 +329,28 @@ def check_adr(root: Path) -> list[Problem]:
     return problems
 
 
+def check_formulas(root: Path = ROOT) -> list[Problem]:
+    """Таблица эталонов в FORMATS.md — ровно то, что собирается из кода движения."""
+    path = root / FORMULAS_TARGET
+    if not path.exists():
+        return [Problem(str(FORMULAS_TARGET), 1, "нет файла с таблицей эталонов")]
+    code = mismatches()
+    if code:
+        return [Problem(str(FORMULAS_TARGET), 1, f"код разошёлся с эталоном: {code[0]}")]
+    try:
+        if stale(root):
+            return [
+                Problem(
+                    str(FORMULAS_TARGET),
+                    1,
+                    "таблица эталонов устарела — запустите python -m tools.make_formulas",
+                )
+            ]
+    except SystemExit as error:  # маркеров таблицы нет — это тоже проблема
+        return [Problem(str(FORMULAS_TARGET), 1, str(error))]
+    return []
+
+
 def collect_problems(root: Path = ROOT) -> list[Problem]:
     """Все проблемы документации проекта."""
     problems: list[Problem] = []
@@ -332,6 +358,7 @@ def collect_problems(root: Path = ROOT) -> list[Problem]:
         problems.extend(check_file(path, root))
     problems.extend(check_readme(root))
     problems.extend(check_adr(root))
+    problems.extend(check_formulas(root))
     return problems
 
 

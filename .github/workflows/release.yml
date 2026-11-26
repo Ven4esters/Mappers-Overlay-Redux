@@ -1,0 +1,94 @@
+name: Release
+
+# Публикация вложений только из CI (ADR-0046): у рабочей среды нет доступа к uploads.github.com.
+# Тег ставит `python -m tools.release X.Y.Z --push`; здесь по этому тегу собираются файлы,
+# считается SHA256SUMS, SBOM подписывается sigstore и создаётся GitHub Release.
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег для пробного прогона (релиз не создаётся)"
+        required: true
+
+permissions:
+  contents: write
+  # Ключ подписи sigstore берётся не из секрета, а из токена прогона.
+  id-token: write
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  release:
+    name: Релиз
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Зависимости
+        # sigstore ставится здесь, а не в extras: он нужен только этому job'у и только
+        # на время выпуска. Версия закреплена, чтобы подпись не менялась от прогона к прогону.
+        run: |
+          uv pip install --system -e ".[build]"
+          uv pip install --system "sigstore==4.6.0"
+      - name: Тег совпадает с версией в коде
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python -m tools.release --check "$TAG"
+      - name: Заметки о релизе
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          mkdir -p build
+          python -m tools.release --notes "$TAG" > build/notes.md
+          head -5 build/notes.md
+      - name: Колесо и архив исходников
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          python -m build --wheel --outdir build
+          # Архив исходников — по списку файлов из git: один и тот же набор даёт один хеш.
+          git archive --format=zip --prefix="Mappers_Overlay_Redux_${TAG}/" \
+            -o "build/Mappers_Overlay_Redux_${TAG}.zip" "$TAG"
+      - name: SBOM и подпись
+        run: |
+          python -m tools.make_sbom --out build/sbom.json
+          # Ключевая пара эфемерная: подпись и сертификат лежат в bundle, проверка —
+          # по идентичности воркфлоу, без наших секретов (см. README).
+          sigstore sign --bundle build/sbom.json.sigstore build/sbom.json
+          sigstore verify github --bundle build/sbom.json.sigstore \
+            --repository "${{ github.repository }}" --ref "${{ github.ref }}" build/sbom.json
+      - name: Контрольные суммы
+        run: |
+          python -m tools.release --sums build
+          cat build/SHA256SUMS.txt
+      - name: Содержимое вложений
+        run: ls -l build
+      - name: Пробный прогон без публикации
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "Пробный прогон — файлы собраны, релиз не создан"
+      - name: GitHub Release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "Mapper's Overlay Redux $GITHUB_REF_NAME" \
+            --notes-file build/notes.md \
+            build/*.zip \
+            build/*.whl \
+            build/sbom.json \
+            build/sbom.json.sigstore \
+            build/SHA256SUMS.txt

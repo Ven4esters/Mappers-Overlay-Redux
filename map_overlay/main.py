@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from map_overlay import __version__, diagnostics
+from map_overlay.application.metrics import load_summary
 from map_overlay.application.ports import HotkeySource, PanelAutomation
 from map_overlay.config import Settings
 from map_overlay.console import use_utf8_console
@@ -27,7 +28,7 @@ from map_overlay.infrastructure.single_instance import InstanceLock, is_busy
 from map_overlay.infrastructure.size_store import JsonSizeStore
 from map_overlay.infrastructure.win32_input import WindowsInput, enable_dpi_awareness
 from map_overlay.logging_setup import setup_logging
-from map_overlay.paths import crash_path, log_path, settings_path, sizes_path
+from map_overlay.paths import crash_path, log_path, metrics_path, settings_path, sizes_path
 from map_overlay.trace import note
 from map_overlay.ui.appicon import icon as app_icon
 from map_overlay.ui.theme import APP_QSS
@@ -185,6 +186,8 @@ def _check_only() -> int:
     chosen = f" · выбран «{active.name}»" if active is not None else ""
     print(f"Размеры предметов: {len(library.items)}{chosen} ({sizes.path})")
     print(f"Журнал: {log_path()}")
+    summary = load_summary(metrics_path())
+    print(f"Фазы шага (последняя сессия): {summary or 'замеров нет'}")
     return 0
 
 

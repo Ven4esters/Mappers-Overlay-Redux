@@ -132,7 +132,7 @@ class MappingSession:
             NotCalibratedError: если калибровка неполная.
             ApplicationError: если поле вернуло не число.
         """
-        with timed("считать координаты из панели"):
+        with timed("считать координаты из панели", phase="чтение"):
             self.ensure_calibrated()
             self._panel.reset_cancel()
             pose = self._read_with_recovery()
@@ -261,7 +261,7 @@ class MappingSession:
             _pose_text(target),
         )
         try:
-            with timed(label):
+            with timed(label, phase="итого"):
                 written = self._writer.write_changes(self._pose, target)
         except PANEL_TROUBLE as exc:
             logger.warning("Шаг отменён, координаты забыты: %s", exc)

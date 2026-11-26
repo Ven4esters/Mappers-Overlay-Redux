@@ -19,6 +19,7 @@ CONFIG_FILE: Final = "settings.json"
 SIZES_FILE: Final = "sizes.json"
 LOG_FILE: Final = "overlay.log"
 CRASH_FILE: Final = "crash.log"
+METRICS_FILE: Final = "metrics.json"
 
 
 def application_dir() -> Path:
@@ -44,6 +45,11 @@ def sizes_path() -> Path:
 def log_path() -> Path:
     """Файл журнала работы."""
     return application_dir() / "logs" / LOG_FILE
+
+
+def metrics_path() -> Path:
+    """Сводка фаз шага за последнюю сессию: её показывает ``--check-only``."""
+    return application_dir() / "logs" / METRICS_FILE
 
 
 def crash_path() -> Path:

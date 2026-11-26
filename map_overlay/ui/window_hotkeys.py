@@ -12,6 +12,7 @@ from typing import cast
 
 from PySide6.QtCore import QEvent
 
+from map_overlay.application.metrics import METRICS
 from map_overlay.domain.actions import Action
 from map_overlay.domain.keynames import COMMON_GAME_KEYS, VK_ESCAPE, VK_MENU, key_name
 from map_overlay.errors import ConfigError
@@ -186,6 +187,9 @@ class WindowHotkeysMixin(WindowBase):
             "вкл" if self._tilt_mode else "выкл",
             pose_text(pose) if pose is not None else "не считаны",
         )
+        if self._runner.is_busy() or pose is not None:
+            # Сводка фаз рядом со «жив»: по ней видно, что тормозит, не дожидаясь закрытия.
+            note("фазы шага: %s", METRICS.summary())
 
     def _check_num_lock(self) -> None:
         """Следить за NumLock: без него Numpad посылает «стрелки», а не цифры."""

@@ -135,7 +135,7 @@ class PoseWriter:
         """
         if not self._verify:
             return
-        with timed("сверка панели: поле X"):
+        with timed("сверка панели: поле X", phase="сверка"):
             raw = self._panel.read_field(Field.X)
         try:
             actual = parse_number(raw)
@@ -159,6 +159,15 @@ class PoseWriter:
         )
 
     def _write_field(self, field: Field, value: float) -> None:
+        """Записать поле и (если включена проверка) убедиться, что панель его приняла.
+
+        Raises:
+            PanelRejectedError: если панель не приняла значение за все попытки.
+        """
+        with timed(f"запись поля {field.label}", phase="запись"):
+            self._write_field_once(field, value)
+
+    def _write_field_once(self, field: Field, value: float) -> None:
         text = format_value(value, self._decimals)
         seen = ""
         for attempt in range(1, MAX_WRITE_ATTEMPTS + 1):
