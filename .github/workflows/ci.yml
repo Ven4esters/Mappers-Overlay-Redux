@@ -201,8 +201,15 @@ jobs:
           $status = $LASTEXITCODE
           if ($status -ne 0) {
             # Журнал шага на раннере недоступен, а аннотации читаются через API:
-            # без этого видно только «exit code 1».
-            Get-Content pytest.log -Tail 25 | ForEach-Object {
+            # без этого видно только «exit code 1». Сначала — сами упавшие тесты,
+            # потом строки ошибок, и только затем хвост (итог и покрытие).
+            Select-String -Path pytest.log -Pattern '^(FAILED|ERROR) ' |
+              Select-Object -First 40 |
+              ForEach-Object { Write-Host "::error title=Упавший тест::$($_.Line -replace '::', '--')" }
+            Select-String -Path pytest.log -Pattern '^E ' |
+              Select-Object -First 20 |
+              ForEach-Object { Write-Host "::error title=Ошибка в тесте::$($_.Line -replace '::', '--')" }
+            Get-Content pytest.log -Tail 12 | ForEach-Object {
               Write-Host "::error title=Хвост журнала pytest::$($_ -replace '::', '--')"
             }
           }
