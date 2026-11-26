@@ -13,10 +13,10 @@
   <img alt="CI" src="https://github.com/Ven4esters/Mappers-Overlay-Redux/actions/workflows/ci.yml/badge.svg?branch=main">
   <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="Лицензия MIT" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="Версия 1.24.0" src="https://img.shields.io/badge/version-1.24.0-blue">
+  <img alt="Версия 1.24.1" src="https://img.shields.io/badge/version-1.24.0-blue">
 </p>
 
-Версия — 1.24.0, история изменений — [CHANGELOG.md](CHANGELOG.md).
+Версия — 1.24.1, история изменений — [CHANGELOG.md](CHANGELOG.md).
 
 ## Содержание
 
@@ -565,10 +565,10 @@ uv pip compile pyproject.toml --extra dev --python-version 3.12 --python-platfor
 версиях ищет отдельный воркфлоу `Аудит зависимостей` по расписанию: он ставит окружение из
 `requirements.lock` и гоняет `pip-audit`.
 
-Верхняя граница `PySide6-Essentials<6.12` — не перестраховка: в 6.12.0 прогон тестов
-завершается segfault-ом уже после успешных проверок (код 139 в CI и локально, на 6.11.3 не
-воспроизводится). Пока причина не найдена, версия исключена диапазоном, а не пином — как только
-выходит исправление, граница поднимается.
+Верхняя граница `PySide6-Essentials<6.12` — не перестраховка: в 6.12.0 интерпретатор падает на
+завершении уже после успешных проверок (`refcount error in a C extension`, код 134; на 6.11.3 не
+воспроизводится). Дефект внутри Qt-сборки, поэтому версия исключена диапазоном, а не пином: как
+только выходит исправление, граница поднимается.
 
 Картинки для документации не рисуются руками — они собираются из того же кода, что запускает
 пользователь (ADR-0039):

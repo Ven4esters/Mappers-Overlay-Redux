@@ -1665,20 +1665,27 @@ def test_window_is_narrower_than_before() -> None:
 
 
 def test_mini_toggle_shrinks_and_restores(qt_app: QApplication) -> None:
-    """Переключатель «Мини» сворачивает окно и возвращает прежний вид."""
+    """Переключатель «Мини» сворачивает окно и возвращает прежний вид.
+
+    Ширина сравнивается с константой «не уже», а не на равенство: на Windows и при
+    увеличенном системном шрифте окно шире эталонных 640, иначе вкладка обрезалась бы.
+    """
     from map_overlay.ui.window import MINI_HEIGHT, MINI_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH
 
     window, _panel, _settings, _cursor = make_window(qt_app)
     window.show()
     window.set_mini(False)
-    assert window.width() == WINDOW_WIDTH
-    assert window.height() == WINDOW_HEIGHT
+    full_width = window.width()
+    full_height = window.height()
+    assert full_width >= WINDOW_WIDTH
+    assert full_height >= WINDOW_HEIGHT
     assert window.mini_button_text() == "Мини"
     assert window.tab_bar_visible()
 
     window.press_mini()
     assert window.is_mini()
-    assert window.width() == MINI_WIDTH
+    assert window.width() < full_width
+    assert window.width() >= MINI_WIDTH
     assert window.height() == MINI_HEIGHT
     assert window.mini_button_text() == "Обычный"
     assert not window.tab_bar_visible()
@@ -1715,6 +1722,48 @@ def test_every_tab_fits_window_width(qt_app: QApplication) -> None:
         assert window.tab_fits(index), f"вкладка «{title}» шире окна"
 
 
+def test_big_system_font_keeps_tabs_and_fields_aligned(qt_app: QApplication) -> None:
+    """Крупный системный шрифт (как Segoe UI на Windows) не обрезает вкладки.
+
+    На Windows подписи и поля шире эталонных: вкладка «Навигация» вылезала за окно,
+    а поле шага съезжало влево от «Поиска» и «Предмета». Проверка воспроизводит это
+    шрифтом в 12 пунктов — так дефект виден и на эталонном Linux.
+    """
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QFont
+
+    base_font = qt_app.font()
+    qt_app.setFont(QFont(base_font.family(), 12))
+    window: MainWindow | None = None
+    try:
+        window, _panel, _store, _cursor = make_window(
+            qt_app, size_store=FakeSizeStore(_long_library())
+        )
+        window.show()
+        qt_app.processEvents()
+        for index, title in enumerate(window.tab_titles()):
+            window.select_tab(index)
+            qt_app.processEvents()
+            assert window.tab_fits(index), f"вкладка «{title}» шире окна при крупном шрифте"
+        movement = window.movement
+        left = [
+            widget.mapTo(movement, QPoint(0, 0)).x()
+            for widget in (movement._step_combo, movement._size_search, movement._size_combo)
+        ]
+        assert len(set(left)) == 1, left
+        window.press_mini()
+        qt_app.processEvents()
+        assert window.tab_fits(0)
+    finally:
+        # Окно создано под другой шрифт: убрать его до возврата шрифта, иначе Qt
+        # разбирает виджеты с чужими метриками уже после теста и падает на выходе.
+        if window is not None:
+            window.close()
+            window.deleteLater()
+            qt_app.processEvents()
+        qt_app.setFont(base_font)
+
+
 def test_mini_hides_item_picker_and_stays_narrow(qt_app: QApplication) -> None:
     """В мини-версии поиск и выбор предмета скрыты, а окно действительно узкое."""
     from map_overlay.ui.window import MINI_WIDTH
@@ -1725,7 +1774,7 @@ def test_mini_hides_item_picker_and_stays_narrow(qt_app: QApplication) -> None:
     window.press_mini()
     qt_app.processEvents()
     assert not window.movement.item_picker_visible()
-    assert window.width() == MINI_WIDTH
+    assert window.width() >= MINI_WIDTH
     assert window.tab_fits(0)
     window.press_mini()
     qt_app.processEvents()

@@ -7,6 +7,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 
 
@@ -17,6 +18,29 @@ def qt_app() -> QApplication:
     if app is None:
         app = QApplication([])
     return app
+
+
+def pytest_sessionfinish(session: object, exitstatus: int) -> None:
+    """Убрать окна до выхода из процесса.
+
+    Зачем: прогон, где созданы десятки окон без родителя, завершался segfault-ом уже
+    **после** «196 passed» — шаг CI краснел с кодом 139, хотя тесты прошли. Питон
+    разбирает такие окна при завершении интерпретатора, когда часть обвязки Qt уже
+    уничтожена. Поэтому окна закрываются и удаляются здесь, пока Qt цел.
+    """
+    app = QApplication.instance()
+    if app is None:
+        return
+    try:
+        # Именно deleteLater, без close(): closeEvent окон трогает тестовые заглушки,
+        # которых к концу прогона уже нет.
+        for widget in app.topLevelWidgets():
+            widget.hide()
+            widget.deleteLater()
+        QCoreApplication.sendPostedEvents(None, int(QEvent.Type.DeferredDelete.value))
+        app.processEvents()
+    except RuntimeError:  # часть объектов уже удалена — это не ошибка прогона
+        return
 
 
 def _emit(line: str) -> None:

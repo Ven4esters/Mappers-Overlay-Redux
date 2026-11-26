@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 from PySide6.QtCore import QLocale, Signal
+from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -155,9 +156,9 @@ class MovementTab(QWidget):
         row.setSpacing(ROW_SPACING)
         # Подпись занимает ту же колонку, что «Поиск» и «Предмет»: поля начинаются с одного
         # места, и строка шага не выглядит сдвинутой влево.
-        step_label = label("Шаг", widget_role="muted")
-        step_label.setMinimumWidth(LABEL_COLUMN_WIDTH)
-        row.addWidget(step_label)
+        self._step_label = label("Шаг", widget_role="muted")
+        self._step_label.setMinimumWidth(LABEL_COLUMN_WIDTH)
+        row.addWidget(self._step_label)
         self._step_combo = QComboBox(self)
         self._step_combo.setEditable(True)
         self._step_combo.addItems(STEP_PRESETS)
@@ -188,6 +189,7 @@ class MovementTab(QWidget):
         grid.setHorizontalSpacing(ROW_SPACING)
         grid.setVerticalSpacing(ROW_SPACING)
         grid.setColumnMinimumWidth(0, LABEL_COLUMN_WIDTH)
+        self._picker_grid = grid
         grid.setColumnStretch(1, 1)
 
         self._size_search = QLineEdit(holder)
@@ -216,10 +218,12 @@ class MovementTab(QWidget):
             buttons.addWidget(item)
         buttons.addStretch(1)
 
-        grid.addWidget(label("Поиск", widget_role="muted"), 0, 0)
+        self._search_label = label("Поиск", widget_role="muted")
+        self._item_label = label("Предмет", widget_role="muted")
+        grid.addWidget(self._search_label, 0, 0)
         grid.addWidget(self._size_search, 0, 1)
         grid.addWidget(self._size_hint, 1, 1)
-        grid.addWidget(label("Предмет", widget_role="muted"), 2, 0)
+        grid.addWidget(self._item_label, 2, 0)
         grid.addWidget(self._size_combo, 2, 1)
         # Кнопки шага — под полем предмета: в одну строку с ним они не помещались в окно
         # шириной 640, и правый край уходил за границу карточки.
@@ -506,6 +510,27 @@ class MovementTab(QWidget):
     def always_read_box(self) -> QCheckBox:
         """Флажок «Всегда считать позицию» (для тестов)."""
         return self._always_read_box
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 - имя из Qt
+        """После показа выровнять «Шаг» по фактической ширине подписей."""
+        super().showEvent(event)
+        self._sync_label_column()
+
+    def _sync_label_column(self) -> None:
+        """Подогнать колонку подписей под фактический шрифт.
+
+        Ширина 66 пикселей рассчитана на эталонный шрифт: на нём «Поиск» и «Предмет»
+        занимают меньше. На Windows (Segoe UI) и при увеличенном системном шрифте подписи
+        шире, и поле шага уезжало влево — строка выглядела сдвинутой. Колонка считается
+        по самим подписям, поэтому выравнивание держится при любом шрифте.
+        """
+        width = max(
+            LABEL_COLUMN_WIDTH,
+            self._search_label.sizeHint().width(),
+            self._item_label.sizeHint().width(),
+        )
+        self._step_label.setMinimumWidth(width)
+        self._picker_grid.setColumnMinimumWidth(0, width)
 
     def _refresh_pad(self) -> None:
         """Крестовина активна, когда есть координаты или режим прочитает их сам."""
