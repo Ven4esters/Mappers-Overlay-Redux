@@ -11,7 +11,7 @@ from map_overlay.domain.formatting import format_value
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
 from map_overlay.domain.sizes import SizeLibrary
-from map_overlay.errors import ConfigError, OperationCancelledError
+from map_overlay.errors import ClipboardError, ConfigError, OperationCancelledError
 
 
 class FakeClock:
@@ -25,15 +25,25 @@ class FakeClock:
 
 
 class FakeClipboard:
-    """Буфер обмена в памяти."""
+    """Буфер обмена в памяти.
 
-    def __init__(self, text: str = "") -> None:
+    ``fail_get``/``fail_set`` имитируют занятый буфер: так проверяется, что шаг не
+    падает и не оставляет после себя чужой текст.
+    """
+
+    def __init__(self, text: str = "", *, fail_get: bool = False, fail_set: bool = False) -> None:
         self.text = text
+        self.fail_get = fail_get
+        self.fail_set = fail_set
 
     def get(self) -> str:
+        if self.fail_get:
+            raise ClipboardError("буфер обмена занят другим приложением")
         return self.text
 
     def set(self, text: str) -> None:
+        if self.fail_set:
+            raise ClipboardError("буфер обмена занят другим приложением")
         self.text = text
 
 
