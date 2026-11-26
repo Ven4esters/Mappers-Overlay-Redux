@@ -13,10 +13,10 @@
   <img alt="CI" src="https://github.com/Ven4esters/screensaver-into-discord/actions/workflows/ci.yml/badge.svg?branch=main">
   <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="Лицензия MIT" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="Версия 1.23.1" src="https://img.shields.io/badge/version-1.23.1-blue">
+  <img alt="Версия 1.23.2" src="https://img.shields.io/badge/version-1.23.2-blue">
 </p>
 
-Версия — 1.23.1, история изменений — [CHANGELOG.md](CHANGELOG.md).
+Версия — 1.23.2, история изменений — [CHANGELOG.md](CHANGELOG.md).
 
 ## Содержание
 
@@ -547,6 +547,9 @@ python -m tools.make_screenshots  # скриншоты вкладок, мини-
 - [ ] Режим высоты для кнопок крестовины (сейчас он действует только на клавиши Numpad).
 - [ ] Пересмотр правил стандарта и чек-листа UI — раз в квартал, по
   [политике исключений](docs/quality/exceptions.md).
+
+Что делать дальше и почему именно так — [docs/IMPROVEMENT-PLAN.md](docs/IMPROVEMENT-PLAN.md):
+измерения, приоритеты, волны 1.24–1.27 и метрики прогресса.
 
 ## Contributing
 
