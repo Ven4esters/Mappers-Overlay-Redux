@@ -8,7 +8,7 @@ import platform
 import sys
 from collections.abc import Sequence
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from map_overlay import __version__, diagnostics
 from map_overlay.application.ports import HotkeySource, PanelAutomation
@@ -22,6 +22,7 @@ from map_overlay.infrastructure.clock import SystemClock
 from map_overlay.infrastructure.hotkeys import WindowsHotkeySource
 from map_overlay.infrastructure.panel import CalibratedPanel
 from map_overlay.infrastructure.settings_store import JsonSettingsStore
+from map_overlay.infrastructure.single_instance import InstanceLock, is_busy
 from map_overlay.infrastructure.size_store import JsonSizeStore
 from map_overlay.infrastructure.win32_input import WindowsInput, enable_dpi_awareness
 from map_overlay.logging_setup import setup_logging
@@ -69,12 +70,34 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _run_window() -> int:
+    """Открыть окно оверлея. Второй экземпляр не запускается и выходит с кодом 2.
+
+    Замок берётся до создания ``QApplication``: второй экземпляр не должен успеть
+    поставить хук клавиатуры и начать дублировать шаги. Мьютекс — обычный вызов Win32,
+    Qt для него не нужен.
+    """
+    lock = InstanceLock()
+    if not lock.acquire():
+        return _report_already_running()
+    try:
+        return _run_locked()
+    finally:
+        lock.release()
+
+
+def _create_app() -> QApplication:
+    """Создать ``QApplication`` с именем, иконкой и темой оверлея."""
     app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)
     app.setWindowIcon(app_icon())
     app.setStyleSheet(APP_QSS)
+    return app
 
+
+def _run_locked() -> int:
+    """Собрать окно и запустить цикл событий: замок уже наш."""
+    app = _create_app()
     store = JsonSettingsStore(settings_path())
     size_store = JsonSizeStore(sizes_path())
     input_port = WindowsInput()
@@ -114,11 +137,31 @@ def _run_window() -> int:
     return code
 
 
+def _report_already_running() -> int:
+    """Объяснить, почему второй экземпляр не запускается, и вернуть код выхода 2."""
+    logger.warning("Оверлей уже запущен: второй экземпляр не стартует")
+    note("второй экземпляр не запущен: замок занят")
+    message = (
+        "Оверлей уже запущен.\n\n"
+        "Второй экземпляр перехватывал бы те же клавиши, и шаги удваивались бы.\n"
+        "Переключитесь на уже открытое окно оверлея."
+    )
+    print("Оверлей уже запущен: второй экземпляр не стартует.", file=sys.stderr)
+    box = QMessageBox()
+    box.setIcon(QMessageBox.Icon.Information)
+    box.setWindowTitle(APP_NAME)
+    box.setText(message)
+    box.exec()
+    return 2
+
+
 def _check_only() -> int:
     store = JsonSettingsStore(settings_path())
     sizes = JsonSizeStore(sizes_path())
     print(f"{APP_NAME} {__version__}")
     print(f"Python {platform.python_version()}, {platform.system()}")
+    instance = "уже запущен — второй не стартует" if is_busy() else "не запущен"
+    print(f"Экземпляр: {instance}")
     print(f"Настройки: {store.path}")
     try:
         settings = store.load()

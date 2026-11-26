@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import Final
 
 from map_overlay.application.ports import ClipboardPort, Clock, InputPort
@@ -105,11 +106,15 @@ class CalibratedPanel:
         Перед копированием буфер очищается. Без этого несостоявшееся копирование
         возвращало бы то, что оверлей сам же в буфер и положил (например при записи),
         и проверка «значение принято?» подтверждала бы несуществующий успех.
+        Содержимое буфера пользователя возвращается после обмена.
 
         Raises:
             ClipboardError: если панель не отдала значение — буфер остался пустым.
         """
-        with timed(f"чтение поля {field.label}", slow_ms=FIELD_SLOW_MS):
+        with (
+            timed(f"чтение поля {field.label}", slow_ms=FIELD_SLOW_MS),
+            self._preserved_clipboard(),
+        ):
             self._check_cancelled()
             self._wait_modifiers_released()
             self._clipboard.set("")
@@ -129,8 +134,15 @@ class CalibratedPanel:
         return text
 
     def write_field(self, field: Field, text: str) -> None:
-        """Записать поле: буфер → клик → ``Ctrl+A`` → ``Ctrl+V``."""
-        with timed(f"запись поля {field.label} = {text}", slow_ms=FIELD_SLOW_MS):
+        """Записать поле: буфер → клик → ``Ctrl+A`` → ``Ctrl+V``.
+
+        Содержимое буфера пользователя возвращается после записи: иначе в нём осталась
+        бы координата, а скопированный текст пропал бы.
+        """
+        with (
+            timed(f"запись поля {field.label} = {text}", slow_ms=FIELD_SLOW_MS),
+            self._preserved_clipboard(),
+        ):
             self._check_cancelled()
             self._wait_modifiers_released()
             self._clipboard.set(text)
@@ -140,6 +152,37 @@ class CalibratedPanel:
             self._clock.sleep(self._delays.select)
             self._input.paste()
             self._clock.sleep(self._delays.paste)
+
+    @contextmanager
+    def _preserved_clipboard(self) -> Iterator[None]:
+        """Вернуть буфер обмена пользователя после обмена с панелью.
+
+        Обмен с панелью идёт через системный буфер: перед чтением он очищается, после
+        записи в нём остаётся координата. Для пользователя это значит, что скопированный
+        текст пропадает на каждом шаге, а оверлей работает поверх игры — буфер общий.
+        Поэтому исходное содержимое запоминается и возвращается в ``finally``: и при
+        успехе, и при отмене, и при ошибке обмена. Содержимое в журнал не пишется —
+        там может быть что угодно, включая пароли из чужого окна.
+        """
+        try:
+            saved = self._clipboard.get()
+        except ClipboardError:
+            logger.warning("Буфер обмена не прочитан — вернуть его после обмена не выйдет")
+            note("буфер обмена не прочитан: после обмена он останется нашим")
+            yield
+            return
+        try:
+            yield
+        finally:
+            try:
+                self._clipboard.set(saved)
+            except ClipboardError:
+                logger.warning("Буфер обмена не восстановлен после обмена с панелью")
+                note("буфер обмена не восстановлен")
+            else:
+                logger.debug("Буфер обмена восстановлен после обмена с панелью")
+                if saved:
+                    note("буфер обмена пользователя восстановлен")
 
     def _wait_modifiers_released(self) -> None:
         """Дождаться, пока пользователь отпустит ``Alt``/``Ctrl``/``Shift``.

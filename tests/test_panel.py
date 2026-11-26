@@ -6,7 +6,7 @@ import pytest
 from map_overlay.config import Delays
 from map_overlay.domain.fields import Field
 from map_overlay.domain.point import Point
-from map_overlay.errors import ClipboardError, NotCalibratedError
+from map_overlay.errors import ClipboardError, NotCalibratedError, OperationCancelledError
 from map_overlay.infrastructure.panel import (
     MODIFIER_POLL_S,
     MODIFIER_WAIT_S,
@@ -51,7 +51,8 @@ def test_read_field_clicks_and_copies() -> None:
 def test_write_field_pastes_into_field() -> None:
     panel, input_port, clipboard, clock = make_panel()
     panel.write_field(Field.Z, "125.500")
-    assert clipboard.text == "125.500"
+    # Буфер возвращается пользователю: в нём не остаётся координата.
+    assert clipboard.text == ""
     assert input_port.clicked == [Field.Z]
     assert input_port.keys == ["ctrl+a", "ctrl+v"]
     assert input_port.panel_value(Field.Z) == "125.500"
@@ -199,3 +200,84 @@ def test_modifier_wait_is_logged() -> None:
     JOURNAL.clear()
     panel.read_field(Field.X)
     assert "ждал отпускания Alt/Ctrl/Shift" in JOURNAL.describe()
+
+
+def test_read_field_returns_user_clipboard() -> None:
+    """Скопированный пользователем текст не должен пропадать при чтении поля."""
+    panel, _input, clipboard, _clock = make_panel()
+    clipboard.text = "текст пользователя"
+    text = panel.read_field(Field.X)
+    assert text == VALUES[Field.X]
+    assert clipboard.text == "текст пользователя"
+
+
+def test_write_field_returns_user_clipboard() -> None:
+    panel, _input, clipboard, _clock = make_panel()
+    clipboard.text = "пароль из чужого окна"
+    panel.write_field(Field.X, "10.000")
+    assert clipboard.text == "пароль из чужого окна"
+
+
+def test_clipboard_is_restored_when_field_is_empty() -> None:
+    """Панель не отдала значение — буфер всё равно возвращается пользователю."""
+    panel, input_port, clipboard, _clock = make_panel()
+    clipboard.text = "пользователь"
+    input_port.ignore_copy = True
+    with pytest.raises(ClipboardError):
+        panel.read_field(Field.X)
+    assert clipboard.text == "пользователь"
+
+
+def test_clipboard_is_restored_after_cancel() -> None:
+    panel, _input, clipboard, _clock = make_panel()
+    clipboard.text = "пользователь"
+    panel.cancel()
+    with pytest.raises(OperationCancelledError):
+        panel.write_field(Field.X, "10.000")
+    assert clipboard.text == "пользователь"
+
+
+def test_step_survives_unavailable_clipboard() -> None:
+    """Если буфер не читается, шаг не падает: вернуть будет нечего."""
+    panel, input_port, clipboard, _clock = make_panel()
+    clipboard.text = "пользователь"
+    clipboard.fail_get = True
+    panel.write_field(Field.X, "10.000")
+    assert input_port.panel_value(Field.X) == "10.000"
+
+
+def test_restore_failure_does_not_break_step() -> None:
+    """Буфер заняли между обменом и восстановлением — шаг всё равно завершён."""
+
+    class RestoreFails(FakeClipboard):
+        def __init__(self, text: str) -> None:
+            super().__init__(text)
+            self.calls = 0
+
+        def set(self, text: str) -> None:
+            self.calls += 1
+            if self.calls > 1:
+                raise ClipboardError("буфер занят другим приложением")
+            super().set(text)
+
+    clipboard = RestoreFails("пользователь")
+    input_port = FakeInput(clipboard=clipboard, values=dict(VALUES), field_points=FULL_CALIBRATION)
+    panel = CalibratedPanel(
+        input_port=input_port,
+        clipboard=clipboard,
+        clock=FakeClock(),
+        points=FULL_CALIBRATION,
+        delays=Delays(),
+    )
+    panel.write_field(Field.X, "10.000")
+    assert input_port.panel_value(Field.X) == "10.000"
+
+
+def test_clipboard_restore_is_logged_without_content() -> None:
+    panel, _input, clipboard, _clock = make_panel()
+    clipboard.text = "секретный текст"
+    JOURNAL.clear()
+    panel.read_field(Field.X)
+    log = JOURNAL.describe()
+    assert "буфер обмена пользователя восстановлен" in log
+    assert "секретный текст" not in log

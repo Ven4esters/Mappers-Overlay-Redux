@@ -21,6 +21,25 @@ def test_check_only_prints_summary(
     assert (tmp_path / "logs" / "overlay.log").exists()
 
 
+def test_check_only_reports_single_instance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """В --check-only видно, занят ли замок: это объясняет «второй не запускается»."""
+    monkeypatch.setenv("MAP_OVERLAY_HOME", str(tmp_path))
+    monkeypatch.setattr("map_overlay.main.is_busy", lambda: True)
+    assert main(["--check-only"]) == 0
+    assert "Экземпляр: уже запущен — второй не стартует" in capsys.readouterr().out
+
+
+def test_check_only_reports_free_instance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("MAP_OVERLAY_HOME", str(tmp_path))
+    monkeypatch.setattr("map_overlay.main.is_busy", lambda: False)
+    assert main(["--check-only"]) == 0
+    assert "Экземпляр: не запущен" in capsys.readouterr().out
+
+
 def test_check_only_counts_calibration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
