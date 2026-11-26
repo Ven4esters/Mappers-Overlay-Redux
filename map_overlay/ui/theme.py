@@ -258,6 +258,16 @@ QComboBox, QSpinBox, QDoubleSpinBox {{
     min-height: 20px;
 }}
 QComboBox::drop-down {{ border: none; width: 18px; }}
+/* Стрелки счётчиков в оверлее не нужны — значение вводят с клавиатуры, — но без
+   собственных правил для них Qt считает, что поле ввода занимает ноль места, и текст
+   значения сжимался до полоски в пиксель: «Значения» и «Размеры» показывали пустые поля. */
+QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    width: 0px;
+    height: 0px;
+    border: none;
+}}
 /* Поле ввода внутри выпадающего списка — часть списка, а не отдельное поле:
    общая рамка и отступы QLineEdit внутри него обрезали текст и прятали курсор. */
 QComboBox QLineEdit {{

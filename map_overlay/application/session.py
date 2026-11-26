@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
 from map_overlay.application.ports import PanelAutomation
 from map_overlay.application.writer import PoseWriter
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import PANEL_ORDER, Field
-from map_overlay.domain.movement import changed_fields, shifted, validate_step
+from map_overlay.domain.movement import (
+    COORD_FIELDS,
+    changed_fields,
+    first_angle_fields,
+    next_angle_fields,
+    shifted,
+    validate_step,
+)
 from map_overlay.domain.parsing import parse_number
 from map_overlay.domain.pose import Pose
 from map_overlay.errors import (
@@ -152,8 +160,22 @@ class MappingSession:
             ApplicationError: если поле вернуло не число.
             OperationCancelledError: если действие прервали.
         """
+        return self._read_fields(Pose(), PANEL_ORDER)
+
+    def _read_fields(self, pose: Pose, fields: Iterable[Field]) -> Pose:
+        """Дочитать указанные поля в позу и вернуть новую.
+
+        Читаются только перечисленные поля: остальные остаются из памяти оверлея.
+        Обход идёт в порядке панели — так же, как полное чтение.
+
+        Raises:
+            ApplicationError: если поле вернуло не число.
+            OperationCancelledError: если действие прервали.
+        """
         values: dict[Field, float] = {}
         for field in PANEL_ORDER:
+            if field not in fields:
+                continue
             if self._panel.cancelled():
                 raise OperationCancelledError("Действие отменено")
             raw = self._panel.read_field(field)
@@ -161,14 +183,29 @@ class MappingSession:
                 values[field] = parse_number(raw)
             except ParseError as exc:
                 raise ApplicationError(f"Поле {field.label}: {exc}") from exc
-        return Pose(
-            x=values[Field.X],
-            y=values[Field.Y],
-            z=values[Field.Z],
-            rx=values[Field.RX],
-            ry=values[Field.RY],
-            rz=values[Field.RZ],
+        if not values:
+            return pose
+        return replace(pose, **{field.value: value for field, value in values.items()})
+
+    def _read_before_step(
+        self, direction: Direction, step: float, *, tilt: bool, straight: bool
+    ) -> Pose:
+        """Прочитать ровно то, от чего зависит этот шаг.
+
+        Сначала углы: ``RZ`` для прямого шага, ``RY`` для высоты, ``RX`` для диагонали
+        (он решает, какая формула работает). Потом — только те координаты, которые шаг
+        действительно меняет: остальные в панель не пишутся, и читать их незачем.
+        """
+        if self._pose is None:
+            # Памяти ещё нет: без полной позы не посчитать, что изменится.
+            return self._read_pose()
+        base = self._read_fields(
+            self._pose, first_angle_fields(direction, tilt=tilt, straight=straight)
         )
+        base = self._read_fields(base, next_angle_fields(direction, base))
+        preview = shifted(base, direction, step, tilt=tilt, straight=straight)
+        coords = frozenset(changed_fields(base, preview)) & COORD_FIELDS
+        return self._read_fields(base, coords)
 
     def confirm(self) -> None:
         """Зафиксировать текущее положение в игре: клик в пустое место и ``F``.
@@ -320,9 +357,11 @@ class MappingSession:
         """
         self.ensure_calibrated()
         self._panel.reset_cancel()
-        note("режим «всегда считать позицию»: читаю поля перед шагом")
+        note("режим «всегда считать позицию»: читаю нужные поля перед шагом")
         try:
-            before = self._read_pose()
+            before = self._read_before_step(
+                direction, validate_step(step), tilt=tilt, straight=straight
+            )
         except AppError as exc:
             logger.warning("Чтение перед шагом не удалось, координаты забыты: %s", exc)
             self._invalidate()

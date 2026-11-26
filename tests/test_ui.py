@@ -17,7 +17,6 @@ from map_overlay.domain.actions import Action
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import Field
 from map_overlay.domain.keynames import VK_NUMPAD8
-from map_overlay.domain.movement import alt_hint
 from map_overlay.domain.point import Point
 from map_overlay.domain.pose import Pose
 from map_overlay.domain.sizes import ObjectSize, SizeLibrary, SizeUse
@@ -689,7 +688,7 @@ def test_alt_toggles_the_mode(qt_app: QApplication) -> None:
     window, _panel, _store, _cursor = make_window(qt_app, hotkeys=hotkeys)
     assert window.movement.mode_text() == "8/2 — вперёд/назад"
     toggle_tilt(hotkeys)
-    assert window.movement.mode_text() == alt_hint()
+    assert window.movement.mode_text() == "Включено: высота"
     assert "Режим высоты включён" in window.status_text()
     toggle_tilt(hotkeys)
     assert window.movement.mode_text() == "8/2 — вперёд/назад"
@@ -719,7 +718,7 @@ def test_tilt_checkbox_switches_the_mode(qt_app: QApplication) -> None:
     window.movement.press_capture()
     box = window.movement._tilt_box
     box.click()
-    assert window.movement.mode_text() == alt_hint()
+    assert window.movement.mode_text() == "Включено: высота"
     hotkeys.press(NUMPAD8)
     hotkeys.release(NUMPAD8)
     assert panel.pose().z == pytest.approx(START.z + 0.5, abs=0.001)
@@ -781,7 +780,7 @@ def test_alt_held_still_turns_the_mode_on(qt_app: QApplication) -> None:
     window.movement.press_capture()
     hotkeys.hold_alt()
     hotkeys.press(NUMPAD4)
-    assert window.movement.mode_text() == alt_hint()
+    assert window.movement.mode_text() == "Включено: высота"
     assert panel.pose().z == pytest.approx(START.z, abs=0.001)
     assert panel.pose().y == pytest.approx(START.y + 0.5, abs=0.001)
 
@@ -1667,8 +1666,9 @@ def test_window_is_narrower_than_before() -> None:
 def test_mini_toggle_shrinks_and_restores(qt_app: QApplication) -> None:
     """Переключатель «Мини» сворачивает окно и возвращает прежний вид.
 
-    Ширина сравнивается с константой «не уже», а не на равенство: на Windows и при
-    увеличенном системном шрифте окно шире эталонных 640, иначе вкладка обрезалась бы.
+    Ширина и высота сравниваются с константой «не меньше», а не на равенство: на Windows
+    и при увеличенном системном шрифте окно крупнее эталона, иначе вкладка обрезалась бы.
+    Мини-версии не хватало 43 пикселей на третий переключатель — теперь она дорастает.
     """
     from map_overlay.ui.window import MINI_HEIGHT, MINI_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH
 
@@ -1686,7 +1686,7 @@ def test_mini_toggle_shrinks_and_restores(qt_app: QApplication) -> None:
     assert window.is_mini()
     assert window.width() < full_width
     assert window.width() >= MINI_WIDTH
-    assert window.height() == MINI_HEIGHT
+    assert window.height() >= MINI_HEIGHT
     assert window.mini_button_text() == "Обычный"
     assert not window.tab_bar_visible()
     assert window.movement.is_compact()
@@ -2577,3 +2577,127 @@ def test_straight_cardinal_keeps_pose_and_history(qt_app: QApplication) -> None:
     window.movement.straight_box().setChecked(True)
     assert window.history().can_undo
     assert window.undo()
+
+
+def test_mode_line_lists_every_active_mode(qt_app: QApplication) -> None:
+    """Строка режима перечисляет всё, что включено: высота, прямой шаг или оба.
+
+    «Прямой шаг 4/6/8/2» меняет смысл клавиш не меньше, чем режим высоты, а подпись
+    раньше говорила только про высоту — включённый прямой шаг был невидим.
+    """
+    window, _panel, _store, _cursor = make_window(qt_app)
+    movement = window.movement
+    assert movement.mode_text() == "8/2 — вперёд/назад"
+
+    movement.set_straight(True)
+    assert movement.mode_text() == "Включено: прямой шаг"
+
+    movement.set_tilt(True)
+    assert movement.mode_text() == "Включено: высота · прямой шаг"
+
+    movement.set_straight(False)
+    assert movement.mode_text() == "Включено: высота"
+
+    movement.set_tilt(False)
+    assert movement.mode_text() == "8/2 — вперёд/назад"
+
+
+def test_settings_skip_own_check_toggles_the_grace(qt_app: QApplication) -> None:
+    """Флажок «Не сверять панель сразу после своей записи» задаёт паузу доверия."""
+    window, _panel, _store, _cursor = make_window(qt_app)
+    tab = window.settings_tab
+    assert tab.collect().self_write_grace == 2.0
+    tab._skip_own_check.setChecked(False)
+    assert tab.collect().self_write_grace == 0.0
+    tab._skip_own_check.setChecked(True)
+    assert tab.collect().self_write_grace == 2.0
+
+
+@pytest.mark.parametrize("points", [9.0, 11.0, 14.0, 18.0])
+def test_content_is_reachable_at_every_windows_scale(qt_app: QApplication, points: float) -> None:
+    """При 100–200 % ничего не уезжает за край: либо помещается, либо листается.
+
+    Windows на 125–200 % увеличивает шрифт и все отступы. Раньше окно оставалось
+    эталонных 820 пикселей, и низ вкладки просто обрезался; в мини-версии третьему
+    переключателю не хватало 43 пикселей. Теперь окно дорастает по высоте, а если экран
+    меньше содержимого — вкладка листается колесом, то есть до любого поля можно дойти.
+    """
+    from PySide6.QtGui import QFont
+    from PySide6.QtWidgets import QScrollArea
+
+    base_font = qt_app.font()
+    font = QFont(base_font.family())
+    font.setPointSizeF(points)
+    qt_app.setFont(font)
+    window: MainWindow | None = None
+    try:
+        window, _panel, _store, _cursor = make_window(
+            qt_app, size_store=FakeSizeStore(_long_library())
+        )
+        window.show()
+        window.set_mini(False)
+        qt_app.processEvents()
+        qt_app.processEvents()
+
+        def reachable(index: int) -> bool:
+            area = window._tabs.widget(index) if window is not None else None
+            if not isinstance(area, QScrollArea):
+                return True
+            return window.tab_fits_height(index) or area.verticalScrollBar().isVisible()
+
+        for index, title in enumerate(window.tab_titles()):
+            window.select_tab(index)
+            qt_app.processEvents()
+            assert window.tab_fits(index), f"«{title}» шире окна при {points} пт"
+            assert reachable(index), f"«{title}» не достать по высоте при {points} пт"
+
+        window.press_mini()
+        qt_app.processEvents()
+        qt_app.processEvents()
+        assert window.tab_fits(0), f"мини-версия шире окна при {points} пт"
+        assert window.tab_fits_height(0), (
+            f"в мини-версии низ крестовины за краем при {points} пт: " f"окно {window.height()} px"
+        )
+    finally:
+        if window is not None:
+            window.close()
+            window.deleteLater()
+            qt_app.processEvents()
+        qt_app.setFont(base_font)
+
+
+def test_spin_box_values_are_readable(qt_app: QApplication) -> None:
+    """Значение в счётчике видно: поле ввода не сжато до полоски в пиксель.
+
+    Общая таблица стилей рисовала счётчики, но не их стрелки, и Qt считала, что поле
+    ввода занимает ноль места: «Знаков после запятой», «Шаг по умолчанию» и «Длина» с
+    «Шириной» показывали пустые рамки — число было, а прочитать его было нельзя.
+    """
+    from map_overlay.ui import theme
+
+    # Таблица стилей — часть дефекта: без неё счётчики выглядят нормально.
+    qt_app.setStyleSheet(theme.APP_QSS)
+    window: MainWindow | None = None
+    try:
+        window, _panel, _store, _cursor = make_window(qt_app)
+        window.show()
+        window.select_tab(3)
+        qt_app.processEvents()
+        spins = [
+            window.settings_tab._click,
+            window.settings_tab._decimals,
+            window.settings_tab._default_step,
+        ]
+        window.select_tab(1)
+        qt_app.processEvents()
+        spins += [window.sizes._length, window.sizes._width]
+        for spin in spins:
+            edit = spin.lineEdit()
+            text_width = edit.fontMetrics().horizontalAdvance(edit.text())
+            assert edit.width() >= max(text_width, 20), (edit.text(), edit.width())
+    finally:
+        if window is not None:
+            window.close()
+            window.deleteLater()
+            qt_app.processEvents()
+        qt_app.setStyleSheet("")

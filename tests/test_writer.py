@@ -132,3 +132,91 @@ def test_five_centimetre_change_is_detected() -> None:
     with pytest.raises(PanelChangedError):
         make_writer(panel).write_changes(START, replace(START, y=1849.0))
     assert panel.writes == []
+
+
+# --- токен самозаписи -----------------------------------------------------
+# Сразу после своей записи сверка X не нужна: оверлей сам поставил это значение.
+
+
+class FakeClock:
+    """Часы для тестов: время двигается только вручную."""
+
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def tick(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def make_token_writer(panel: FakePanel, clock: FakeClock, *, grace: float = 2.0) -> PoseWriter:
+    return PoseWriter(panel, decimals=3, verify=True, self_write_grace=grace, clock=clock)
+
+
+def test_own_write_skips_the_next_panel_check() -> None:
+    """После своей записи шаг не перечитывает X на сверке — экономит 0.16 с."""
+    clock = FakeClock()
+    panel = FakePanel(START)
+    writer = make_token_writer(panel, clock)
+    step = replace(START, x=START.x - 0.5)
+    writer.write_changes(START, step)
+    panel.reads.clear()
+    clock.tick(0.4)
+    writer.write_changes(step, replace(step, x=step.x - 0.5))
+    # Только проверка после записи, сверки перед ней нет.
+    assert panel.reads == [Field.X]
+
+
+def test_check_returns_after_the_grace_period() -> None:
+    """Пауза кончилась — сверка снова работает и ловит чужое изменение."""
+    clock = FakeClock()
+    panel = FakePanel(START)
+    writer = make_token_writer(panel, clock)
+    step = replace(START, x=START.x - 0.5)
+    writer.write_changes(START, step)
+    clock.tick(3.0)
+    panel.values[Field.X] = format_value(START.x + 5.0, 3)
+    with pytest.raises(PanelChangedError):
+        writer.write_changes(step, replace(step, x=step.x - 0.5))
+
+
+def test_foreign_change_is_caught_even_inside_the_grace_period() -> None:
+    """Токен не слепой: разошлась поза — сверка выполняется сразу."""
+    clock = FakeClock()
+    panel = FakePanel(START)
+    writer = make_token_writer(panel, clock)
+    step = replace(START, x=START.x - 0.5)
+    writer.write_changes(START, step)
+    clock.tick(0.2)
+    moved = replace(step, x=step.x + 10.0)
+    with pytest.raises(PanelChangedError):
+        writer.write_changes(moved, replace(moved, x=moved.x - 0.5))
+
+
+def test_zero_grace_always_checks() -> None:
+    """Настройка «сверять всегда» (0 с) возвращает прежнее поведение."""
+    clock = FakeClock()
+    panel = FakePanel(START)
+    writer = make_token_writer(panel, clock, grace=0.0)
+    step = replace(START, x=START.x - 0.5)
+    writer.write_changes(START, step)
+    panel.reads.clear()
+    writer.write_changes(step, replace(step, x=step.x - 0.5))
+    assert panel.reads == [Field.X, Field.X]
+
+
+def test_grace_is_bounded() -> None:
+    """Нелепая пауза отклоняется на создании, а не молча обрезается."""
+    panel = FakePanel(START)
+    with pytest.raises(ValueError, match="Пауза"):
+        PoseWriter(panel, decimals=3, verify=True, self_write_grace=60.0)
+
+
+def test_writer_default_matches_the_setting() -> None:
+    """Значение по умолчанию у писателя и в настройках одно и то же."""
+    from map_overlay.application.writer import SELF_WRITE_GRACE_S
+    from map_overlay.config import Settings
+
+    assert Settings().self_write_grace == SELF_WRITE_GRACE_S

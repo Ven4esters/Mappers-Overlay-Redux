@@ -277,9 +277,20 @@ def _save_shots(app: QApplication) -> None:
     }
     for name, index in tabs.items():
         window.select_tab(index)
+        # Картинка должна показывать вкладку целиком, а не обрезанный низ: окно растёт
+        # до содержимого (в двух проходах — после роста раскладка мерит иначе).
+        app.processEvents()
+        window.fit_to_content()
+        app.processEvents()
+        window.fit_to_content()
         _grab(window, app, DOCS / name)
     window.select_tab(0)
     window.set_mini(True)
+    # Мини-версия тоже растёт до содержимого: иначе третий переключатель уезжал под сгиб.
+    app.processEvents()
+    window.fit_to_content()
+    app.processEvents()
+    window.fit_to_content()
     _grab(window, app, DOCS / "screenshot-mini.png")
     window.close()
 

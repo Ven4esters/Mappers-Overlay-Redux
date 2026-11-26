@@ -98,7 +98,10 @@ class AppContext:
         """Собрать сессию по текущим настройкам."""
         panel = self._panel_factory(self._settings)
         writer = PoseWriter(
-            panel, decimals=self._settings.decimals, verify=self._settings.verify_writes
+            panel,
+            decimals=self._settings.decimals,
+            verify=self._settings.verify_writes,
+            self_write_grace=self._settings.self_write_grace,
         )
         return MappingSession(panel, writer)
 
