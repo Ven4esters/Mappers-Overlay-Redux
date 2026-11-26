@@ -1,0 +1,59 @@
+name: Предложение
+description: Новая возможность или изменение поведения
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Задача готова к работе, когда понятно, что и зачем делать (Definition of Ready).
+        Этот шаблон и есть проверка: если пункт не заполняется — задача ещё не готова.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу решает
+      description: Что вы делаете сейчас и где приходится тратить лишние шаги.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Предлагаемое поведение
+      description: Что должно происходить после изменения — в терминах действий пользователя.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Критерии приёмки
+      description: Проверяемые без интерпретации пункты.
+      placeholder: |
+        - При включённой галочке Num 8 поднимает предмет на шаг по локальной оси Z.
+        - При выключенной — двигает вперёд, как раньше.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: ready
+    attributes:
+      label: Definition of Ready
+      options:
+        - label: Понятно, как проверять (сценарий, данные, окружение)
+          required: true
+        - label: Указаны нефункциональные требования, если они важны (скорость, доступность)
+          required: false
+        - label: Понятно, затрагивает ли изменение формулы сдвига или обмен с панелью
+          required: true
+        - label: Для архитектурного изменения подготовлен ADR (docs/adr)
+          required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы и обходные пути
+      description: Что можно сделать без изменения кода; почему этого недостаточно.
+    validations:
+      required: false

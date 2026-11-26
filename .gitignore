@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.spec
+# Наш spec — часть сборки: по нему build_exe.bat собирает exe со словарём лемм.
+!MappersOverlayRedux.spec
+logs/
+config/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.zip
+*.egg-info/

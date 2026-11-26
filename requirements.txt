@@ -1,0 +1,3 @@
+# Запуск приложения. Версии совпадают с [project].dependencies в pyproject.toml.
+PySide6-Essentials==6.8.1
+pyperclip==1.9.0

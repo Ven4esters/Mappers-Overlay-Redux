@@ -1,0 +1,21 @@
+# Владельцы зон. GitHub запрашивает ревью у владельца автоматически.
+#
+# В проекте один мейнтейнер, поэтому у всех зон один владелец: bus factor равен единице,
+# и это записано явно, а не подразумевается. Как только появится второй постоянный
+# участник, у критичных зон (domain, application, docs/adr) должно быть два владельца —
+# это условие из главы 16 инженерного стандарта, а не пожелание.
+
+*                       @Ven4esters
+
+# Критичные зоны: формулы сдвига, запись в панель и архитектурные решения.
+/map_overlay/domain/    @Ven4esters
+/map_overlay/application/ @Ven4esters
+/map_overlay/infrastructure/ @Ven4esters
+
+# Процесс и документация: правила, гейты, решения.
+/.github/               @Ven4esters
+/docs/adr/              @Ven4esters
+/docs/quality/          @Ven4esters
+/CONTRIBUTING.md        @Ven4esters
+/STYLEGUIDE.md          @Ven4esters
+/SECURITY.md            @Ven4esters
