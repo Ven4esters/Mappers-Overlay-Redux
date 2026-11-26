@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
 from map_overlay import __version__
 from tools.release import (
     CHANGELOG,
@@ -198,19 +197,37 @@ def test_sums_need_assets(repo: Path) -> None:
         write_sums(Path("build"), repo)
 
 
+def _workflow(name: str) -> str:
+    """Текст воркфлоу: разбирать YAML ради пяти строк не нужно, а зависимость не заводим."""
+    return (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+
+
 def test_workflow_releases_on_tag() -> None:
     """Воркфлоу релиза: тег, права на запись, подпись SBOM и суммы среди вложений."""
-    workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))
-    assert workflow[True]["push"]["tags"] == ["v[0-9]+.[0-9]+.[0-9]+"]
-    assert workflow["permissions"]["contents"] == "write"
-    assert workflow["permissions"]["id-token"] == "write"
-    text = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    text = _workflow("release.yml")
+    assert 'tags: ["v[0-9]+.[0-9]+.[0-9]+"]' in text
+    assert "contents: write" in text
+    # Ключ подписи берётся из токена прогона, а не из секрета.
+    assert "id-token: write" in text
     assert "sigstore sign" in text and "sigstore verify" in text
     assert "SHA256SUMS.txt" in text and "gh release create" in text
     assert "--notes-file build/notes.md" in text
+    assert "--verify-tag" in text
+
+
+def test_workflow_covers_every_release_asset() -> None:
+    """В release уходят все файлы, которые собираются, и ничего не теряется по дороге."""
+    text = _workflow("release.yml")
+    for asset in ("build/*.zip", "build/*.whl", "build/sbom.json", "build/sbom.json.sigstore"):
+        assert asset in text
+    assert "git archive" in text and "tools.make_sbom" in text
 
 
 def test_workflow_checks_tag_against_version() -> None:
     """Перед сборкой воркфлоу сверяет тег с версией в коде."""
-    text = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert "tools.release --check" in text
+    assert "tools.release --check" in _workflow("release.yml")
+
+
+def test_ci_checks_version_as_well() -> None:
+    """Та же сверка есть в CI: релиз с разными номерами не выпустить."""
+    assert "tools.release --check" in _workflow("ci.yml")

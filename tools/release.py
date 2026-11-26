@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -32,6 +32,8 @@ from typing import Final
 
 from map_overlay.console import use_utf8_console
 from tools.make_exe_report import digests, sums_line
+
+# subprocess вызывается только со своими командами: git и sys.executable.
 
 ROOT: Final = Path(__file__).resolve().parent.parent
 CHANGELOG: Final = Path("CHANGELOG.md")
@@ -181,17 +183,33 @@ def bumped(root: Path, version: str) -> list[Path]:
     return changed
 
 
-def tag_problems(root: Path, version: str) -> list[str]:
-    """Тег версии не должен существовать: перезаписывать историю выпуском нельзя."""
-    tag = f"v{version}"
-    result = subprocess.run(
-        ["git", "tag", "--list", tag],
+def _call(
+    command: Sequence[str], root: Path, *, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    """Выполнить внешнюю команду в корне проекта.
+
+    Команды собираются здесь из своих строк: список передаётся аргументами, ``shell``
+    не используется, поэтому подстановка из переменных окружения в оболочку невозможна.
+    """
+    # Аргументы списком, без оболочки: подставить шелл-код сюда нечем.
+    return subprocess.run(  # nosec B603
+        command,
         cwd=root,
-        check=False,
+        check=check,
         capture_output=True,
         text=True,
     )
-    if result.stdout.strip():
+
+
+def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Вызвать git в корне проекта."""
+    return _call(["git", *args], root, check=check)
+
+
+def tag_problems(root: Path, version: str) -> list[str]:
+    """Тег версии не должен существовать: переписывать историю выпуском нельзя."""
+    tag = f"v{version}"
+    if _git(root, "tag", "--list", tag).stdout.strip():
         return [f"тег {tag} уже есть: версию переиспользовать нельзя"]
     return []
 
@@ -208,7 +226,7 @@ def release_problems(root: Path, version: str) -> list[str]:
 def run(command: Sequence[str], root: Path) -> None:
     """Выполнить команду и остановиться на первой ошибке."""
     print("→ " + " ".join(command))
-    result = subprocess.run([sys.executable, *command], cwd=root, check=False)
+    result = _call([sys.executable, *command], root, check=False)
     if result.returncode != 0:
         raise SystemExit(f"проверка не прошла: {' '.join(command)}")
 
@@ -307,29 +325,26 @@ def _release(
 
 def _commit(root: Path, version: str) -> None:
     """Закоммитить версию, картинки и CHANGELOG одним «Release X.Y.Z»."""
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
-    nothing_staged = (
-        subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=root, check=False).returncode
-        == 0
-    )
-    if nothing_staged:
+    _git(root, "add", "-A")
+    if _git(root, "diff", "--cached", "--quiet", check=False).returncode == 0:
         print("Изменений нет: версия уже такая, коммит не нужен")
         return
-    subprocess.run(["git", "commit", "-m", f"Release {version}"], cwd=root, check=True)
+    _git(root, "commit", "-m", f"Release {version}")
 
 
 def _tag(root: Path, version: str) -> str:
     """Аннотированный тег, содержимое — раздел CHANGELOG."""
     tag = f"v{version}"
-    subprocess.run(["git", "tag", "-a", tag, "-m", notes(version, root)], cwd=root, check=True)
+    _git(root, "tag", "-a", tag, "-m", notes(version, root))
     return tag
 
 
 def _push(root: Path, version: str) -> None:
     """Отправить коммит и тег: по тегу CI публикует релиз."""
     tag = f"v{version}"
-    subprocess.run(["git", "push", "origin", "HEAD"], cwd=root, check=True)
-    subprocess.run(["git", "push", "origin", tag], cwd=root, check=True)
+    for ref in ("HEAD", tag):
+        # Отправка идёт с выводом git: он объясняет отказ (защита ветки, чужой тег).
+        print(_git(root, "push", "origin", ref).stderr.strip())
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
