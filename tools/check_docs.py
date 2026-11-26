@@ -55,6 +55,7 @@ REQUIRED_README_SECTIONS: Final = (
 # Минимальный набор разделов витрины из книги «README под ключ» (глава 2).
 
 README_VERSION = re.compile(r"Версия\s+—\s+(\d+\.\d+\.\d+)")
+README_BADGE = re.compile(r"badge/version-(\d+\.\d+\.\d+)-")
 # Строка README «Версия — 1.22.0»: витрина не должна отставать от кода.
 
 ADR_DIR: Final = Path("docs") / "adr"
@@ -276,6 +277,18 @@ def check_readme(root: Path) -> list[Problem]:
                 "README.md",
                 1,
                 f"версия в README {match.group(1)} не совпадает с приложением {__version__}",
+            )
+        )
+    badge = README_BADGE.search(text)
+    if badge is None:
+        problems.append(Problem("README.md", 1, "нет бейджа версии"))
+    elif badge.group(1) != __version__:
+        # Ссылка бейджа — картинка: опечатку в ней не видно, а на витрине она врёт.
+        problems.append(
+            Problem(
+                "README.md",
+                1,
+                f"бейдж версии {badge.group(1)} не совпадает с приложением {__version__}",
             )
         )
     return problems

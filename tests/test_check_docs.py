@@ -67,9 +67,11 @@ def test_existing_anchor_passes(tmp_path: Path) -> None:
     assert check_file(tmp_path / "README.md", tmp_path) == []
 
 
-def _readme(*sections: str, version: str = __version__) -> str:
+def _readme(*sections: str, version: str = __version__, badge: str | None = None) -> str:
     body = "\n".join(f"## {title}\n" for title in sections)
-    return f"Версия — {version}\n\n{body}"
+    badge_version = version if badge is None else badge
+    image = f"![Версия](https://img.shields.io/badge/version-{badge_version}-blue)\n\n"
+    return f"{image}Версия — {version}\n\n{body}"
 
 
 def test_readme_sections_and_version_pass(tmp_path: Path) -> None:
@@ -125,3 +127,23 @@ def test_adr_template_is_not_checked(tmp_path: Path) -> None:
     adr.mkdir(parents=True)
     (adr / "0000-template.md").write_text("# Шаблон\n", encoding="utf-8")
     assert check_adr(tmp_path) == []
+
+
+def test_stale_badge_version_is_reported(tmp_path: Path) -> None:
+    """Опечатка в ссылке бейджа видна только на витрине — проверка обязана её ловить."""
+    from tools.check_docs import REQUIRED_README_SECTIONS
+
+    (tmp_path / "README.md").write_text(
+        _readme(*REQUIRED_README_SECTIONS, badge="0.0.1"), encoding="utf-8"
+    )
+    problems = check_readme(tmp_path)
+    assert any("бейдж версии" in problem.message for problem in problems)
+
+
+def test_missing_badge_is_reported(tmp_path: Path) -> None:
+    from tools.check_docs import REQUIRED_README_SECTIONS
+
+    body = "\n".join(f"## {title}\n" for title in REQUIRED_README_SECTIONS)
+    (tmp_path / "README.md").write_text(f"Версия — {__version__}\n\n{body}", encoding="utf-8")
+    problems = check_readme(tmp_path)
+    assert any("нет бейджа версии" in problem.message for problem in problems)
