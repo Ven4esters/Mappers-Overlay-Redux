@@ -58,6 +58,18 @@ _RANGE_RE: Final = re.compile(r"(?P<prefix>.*?)(?P<start>\d+)\s*-\s*(?P<end>\d+)
 _WORD_RE: Final = re.compile(r"[^\s,;]+")
 _WILDCARD: Final = "*"
 
+_LOOSE_PASSES: Final = (
+    ("без учёта нулей", {"ignore_padding": True}),
+    ("по началу", {"number_prefix": True}),
+)
+# Запасные проходы поиска: применяются, только если точный проход ничего не нашёл.
+
+
+def _has_number(words: tuple[str, ...]) -> bool:
+    """Есть ли в запросе номер: уступать по номерам есть смысл только тогда."""
+    return any(word.isdigit() for word in words)
+
+
 SCORE_EXACT: Final = 3
 SCORE_PREFIX: Final = 2
 SCORE_INSIDE: Final = 1
@@ -166,20 +178,32 @@ class NameSearch:
         self._note = ""
         if not words:
             return list(names)
-        found = [name for name in names if self.index(name).matches(words)]
-        if not found and any(word.isdigit() for word in words):
-            found = [name for name in names if self.index(name).matches(words, ignore_padding=True)]
-            if found:
-                self._note = "без учёта нулей"
-        if not found and any(word.isdigit() for word in words):
-            found = [name for name in names if self.index(name).matches(words, number_prefix=True)]
-            if found:
-                self._note = "по началу"
+        found = self._find(names, words)
+        if not found and _has_number(words):
+            found, self._note = self._find_loose(names, words)
         if not found:
             return []
+        return self._rank(names, words, found)
+
+    def _find(self, names: Sequence[str], words: tuple[str, ...]) -> list[str]:
+        """Основной проход: номер сравнивается по записи (`01` ≠ `1`)."""
+        return [name for name in names if self.index(name).matches(words)]
+
+    def _find_loose(self, names: Sequence[str], words: tuple[str, ...]) -> tuple[list[str], str]:
+        """Запасные проходы: сначала номера по значению, потом номер по началу.
+
+        Возвращает найденное и пометку о том, чем пришлось уступить: пометка уходит в
+        строку «Найдено: …» вкладки, чтобы пользователь видел, почему нашлось не то.
+        """
+        for note, options in _LOOSE_PASSES:
+            found = [name for name in names if self.index(name).matches(words, **options)]
+            if found:
+                return found, note
+        return [], ""
+
+    def _rank(self, names: Sequence[str], words: tuple[str, ...], found: list[str]) -> list[str]:
+        """Порядок строк: точнее — выше, короче — ближе, дальше порядок библиотеки."""
         order = {name: position for position, name in enumerate(names)}
-        # Точнее — выше; при равной точности короче название значит «ближе» (в нём меньше
-        # лишних слов), дальше — порядок библиотеки.
         return sorted(
             found,
             key=lambda name: (-self.index(name).score(words), len(name), order[name]),

@@ -17,17 +17,24 @@ import logging
 import sys
 import time
 from collections.abc import Callable, Collection
+from dataclasses import dataclass
 from typing import ClassVar, Final
 
 from PySide6.QtCore import QObject, QThread, Signal
 
 from map_overlay.domain.keynames import (
-    MODIFIER_KEYS,
     VK_CONTROL,
     VK_MENU,
     VK_NUMLOCK,
     generic_vk,
     key_name,
+)
+from map_overlay.domain.keyrules import (
+    AltTracker,
+    KeyBinding,
+    KeyState,
+    blocks_key,
+    needs_foreground,
 )
 from map_overlay.trace import note
 
@@ -78,42 +85,16 @@ class _Message(ctypes.Structure):
     ]
 
 
+@dataclass(frozen=True, slots=True)
+class _HookEvent:
+    """Разобранное сообщение хука: клавиша, нажатие или отпускание, «своя» ли она."""
+
+    vk: int
+    is_down: bool
+    injected: bool
+
+
 _HOOK_PROC = ctypes.CFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t)
-
-
-def blocks_key(  # noqa: PLR0913 - параметры читаются как правила, а не как позиции
-    *,
-    vk: int,
-    is_down: bool,
-    bound: Collection[int],
-    bound_ctrl: Collection[int],
-    ctrl_down: bool,
-    learning: bool,
-    overlay_active: bool,
-    swallowed: Collection[int],
-) -> bool:
-    """Забирать ли нажатие у системы.
-
-    Правила:
-
-    * в обычном режиме перехватываются только назначенные клавиши;
-    * клавиши отмены и повтора (``bound_ctrl``) забираются только с зажатым Ctrl и
-      только когда окно оверлея не активно: без Ctrl это обычные Z и Y, а при
-      открытом окне их обрабатывает оно само (в полях ввода Ctrl+Z правит текст);
-    * при записи новой привязки — любые клавиши, но только пока окно оверлея активно:
-      в игре клавиатура должна работать всегда;
-    * отпускание клавиши забирается лишь тогда, когда было забрано её нажатие —
-      иначе игра получила бы «зажатую» клавишу.
-    """
-    if is_down:
-        if learning:
-            # Модификаторы при записи привязки только мешают: Ctrl+Z должен дать «Z»,
-            # а не привязку к Ctrl.
-            return overlay_active and vk not in MODIFIER_KEYS
-        if vk in bound_ctrl:
-            return ctrl_down and not overlay_active
-        return vk in bound
-    return vk in swallowed
 
 
 class WindowsHotkeySource(QThread):
@@ -142,8 +123,7 @@ class WindowsHotkeySource(QThread):
         self._swallowed: set[int] = set()
         self._frozen = False
         self._frozen_at = 0.0
-        self._alt_down = False
-        self._alt_alone = False
+        self._alt = AltTracker()
         self._error_logged = False
         self.failed = False
 
@@ -311,95 +291,107 @@ class WindowsHotkeySource(QThread):
             return self._pass_through(code, wparam, lparam)
 
     def _decide(self, code: int, wparam: int, lparam: int) -> int:
+        """Решить судьбу клавиши: съесть, пропустить или сообщить оверлею.
+
+        Ветвления разложены по шагам — разобрать событие, применить заморозку, провести
+        через правила перехвата, — чтобы каждое правило читалось отдельно, а не тонуло
+        в общем ``if``.
+        """
+        event = self._read_event(code, wparam, lparam)
+        if event is None:
+            return self._pass_through(code, wparam, lparam)
+        if self._swallowed_by_freeze(event):
+            return HOOK_BLOCK
+        return self._route(event, code, wparam, lparam)
+
+    def _read_event(self, code: int, wparam: int, lparam: int) -> _HookEvent | None:
+        """Разобрать сообщение хука; ``None`` — не наша клавиша, пропускаем."""
         if code < 0:
-            return self._pass_through(code, wparam, lparam)
+            return None
         data = ctypes.cast(lparam, ctypes.POINTER(_KeyboardHookData)).contents
-        vk = generic_vk(int(data.vk))
-        injected = bool(int(data.flags) & LLKHF_INJECTED)
         is_down = wparam in (WM_KEYDOWN, WM_SYSKEYDOWN)
-        is_up = wparam in (WM_KEYUP, WM_SYSKEYUP)
-        if not (is_down or is_up):
-            return self._pass_through(code, wparam, lparam)
-        self._freeze_expired()
-        if self._frozen and self._enabled and not injected:
-            note(
-                "хук: клавиша %s %s съедена заморозкой",
-                key_name(vk),
-                "нажата" if is_down else "отпущена",
-            )
-            return self._swallow(is_down, vk)
-        self._observe_alt(vk, is_down, injected)
-        ctrl_down = not injected and self.key_down(VK_CONTROL)
-        # Активное окно нужно знать только там, где от него зависит решение: при записи
-        # привязки и для клавиш отмены с Ctrl. В остальных случаях — два вызова Win32 зря.
-        needs_foreground = self._learning or (ctrl_down and vk in self._bound_ctrl)
-        block = self._enabled and blocks_key(
-            vk=vk,
+        if not (is_down or wparam in (WM_KEYUP, WM_SYSKEYUP)):
+            return None
+        return _HookEvent(
+            vk=generic_vk(int(data.vk)),
             is_down=is_down,
-            bound=self._bound,
-            bound_ctrl=self._bound_ctrl,
+            injected=bool(int(data.flags) & LLKHF_INJECTED),
+        )
+
+    def _swallowed_by_freeze(self, event: _HookEvent) -> bool:
+        """Съесть живую клавишу, пока клавиатура заморожена на время обмена с панелью.
+
+        Клавиши, которые посылает сам оверлей (``LLKHF_INJECTED`` — ``Ctrl+A`` и
+        ``Ctrl+V``), проходят: иначе обмен не смог бы записать значение. Отпускания
+        съедаются вместе с нажатиями, чтобы в игре не осталось «зажатой» клавиши.
+        """
+        self._freeze_expired()
+        if not (self._frozen and self._enabled and not event.injected):
+            return False
+        note(
+            "хук: клавиша %s %s съедена заморозкой",
+            key_name(event.vk),
+            "нажата" if event.is_down else "отпущена",
+        )
+        self._remember(event)
+        return True
+
+    def _route(self, event: _HookEvent, code: int, wparam: int, lparam: int) -> int:
+        """Провести клавишу через правила перехвата и вернуть решение хука."""
+        self._observe_alt(event)
+        ctrl_down = not event.injected and self.key_down(VK_CONTROL)
+        binding = KeyBinding(bound=self._bound, bound_ctrl=self._bound_ctrl)
+        state = KeyState(
             ctrl_down=ctrl_down,
             learning=self._learning,
-            overlay_active=needs_foreground and self._foreground_is_ours(),
+            overlay_active=self._overlay_active(event.vk, binding, ctrl_down=ctrl_down),
             swallowed=self._swallowed,
         )
-        fresh = is_down and block and vk not in self._swallowed
-        if is_down and block:
-            self._swallowed.add(vk)
-        elif is_up:
-            self._swallowed.discard(vk)
+        block = self._enabled and blocks_key(
+            vk=event.vk, is_down=event.is_down, binding=binding, state=state
+        )
+        fresh = self._remember(event) if block else False
         if not block:
-            if is_down and vk in self._bound:
-                logger.debug("Клавиша %s пропущена: перехват выключен", key_name(vk))
-                note("хук: клавиша %s пропущена в игру (перехват выключен)", key_name(vk))
+            self._log_pass(event)
             return self._pass_through(code, wparam, lparam)
         if fresh:
-            logger.debug("Хук забрал клавишу %s", key_name(vk))
-            note("хук: клавиша %s забрана у игры", key_name(vk))
-        self.key_event.emit(vk, is_down, fresh, ctrl_down)
+            logger.debug("Хук забрал клавишу %s", key_name(event.vk))
+            note("хук: клавиша %s забрана у игры", key_name(event.vk))
+        self.key_event.emit(event.vk, event.is_down, fresh, ctrl_down)
         return HOOK_BLOCK
 
-    def _swallow(self, is_down: bool, vk: int) -> int:
-        """Съесть живую клавишу на время обмена с панелью.
+    def _overlay_active(self, vk: int, binding: KeyBinding, *, ctrl_down: bool) -> bool:
+        """Активно ли окно оверлея — но только когда ответ меняет решение."""
+        if not needs_foreground(vk, binding, ctrl_down=ctrl_down, learning=self._learning):
+            return False
+        return self._foreground_is_ours()
 
-        Клавиши, которые посылает сам оверлей (``LLKHF_INJECTED``), сюда не попадают:
-        это ``Ctrl+A`` и ``Ctrl+V``, которыми пишутся значения. Отпускания съедаются
-        вместе с нажатиями, чтобы в игре не осталось «зажатой» клавиши.
+    def _remember(self, event: _HookEvent) -> bool:
+        """Запомнить забранную клавишу; вернуть ``True``, если нажатие свежее.
+
+        Свежее — то, которого не было в списке забранных: так автоповтор удержания
+        отличается от нового нажатия, и шаг не повторяется сам по себе.
         """
-        if is_down:
-            self._swallowed.add(vk)
-        else:
-            self._swallowed.discard(vk)
-        return HOOK_BLOCK
+        if not event.is_down:
+            self._swallowed.discard(event.vk)
+            return False
+        fresh = event.vk not in self._swallowed
+        self._swallowed.add(event.vk)
+        return fresh
 
-    def _observe_alt(self, vk: int, is_down: bool, injected: bool = False) -> None:
-        """Заметить одиночное нажатие Alt — им переключается режим высоты.
+    def _log_pass(self, event: _HookEvent) -> None:
+        """Записать в журнал, что назначенная клавиша осталась игре."""
+        if event.is_down and event.vk in self._bound:
+            logger.debug("Клавиша %s пропущена: перехват выключен", key_name(event.vk))
+            note("хук: клавиша %s пропущена в игру (перехват выключен)", key_name(event.vk))
 
-        Alt не забирается у игры: он проходит как обычно. Переключателем считается
-        только одиночное нажатие, а комбинация (``Alt+Tab``, ``Alt+F4``,
-        ``Alt+Num 8``) — нет, иначе режим менялся бы во время обычной работы.
-
-        Клавиши, которые оверлей посылает сам (``Ctrl+A``, ``Ctrl+V``), не считаются
-        нажатием человека: иначе во время шага любое нажатие Alt выглядело бы
-        комбинацией, и режим не переключался бы.
-        """
-        if injected:
+    def _observe_alt(self, event: _HookEvent) -> None:
+        """Одиночное нажатие ``Alt`` включает режим высоты; само нажатие идёт игре."""
+        if not self._alt.observe(event.vk, event.is_down, injected=event.injected):
             return
-        if vk == VK_MENU:
-            if is_down:
-                if not self._alt_down:
-                    self._alt_down = True
-                    self._alt_alone = True
-                return
-            self._alt_down = False
-            alone = self._alt_alone
-            self._alt_alone = False
-            if alone and self._enabled and not self._learning:
-                logger.info("Alt нажат один: переключаю режим высоты")
-                self.key_event.emit(VK_MENU, True, True, False)
-            return
-        if self._alt_down:
-            self._alt_alone = False
+        if self._enabled and not self._learning:
+            logger.info("Alt нажат один: переключаю режим высоты")
+            self.key_event.emit(VK_MENU, True, True, False)
 
     def _foreground_is_ours(self) -> bool:
         """Активно ли окно оверлея (а не игра или другая программа)."""

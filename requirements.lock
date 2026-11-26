@@ -38,6 +38,8 @@ filelock==4.3.1
     #   virtualenv
 html5lib==1.1
     # via pip-audit
+hypothesis==6.170.17
+    # via mappers-overlay-redux (pyproject.toml)
 identify==2.6.20
     # via pre-commit
 idna==3.20
@@ -136,7 +138,9 @@ shiboken6==6.11.3
 six==1.17.0
     # via html5lib
 sortedcontainers==2.4.0
-    # via cyclonedx-python-lib
+    # via
+    #   cyclonedx-python-lib
+    #   hypothesis
 stevedore==5.10.0
     # via bandit
 toml==0.10.2

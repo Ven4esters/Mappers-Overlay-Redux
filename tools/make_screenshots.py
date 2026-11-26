@@ -39,7 +39,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(ROOT))
 
 from map_overlay.config import Settings  # noqa: E402
-from map_overlay.context import AppContext  # noqa: E402
+from map_overlay.context import AppContext, AppPaths, AppPorts  # noqa: E402
 from map_overlay.domain.directions import Direction  # noqa: E402
 from map_overlay.domain.fields import Field  # noqa: E402
 from map_overlay.domain.formatting import format_value  # noqa: E402
@@ -55,7 +55,15 @@ from map_overlay.ui.window import (  # noqa: E402
     MainWindow,
 )
 from PySide6.QtCore import QPointF, QRectF, Qt  # noqa: E402 - импорт после настройки Qt
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, QPen  # noqa: E402
+from PySide6.QtGui import (  # noqa: E402 - импорт после настройки Qt
+    QColor,
+    QFont,
+    QGuiApplication,
+    QImage,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 DEMO_POSE: Final = Pose(x=-1848.763, y=409.366, z=125.002, rx=37.0, ry=0.0, rz=0.0)
@@ -225,18 +233,25 @@ def _demo_library() -> SizeLibrary:
     return library.select(DEMO_ACTIVE)
 
 
-def _build_window(app: QApplication) -> MainWindow:
-    """Собрать окно с демонстрационными данными и одной считанной позой."""
+def build_showcase(app: QApplication) -> MainWindow:
+    """Собрать и показать окно с демонстрационными данными и одной считанной позой.
+
+    Окно живёт до явного ``close()``: golden-тесты снимают с него же структуру виджетов.
+    """
     settings = _demo_settings()
     panel = DemoPanel(DEMO_POSE)
     context = AppContext(
-        store=DemoSettings(settings),
-        cursor=DemoCursor(),
-        panel_factory=lambda _settings: panel,
-        hotkeys=DemoHotkeys(),
-        config_path=Path("config") / "settings.json",
-        size_store=DemoSizes(_demo_library()),
-        sizes_path=Path("config") / "sizes.json",
+        AppPorts(
+            store=DemoSettings(settings),
+            cursor=DemoCursor(),
+            panel_factory=lambda _settings: panel,
+            hotkeys=DemoHotkeys(),
+            size_store=DemoSizes(_demo_library()),
+        ),
+        AppPaths(
+            config=Path("config") / "settings.json",
+            sizes=Path("config") / "sizes.json",
+        ),
     )
     window = MainWindow(context, synchronous_tasks=True)
     window.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -248,51 +263,75 @@ def _build_window(app: QApplication) -> MainWindow:
     return window
 
 
-def _grab(window: MainWindow, app: QApplication, path: Path) -> None:
-    """Сохранить снимок окна (вместе со строкой состояния)."""
-    # Раскладке нужно два прохода: после скрытия строк окно меняет размер, и только
-    # второй проход расставляет виджеты по новым местам.
+#: Что попадает в картинки: имя файла и вкладка окна. Мини-версия — отдельно.
+SHOTS: Final[dict[str, int]] = {
+    "screenshot-navigation.png": 0,
+    "screenshot-sizes.png": 1,
+    "screenshot-calibration.png": 2,
+    "screenshot-settings.png": 3,
+}
+MINI_SHOT: Final = "screenshot-mini.png"
+
+
+def _prepare_shot(window: MainWindow, app: QApplication) -> None:
+    """Довести окно до снимка: раскладка в два прохода и снятый фокус.
+
+    Два прохода нужны потому, что после скрытия строк окно меняет размер, и только
+    второй проход расставляет виджеты по новым местам. Фокус снимается, чтобы обводка
+    на «Мини» не читалась как «эта кнопка здесь главная».
+    """
     app.processEvents()
+    window.fit_to_content()
     app.processEvents()
-    # Снимок показывает нейтральное состояние: обводка фокуса на «Мини» читалась бы как
-    # «эта кнопка здесь главная», хотя главное действие — «Считать».
+    window.fit_to_content()
     focused = app.focusWidget()
     if focused is not None:
         focused.clearFocus()
     app.processEvents()
+
+
+def collect_shots(window: MainWindow, app: QApplication) -> dict[str, QPixmap]:
+    """Снимки всех вкладок и мини-версии: окно должно быть уже собрано и показано."""
+    shots: dict[str, QPixmap] = {}
+    for name, index in SHOTS.items():
+        window.select_tab(index)
+        _prepare_shot(window, app)
+        window.repaint()
+        shots[name] = window.grab()
+    window.select_tab(0)
+    window.set_mini(True)
+    _prepare_shot(window, app)
     window.repaint()
-    pixmap = window.grab()
-    if not pixmap.save(str(path), "PNG"):
-        raise SystemExit(f"не удалось сохранить {path}")
-    print(f"{path.name}: {pixmap.width()}×{pixmap.height()}, {path.stat().st_size} байт")
+    shots[MINI_SHOT] = window.grab()
+    return shots
+
+
+def render_shots(app: QApplication) -> dict[str, QPixmap]:
+    """Собрать окно и вернуть снимки всех вкладок и мини-версии — без записи на диск.
+
+    Общая точка для ``make_screenshots`` (пишет PNG для README) и ``make_goldens``
+    (сверяет цвета и структуру): картинка и эталон собираются одним кодом, поэтому
+    разойтись не могут.
+    """
+    window = build_showcase(app)
+    try:
+        return collect_shots(window, app)
+    finally:
+        window.close()
 
 
 def _save_shots(app: QApplication) -> None:
-    window = _build_window(app)
-    tabs = {
-        "screenshot-navigation.png": 0,
-        "screenshot-sizes.png": 1,
-        "screenshot-calibration.png": 2,
-        "screenshot-settings.png": 3,
-    }
-    for name, index in tabs.items():
-        window.select_tab(index)
-        # Картинка должна показывать вкладку целиком, а не обрезанный низ: окно растёт
-        # до содержимого (в двух проходах — после роста раскладка мерит иначе).
-        app.processEvents()
-        window.fit_to_content()
-        app.processEvents()
-        window.fit_to_content()
-        _grab(window, app, DOCS / name)
-    window.select_tab(0)
-    window.set_mini(True)
-    # Мини-версия тоже растёт до содержимого: иначе третий переключатель уезжал под сгиб.
-    app.processEvents()
-    window.fit_to_content()
-    app.processEvents()
-    window.fit_to_content()
-    _grab(window, app, DOCS / "screenshot-mini.png")
-    window.close()
+    for name, pixmap in render_shots(app).items():
+        path = DOCS / name
+        if not pixmap.save(str(path), "PNG"):
+            raise SystemExit(f"не удалось сохранить {path}")
+        print(f"{path.name}: {pixmap.width()}×{pixmap.height()}, {path.stat().st_size} байт")
+
+
+def prepare_app(app: QApplication) -> None:
+    """Настроить приложение так, как его видит пользователь: тема и иконка."""
+    app.setStyleSheet(theme.APP_QSS)
+    app.setWindowIcon(app_icon())
 
 
 PANEL_W: Final = 292
@@ -415,8 +454,7 @@ def main() -> int:
     )
     DOCS.mkdir(parents=True, exist_ok=True)
     app = QApplication([sys.argv[0]])
-    app.setStyleSheet(theme.APP_QSS)
-    app.setWindowIcon(app_icon())
+    prepare_app(app)
     _save_shots(app)
     _save_diagram()
     app.quit()

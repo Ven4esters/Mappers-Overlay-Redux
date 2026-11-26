@@ -30,11 +30,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
+      # uv ставит зависимости параллельно и с дисковым кэшем: тот же набор за секунды.
+      # Кэш каталога uv ведёт сам экшен (свой на каждую ОС), поэтому путь не задаём.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
       - name: Зависимости
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv pip install --system -e ".[lint]"
       - name: Pre-commit (те же хуки, что у разработчика)
         run: pre-commit run --all-files --show-diff-on-failure
       - name: Форматирование
@@ -53,17 +55,19 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
       - name: Системные библиотеки для Qt
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libdbus-1-3 \
             libfontconfig1 libfreetype6 libglib2.0-0 libxcb-cursor0
+      # uv ставит зависимости параллельно и с дисковым кэшем: тот же набор за секунды.
+      # Кэш каталога uv ведёт сам экшен (свой на каждую ОС), поэтому путь не задаём.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
       - name: Зависимости
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv pip install --system -e ".[test]"
       - name: Проверка Qt (ошибка импорта видна аннотацией)
         env:
           QT_QPA_PLATFORM: offscreen
@@ -114,11 +118,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
+      # uv ставит зависимости параллельно и с дисковым кэшем: тот же набор за секунды.
+      # Кэш каталога uv ведёт сам экшен (свой на каждую ОС), поэтому путь не задаём.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
       - name: Зависимости
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv pip install --system -e ".[security]"
       - name: Статический анализ безопасности
         run: bandit -q -c pyproject.toml -r map_overlay tools
       - name: Уязвимости зависимостей
@@ -137,11 +143,14 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
+      # uv ставит зависимости параллельно и с дисковым кэшем: тот же набор за секунды.
+      # Кэш каталога uv ведёт сам экшен (свой на каждую ОС), поэтому путь не задаём.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
       - name: Пакет без зависимостей (нужна только версия)
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e . --no-deps
+        # Документации нужен только пакет: Qt и инструменты здесь не участвуют.
+        run: uv pip install --system -e . --no-deps
       - name: Документация (ссылки, якоря, разделы, версия)
         run: python -m tools.check_docs
       - name: Политика исключений (владелец и срок)
@@ -158,11 +167,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
+      # uv ставит зависимости параллельно и с дисковым кэшем: тот же набор за секунды.
+      # Кэш каталога uv ведёт сам экшен (свой на каждую ОС), поэтому путь не задаём.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
       - name: Зависимости
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv pip install --system -e ".[build]"
       - name: Сборка пакета
         run: python -m build --wheel --outdir build/wheel
       - name: SBOM релиза
@@ -188,11 +199,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
+      # uv ставит зависимости параллельно и с дисковым кэшем: тот же набор за секунды.
+      # Кэш каталога uv ведёт сам экшен (свой на каждую ОС), поэтому путь не задаём.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
       - name: Зависимости
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv pip install --system -e ".[test,build]"
       - name: Тесты (offscreen)
         shell: pwsh
         run: |

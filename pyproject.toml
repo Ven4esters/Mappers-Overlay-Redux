@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mappers-overlay-redux"
-version = "1.25.0"
+version = "1.26.0"
 description = "Mapper's Overlay Redux — оверлей для мапперов LSP (FiveM): калибровка полей панели, запись координат и сдвиг по 8 направлениям."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -21,16 +21,44 @@ Issues = "https://github.com/Ven4esters/Mappers-Overlay-Redux/issues"
 Changelog = "https://github.com/Ven4esters/Mappers-Overlay-Redux/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
+# Полный набор разработчика — объединение узких наборов ниже. Узкие наборы нужны CI:
+# job ставит только те инструменты, которые вызывает, и не тянет PyInstaller в линтер
+# (пункт 19 плана). Совпадение пинов проверяет tests/test_metadata.py.
 dev = [
     "mypy==1.11.2",
     "ruff==0.7.4",
     "pytest==9.0.3",
     "pytest-cov==5.0.0",
+    "hypothesis==6.170.17",
     "pip-audit==2.7.3",
     "bandit==1.7.10",
     "build==1.2.2",
     "detect-secrets==1.5.0",
     "pre-commit==4.0.1",
+    "pyinstaller==6.10.0",
+]
+# Проверки кода: стиль, формат, типы, хуки, секреты.
+lint = [
+    "mypy==1.11.2",
+    "ruff==0.7.4",
+    "pre-commit==4.0.1",
+    "detect-secrets==1.5.0",
+]
+# Тесты: pytest с покрытием и property-based проверки инвариантов формул.
+test = [
+    "pytest==9.0.3",
+    "pytest-cov==5.0.0",
+    "hypothesis==6.170.17",
+]
+# Безопасность: статический анализ, уязвимости, лицензии, секреты.
+security = [
+    "pip-audit==2.7.3",
+    "bandit==1.7.10",
+    "detect-secrets==1.5.0",
+]
+# Сборка: пакет, SBOM, exe.
+build = [
+    "build==1.2.2",
     "pyinstaller==6.10.0",
 ]
 
@@ -87,6 +115,9 @@ warn_unreachable = true
 no_implicit_reexport = true
 files = ["map_overlay", "tools"]
 exclude = ["tests"]
+# tools/ — пространство имён без __init__.py: без этого флага mypy видит tools/make_*.py
+# и как `make_x`, и как `tools.make_x` и падает на «found twice under different names».
+explicit_package_bases = true
 
 [[tool.mypy.overrides]]
 module = ["pyperclip.*"]
