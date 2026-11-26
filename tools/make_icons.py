@@ -21,6 +21,7 @@ import struct
 import sys
 from pathlib import Path
 
+from map_overlay.console import use_utf8_console
 from map_overlay.ui.appicon import SIZES, pixmap, png_bytes
 from PySide6.QtWidgets import QApplication
 
@@ -74,6 +75,8 @@ def read_ico(data: bytes) -> list[tuple[int, int, int]]:
 
 
 def main() -> int:
+    """Точка входа: печать в UTF-8, чтобы кириллица не роняла запуск."""
+    use_utf8_console()
     """Собрать иконки и записать их в репозиторий."""
     app = QApplication.instance() or QApplication(sys.argv[:1])
     del app

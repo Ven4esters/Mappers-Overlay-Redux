@@ -29,6 +29,7 @@ from typing import Final
 from urllib.parse import unquote
 
 from map_overlay import __version__
+from map_overlay.console import use_utf8_console
 
 ROOT: Final = Path(__file__).resolve().parent.parent
 
@@ -306,6 +307,8 @@ def collect_problems(root: Path = ROOT) -> list[Problem]:
 
 
 def main(argv: Iterable[str] | None = None, *, root: Path = ROOT) -> int:
+    """Точка входа: печать в UTF-8, чтобы кириллица не роняла запуск."""
+    use_utf8_console()
     """Проверить документацию; 1 — если есть проблемы.
 
     Args:
