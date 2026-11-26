@@ -1694,8 +1694,8 @@ def test_mini_toggle_shrinks_and_restores(qt_app: QApplication) -> None:
 
     window.press_mini()
     assert not window.is_mini()
-    assert window.width() == WINDOW_WIDTH
-    assert window.height() == WINDOW_HEIGHT
+    assert window.width() == full_width
+    assert window.height() == full_height
     assert window.mini_button_text() == "Мини"
     assert window.tab_bar_visible()
     assert not window.movement.is_compact()
