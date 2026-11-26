@@ -254,7 +254,7 @@ def _print_plan(root: Path, version: str, changed: Iterable[Path]) -> None:
     print(f"Версия: {current_version(root)} → {version}")
     for path in changed:
         print(f"  изменён {path.relative_to(root)}")
-    print("Затем: проверки, картинки, коммит, тег")
+    print("Затем: проверки, коммит, тег (картинки — только с --images)")
 
 
 def main(argv: Iterable[str] | None = None, *, root: Path = ROOT) -> int:
@@ -287,7 +287,7 @@ def main(argv: Iterable[str] | None = None, *, root: Path = ROOT) -> int:
         dry_run=args.dry_run,
         push=args.push,
         checks=not args.no_checks,
-        images=not args.no_images,
+        images=args.images,
     )
 
 
@@ -362,7 +362,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="только показать план")
     parser.add_argument("--push", action="store_true", help="отправить коммит и тег")
     parser.add_argument("--no-checks", action="store_true", help="не прогонять проверки")
-    parser.add_argument("--no-images", action="store_true", help="не пересобирать картинки")
+    parser.add_argument(
+        "--images",
+        action="store_true",
+        help="пересобрать картинки и таблицу формул (нужно, только если менялся интерфейс)",
+    )
     parser.add_argument("--check", nargs="?", const="", help="сверка версий (можно с тегом)")
     parser.add_argument("--notes", help="напечатать раздел CHANGELOG для версии")
     parser.add_argument("--sums", help="собрать SHA256SUMS.txt в каталоге")

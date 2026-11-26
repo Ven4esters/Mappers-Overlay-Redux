@@ -134,7 +134,7 @@ def test_dry_run_changes_nothing(repo: Path) -> None:
 
 def test_release_commits_and_tags(repo: Path) -> None:
     """Настоящий выпуск: версия в файлах, коммит «Release X.Y.Z», аннотированный тег."""
-    assert main([NEW, "--no-checks", "--no-images"], root=repo) == 0
+    assert main([NEW, "--no-checks"], root=repo) == 0
     assert version_problems(repo, version=NEW) == []
     log = _git(repo, "log", "-1", "--pretty=%s").stdout
     assert log is not None, "git log не вернул вывод"
@@ -150,7 +150,7 @@ def test_release_commits_and_tags(repo: Path) -> None:
 def test_release_refuses_without_changelog(repo: Path) -> None:
     """Нет раздела CHANGELOG — статус 1 и ни одного коммита."""
     head = _git(repo, "rev-parse", "HEAD").stdout
-    assert main(["7.7.7", "--no-checks", "--no-images"], root=repo) == 1
+    assert main(["7.7.7", "--no-checks"], root=repo) == 1
     after = _git(repo, "rev-parse", "HEAD").stdout
     assert head == after
 
