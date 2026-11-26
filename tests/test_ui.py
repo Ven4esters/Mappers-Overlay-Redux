@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 from map_overlay.config import Settings
@@ -24,8 +25,10 @@ from map_overlay.errors import ValidationError
 from map_overlay.infrastructure.size_store import JsonSizeStore
 from map_overlay.trace import JOURNAL
 from map_overlay.ui.tabs.movement_tab import MovementTab
+from map_overlay.ui.widgets import DecimalSpinBox
 from map_overlay.ui.window import MainWindow
 from PySide6.QtCore import QEvent, QLocale, Qt
+from PySide6.QtGui import QValidator
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -281,6 +284,23 @@ def test_step_field_opens_for_typing_on_click(qt_app: QApplication) -> None:
     QTest.keyClick(edit, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
     QTest.keyClicks(edit, "3")
     assert tab.current_step() == pytest.approx(3.0)
+
+
+def test_spin_box_accepts_comma_as_decimal_separator(qt_app: QApplication) -> None:
+    """Запятая понимается как разделитель, буквы — нет.
+
+    Тип результата ``validate`` зависит от версии PySide6 (6.8 — состояние, 6.12 —
+    кортеж), поэтому состояние достаётся единым способом.
+    """
+    box = DecimalSpinBox()
+    box.setDecimals(2)
+    box.setRange(0.01, 100)
+
+    def state(result: object) -> QValidator.State:
+        return result[0] if isinstance(result, tuple) else cast(QValidator.State, result)
+
+    assert state(box.validate("1,5", 1)) == QValidator.State.Acceptable
+    assert state(box.validate("abc", 1)) == QValidator.State.Invalid
 
 
 def test_step_field_is_validated(qt_app: QApplication) -> None:
