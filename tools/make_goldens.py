@@ -40,6 +40,9 @@ COLOR_SHARE: Final = 0.2
 #: Порог присутствия: столько пикселей цвета должно остаться в снимке, чтобы он считался
 #: «на месте». Ниже — уже шум сглаживания, а не исчезнувший цвет темы.
 COLOR_PRESENT: Final = 0.02
+#: Порог «нового» цвета: он должен занимать заметную площадь. Иначе достаточно градиента
+#: сглаживания, который на другом растеризаторе случайно попал в допуск.
+COLOR_NEW: Final = 1.0
 #: Насколько пиксель может отличаться от цвета темы и всё ещё считаться им. Растеризаторы
 #: текста на разных ОС дают чуть разные оттенки одного и того же цвета темы; допуск делает
 #: проверку независимой от шрифтов.
@@ -298,7 +301,7 @@ def _color_diffs(key: str, expected: object, actual: object) -> list[str]:
     added = sorted(
         color
         for color, share in actual.items()
-        if share >= COLOR_SHARE and expected.get(color, 0.0) < COLOR_PRESENT
+        if share >= COLOR_NEW and expected.get(color, 0.0) < COLOR_PRESENT
     )
     if added:
         problems.append(f"{key}: появились цвета темы — {added[:4]}")
