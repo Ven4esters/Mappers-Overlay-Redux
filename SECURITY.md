@@ -16,7 +16,7 @@ Mapper's Overlay Redux — локальное настольное прилож�
 ## Как сообщить об уязвимости
 
 - **Не** создавайте публичный issue с деталями уязвимости.
-- Используйте [GitHub Security Advisories](https://github.com/Ven4esters/screensaver-into-discord/security/advisories/new) —
+- Используйте [GitHub Security Advisories](https://github.com/Ven4esters/Mappers-Overlay-Redux/security/advisories/new) —
   это приватный канал, доступный только владельцу репозитория.
 - Опишите: версию, шаги воспроизведения, что именно позволяет сделать уязвимость и как вы это
   обнаружили.
