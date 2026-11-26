@@ -227,17 +227,28 @@ jobs:
       - name: Комплект сборки
         shell: pwsh
         run: |
-          $exe = "dist\MappersOverlayRedux\MappersOverlayRedux.exe"
-          if (-not (Test-Path $exe)) { throw "Нет $exe" }
-          $lemmas = Get-ChildItem -Recurse dist\MappersOverlayRedux -Filter lemmas.json |
+          # Иконка вшивается в exe при сборке (`EXE(icon=...)`) и файлом в комплект не
+          # попадает — проверять «*.ico в dist» значило требовать лишний файл.
+          trap {
+            Write-Host "::error title=Комплект сборки::$($_.Exception.Message)"
+            Get-ChildItem -Recurse dist | Select-Object -First 20 |
+              ForEach-Object { Write-Host "::error title=В dist::$($_.FullName)" }
+            exit 1
+          }
+          $exe = Get-ChildItem -Recurse dist -Filter MappersOverlayRedux.exe |
+            Select-Object -First 1
+          if (-not $exe) { throw "В сборке нет MappersOverlayRedux.exe" }
+          $lemmas = Get-ChildItem -Recurse dist -Filter lemmas.json |
             Select-Object -First 1
           if (-not $lemmas) { throw "Словарь лемм не попал в сборку" }
-          $icon = Get-ChildItem -Recurse dist\MappersOverlayRedux -Filter *.ico |
+          # Без плагина платформы exe запускается и сразу падает с «no Qt platform
+          # plugin could be initialized» — на глаз сборка при этом целая.
+          $platform = Get-ChildItem -Recurse dist -Filter qwindows.dll |
             Select-Object -First 1
-          if (-not $icon) { throw "Иконка не попала в сборку" }
-          "exe: $((Get-Item $exe).Length) байт"
+          if (-not $platform) { throw "В сборке нет qwindows.dll" }
+          "exe: $($exe.Length) байт"
           "леммы: $($lemmas.FullName)"
-          "иконка: $($icon.FullName)"
+          "платформа: $($platform.FullName)"
       - name: Артефакт сборки
         uses: actions/upload-artifact@v7
         with:
