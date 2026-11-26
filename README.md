@@ -13,10 +13,10 @@
   <img alt="CI" src="https://github.com/Ven4esters/Mappers-Overlay-Redux/actions/workflows/ci.yml/badge.svg?branch=main">
   <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="Лицензия MIT" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="Версия 1.23.3" src="https://img.shields.io/badge/version-1.23.3-blue">
+  <img alt="Версия 1.23.4" src="https://img.shields.io/badge/version-1.23.4-blue">
 </p>
 
-Версия — 1.23.3, история изменений — [CHANGELOG.md](CHANGELOG.md).
+Версия — 1.23.4, история изменений — [CHANGELOG.md](CHANGELOG.md).
 
 ## Содержание
 
