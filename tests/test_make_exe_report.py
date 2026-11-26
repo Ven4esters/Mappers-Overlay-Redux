@@ -23,8 +23,11 @@ from tools.make_exe_report import (
     write_report,
 )
 
-HELLO_MD5 = "5d41402abc4b2a76b9719d911017c592"
-HELLO_SHA256 = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+# Контрольные значения для файла «hello»: эталон, а не секрет — помечены для detect-secrets.
+HELLO_MD5 = "5d41402abc4b2a76b9719d911017c592"  # pragma: allowlist secret
+HELLO_SHA256 = (
+    "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"  # pragma: allowlist secret
+)
 BUILT_AT = datetime(2026, 11, 19, 3, 45, tzinfo=UTC)
 
 
