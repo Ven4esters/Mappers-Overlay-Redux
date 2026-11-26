@@ -32,6 +32,13 @@ def test_to_dict_and_back_is_stable() -> None:
     assert restored == settings
 
 
+def test_self_write_grace_roundtrip() -> None:
+    """Пауза доверия к своей записи хранится в файле настроек как число секунд."""
+    settings = Settings(self_write_grace=4.0)
+    assert settings.to_dict()["self_write_grace"] == 4.0
+    assert Settings.from_dict(settings.to_dict()) == settings
+
+
 def test_and_back_keeps_delays() -> None:
     settings = Settings(delays=Delays(click=0.1, select=0.2, copy=0.3, paste=0.4))
     assert Settings.from_dict(settings.to_dict()).delays == settings.delays
@@ -45,6 +52,8 @@ def test_and_back_keeps_delays() -> None:
         {"delays": {"click": "быстро"}},
         {"decimals": "3"},
         {"verify_writes": "да"},
+        {"self_write_grace": -1},
+        {"self_write_grace": 60},
         {"default_step": -1},
         {"calibration": {"nope": {"x": 1, "y": 2}}},
         {"calibration": {"x": {"x": 1}}},

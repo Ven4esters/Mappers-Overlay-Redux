@@ -484,3 +484,103 @@ def test_straight_is_reported_in_the_step_result() -> None:
     reread = session.capture_and_step(Direction.LEFT, 0.5, straight=True)
     assert reread.straight is True
     assert reread.reread is True
+
+
+# --- чтение только нужных полей -------------------------------------------
+# Шаг в режиме «Всегда считать» читает не все шесть полей, а только те, от которых
+# зависит: прямой шаг — RZ и те координаты, что меняются, высота — RY, диагональ — RX.
+
+TILTED = Pose(x=10.0, y=20.0, z=3.0, rx=30.0, ry=10.0, rz=7.0)
+
+
+def test_direct_step_reads_only_rz_and_changing_coordinate() -> None:
+    """Прямой шаг: два поля вместо шести — скорость и есть цель пункта."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.capture()
+    panel.reads.clear()
+    session.capture_and_step(Direction.FORWARD, 0.5)
+    # X читается ещё и на сверке панели перед записью — но не Y, Z, RX, RY.
+    assert set(panel.reads) == {Field.RZ, Field.X}
+
+
+def test_height_step_reads_ry_and_height_coordinates() -> None:
+    """Высота: угол высоты RY и координаты, которые он меняет."""
+    panel = FakePanel(TILTED)
+    session = make_session(panel)
+    session.capture()
+    panel.reads.clear()
+    session.capture_and_step(Direction.FORWARD, 0.5, tilt=True)
+    assert set(panel.reads) == {Field.RY, Field.X, Field.Z}
+
+
+def test_straight_height_step_reads_no_angles() -> None:
+    """«Прямой шаг» в высоте идёт по мировой Z: угол не нужен вовсе."""
+    panel = FakePanel(TILTED)
+    session = make_session(panel)
+    session.capture()
+    panel.reads.clear()
+    session.capture_and_step(Direction.FORWARD, 0.5, tilt=True, straight=True)
+    assert set(panel.reads) == {Field.Z}
+
+
+def test_flat_diagonal_reads_rx_and_plane_coordinates() -> None:
+    """Диагональ без наклона: RX решает формулу, дальше нужны только Y и Z."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.capture()
+    panel.reads.clear()
+    session.capture_and_step(Direction.FORWARD_RIGHT, 0.5)
+    assert set(panel.reads) == {Field.RX, Field.Y, Field.Z}
+
+
+def test_tilted_diagonal_reads_rx_ry_without_rz() -> None:
+    """Наклон по RX: RX выбирает формулу, RY и RZ поворачивают готовый шаг."""
+    pose = Pose(x=1.0, y=2.0, z=3.0, rx=30.0, ry=0.0, rz=7.0)
+    panel = FakePanel(pose)
+    session = make_session(panel)
+    session.capture()
+    panel.reads.clear()
+    session.capture_and_step(Direction.FORWARD_RIGHT, 0.5)
+    assert set(panel.reads) == set(Field)
+
+
+def test_two_angle_diagonal_reads_rz_too() -> None:
+    """Пара Num 9/1 при RX и RY поворачивает шаг на RZ — угол нужно прочитать."""
+    panel = FakePanel(TILTED)
+    session = make_session(panel)
+    session.capture()
+    panel.reads.clear()
+    session.capture_and_step(Direction.FORWARD_RIGHT, 0.5)
+    assert set(panel.reads) == set(Field)
+
+
+@pytest.mark.parametrize("direction", list(Direction))
+@pytest.mark.parametrize("tilt", [False, True])
+@pytest.mark.parametrize("straight", [False, True])
+def test_partial_read_step_equals_full_read_step(
+    direction: Direction, *, tilt: bool, straight: bool
+) -> None:
+    """Эталоны не изменились: шаг от прочитанных полей равен шагу от всех шести."""
+    partial_panel = FakePanel(TILTED)
+    partial = make_session(partial_panel)
+    partial.capture()
+    partial_result = partial.capture_and_step(direction, 0.5, tilt=tilt, straight=straight)
+
+    full_panel = FakePanel(TILTED)
+    full = make_session(full_panel)
+    full.capture()
+    full_result = full.step(direction, 0.5, tilt=tilt, straight=straight)
+
+    assert partial_result.pose == full_result.pose
+    assert partial_result.written == full_result.written
+
+
+def test_step_ignores_garbage_in_fields_it_does_not_read() -> None:
+    """Мусор в неиспользуемом поле не мешает: шаг не читает его и не падает."""
+    panel = FakePanel(START)
+    session = make_session(panel)
+    session.capture()
+    panel.bad_read.update({Field.Y, Field.Z, Field.RX, Field.RY})
+    result = session.capture_and_step(Direction.FORWARD, 0.5)
+    assert result.pose.x == pytest.approx(START.x + 0.5, abs=0.001)

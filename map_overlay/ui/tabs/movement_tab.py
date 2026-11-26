@@ -494,6 +494,7 @@ class MovementTab(QWidget):
             self._straight_box.blockSignals(True)
             self._straight_box.setChecked(enabled)
             self._straight_box.blockSignals(False)
+        self._refresh_mode()
 
     def straight_enabled(self) -> bool:
         """Включён ли «Прямой шаг 4/6/8/2» (для тестов)."""
@@ -548,14 +549,27 @@ class MovementTab(QWidget):
             self._tilt_box.setChecked(self._tilt)
             self._tilt_box.blockSignals(False)
         self._mode_label.setText(self._mode_text())
-        self._mode_label.setProperty("role", "ok" if self._tilt else "muted")
+        # Подсветка — только когда режим включён: строка сразу видна в карточке.
+        active = self._tilt or self._straight
+        self._mode_label.setProperty("role", "ok" if active else "muted")
+        self._mode_label.setToolTip(alt_hint() if self._tilt else "")
         self._mode_label.style().unpolish(self._mode_label)
         self._mode_label.style().polish(self._mode_label)
 
     def _mode_text(self) -> str:
-        if not self._tilt:
+        """Перечислить включённые режимы: иначе не видно, почему клавиши ведут себя иначе.
+
+        «Прямой шаг 4/6/8/2» меняет смысл клавиш 4/6/8/2 так же сильно, как режим высоты,
+        а подпись раньше говорила только про высоту — включённый прямой шаг был невидим.
+        """
+        modes: list[str] = []
+        if self._tilt:
+            modes.append("высота")
+        if self._straight:
+            modes.append("прямой шаг")
+        if not modes:
             return "8/2 — вперёд/назад"
-        return alt_hint()
+        return f"Включено: {' · '.join(modes)}"
 
     def press_paste(self) -> None:
         """Нажать «Вставить» (для тестов)."""

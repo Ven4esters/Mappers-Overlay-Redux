@@ -9,7 +9,7 @@ from dataclasses import replace
 from typing import cast
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QKeyEvent, QShowEvent
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QKeyEvent, QShowEvent
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QComboBox,
@@ -57,6 +57,10 @@ WINDOW_HEIGHT = 820
 MINI_WIDTH = 380
 MINI_HEIGHT = 430
 # Мини-версия: крестовина, шаг и выбор предмета без прокрутки и переключения вкладок.
+MIN_WINDOW_HEIGHT = 320
+# Ниже этого окно не опускается даже при ограничении по экрану: останется одна шапка.
+SCREEN_HEIGHT_MARGIN = 48
+# Запас от края экрана: заголовок окна, панель задач и место, чтобы окно можно было тащить.
 STATUS_INFO = "info"
 STATUS_OK = "ok"
 STATUS_WARN = "warn"
@@ -365,6 +369,63 @@ class MainWindow(QMainWindow):
             frame = max(0, self.width() - current.viewport().width())
         return needed + frame
 
+    def needed_height(self) -> int:
+        """Наименьшая высота, при которой содержимое вкладок не обрезается.
+
+        Вертикальной прокрутки у вкладок нет: всё, что выше окна, просто исчезает. Высота
+        содержимого растёт вместе с системным шрифтом (Windows при 125–200 %), поэтому
+        окно дорастает по факту, а не по эталонным 820 пикселям.
+        """
+        indexes = [self._tabs.currentIndex()] if self._mini else range(self._tabs.count())
+        needed = 0
+        for index in indexes:
+            area = self._tabs.widget(index)
+            content = area.widget() if isinstance(area, QScrollArea) else None
+            if content is not None:
+                needed = max(needed, content.minimumSizeHint().height())
+        if not needed:
+            return 0
+        current = self._tabs.currentWidget()
+        chrome = 0
+        if isinstance(current, QScrollArea):
+            # Шапка, строка вкладок, строка состояния и отступы вокруг содержимого.
+            chrome = max(0, self.height() - current.height())
+        return needed + chrome
+
+    def _height_limit(self) -> int:
+        """Сколько высоты даёт экран: дальше окно не растёт, иначе низ уедет за край."""
+        # ``QWidget.screen()`` в offscreen-платформе роняет процесс, поэтому спрашиваем
+        # приложение: окно всё равно открывается на основном мониторе.
+        screen = QGuiApplication.primaryScreen()
+        available = screen.availableGeometry().height() - SCREEN_HEIGHT_MARGIN
+        return max(MIN_WINDOW_HEIGHT, available)
+
+    def _grow_to_fit_height(self) -> None:
+        """Дорастить окно до содержимого вкладки, не выходя за экран.
+
+        Меряется только показанное окно: до первого показа раскладка ещё не посчитана,
+        и «минимальная высота» вкладки — временное число в разы больше настоящего.
+        """
+        if not self.isVisible():
+            return
+        needed = min(self.needed_height(), self._height_limit())
+        if needed > self.height():
+            self.resize(self.width(), needed)
+
+    def fit_to_content(self) -> None:
+        """Дорастить окно до содержимого текущей вкладки.
+
+        Нужно там, где окно показывают целиком, а не листают: скриншоты для README и
+        проверки раскладки. Предел экрана здесь не действует — картинка живёт без экрана.
+        В обычной работе рост делает ``_resize_to_fit``.
+        """
+        needed_width = self.needed_width()
+        needed_height = self.needed_height()
+        width = max(self.width(), needed_width)
+        height = max(self.height(), needed_height)
+        if width != self.width() or height != self.height():
+            self.resize(width, height)
+
     def _resize_to_fit(self, width: int, height: int) -> None:
         """Поставить заданный размер, но не уже, чем требует содержимое.
 
@@ -384,14 +445,18 @@ class MainWindow(QMainWindow):
         if needed > width:
             self.setMinimumWidth(needed)
             self.resize(needed, height)
+        self._grow_to_fit_height()
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 - имя из Qt
-        """Первый показ: подогнать ширину под фактический шрифт системы."""
+        """Первый показ: подогнать ширину и высоту под фактический шрифт системы."""
         super().showEvent(event)
         needed = self.needed_width()
         if needed > self.width():
             self.setMinimumWidth(needed)
             self.resize(needed, self.height())
+        # Рост по высоте — после показа: менять размер внутри showEvent нельзя, Qt
+        # на этом падает при финализации окна в тестах.
+        QTimer.singleShot(0, self._grow_to_fit_height)
 
     def _fit_layout(self) -> None:
         """Пересчитать минимальный размер окна после скрытия части вкладки.
@@ -443,6 +508,18 @@ class MainWindow(QMainWindow):
             return True
         content = area.widget()
         return content is None or content.width() <= area.viewport().width()
+
+    def tab_fits_height(self, index: int) -> bool:
+        """Помещается ли содержимое вкладки в окно по высоте (для тестов).
+
+        Вертикальной прокрутки у вкладок нет, поэтому всё, что выше окна, обрезается:
+        на 200 % нижний переключатель уезжал под сгиб.
+        """
+        area = self._tabs.widget(index)
+        if not isinstance(area, QScrollArea):
+            return True
+        content = area.widget()
+        return content is None or content.height() <= area.viewport().height()
 
     def tab_titles(self) -> list[str]:
         """Названия вкладок по порядку."""

@@ -304,6 +304,40 @@ def alt_hint() -> str:
     return "8 \u2191 вверх · 2 \u2193 вниз (ось Z, поворот RY)"
 
 
+#: Координаты: их значения пишутся в панель, углы — только читаются.
+COORD_FIELDS: Final[frozenset[Field]] = frozenset({Field.X, Field.Y, Field.Z})
+
+
+def first_angle_fields(
+    direction: Direction, *, tilt: bool = False, straight: bool = False
+) -> frozenset[Field]:
+    """Какие углы прочитать до расчёта шага.
+
+    Читать все шесть полей перед каждым шагом незачем: прямому шагу нужен только ``RZ``,
+    высоте — ``RY``, диагонали — сначала ``RX`` (он решает, какая из формул работает).
+
+    ``straight`` в режиме высоты снимает поворот ``RY`` совсем: шаг идёт по мировой ``Z``
+    и при наклоне, и без него, поэтому угол не нужен.
+    """
+    if tilt and direction in (Direction.FORWARD, Direction.BACK):
+        return frozenset() if straight else frozenset({Field.RY})
+    if direction.is_diagonal:
+        return frozenset({Field.RX})
+    return frozenset({Field.RZ})
+
+
+def next_angle_fields(direction: Direction, pose: Pose) -> frozenset[Field]:
+    """Какие углы дочитать после ``first_angle_fields``.
+
+    Диагональ выбирает формулу по ``RX``: без наклона углы больше не нужны. С наклоном
+    нужен ``RY`` (он выбирает между формулами пары ``Num 9/1``), а ``RZ`` поворачивает
+    готовый шаг вокруг мировой оси — он участвует всегда, как только ``RX`` ≠ 0.
+    """
+    if not direction.is_diagonal or pose.rx == 0.0:
+        return frozenset()
+    return frozenset({Field.RY, Field.RZ})
+
+
 def changed_fields(before: Pose, after: Pose, *, tolerance: float = TOLERANCE) -> tuple[Field, ...]:
     """Поля, которые действительно отличаются (в порядке панели)."""
     return tuple(

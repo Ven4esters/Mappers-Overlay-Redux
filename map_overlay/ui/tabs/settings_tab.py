@@ -19,7 +19,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from map_overlay.config import MAX_DELAY_S, MIN_DELAY_S, Delays, Settings
+from map_overlay.config import (
+    DEFAULT_SELF_WRITE_GRACE_S,
+    MAX_DELAY_S,
+    MIN_DELAY_S,
+    Delays,
+    Settings,
+)
 from map_overlay.domain.actions import ACTION_ORDER, Action, hotkey_name
 from map_overlay.domain.formatting import MAX_DECIMALS, MIN_DECIMALS
 from map_overlay.domain.movement import MAX_STEP, MIN_STEP
@@ -142,6 +148,12 @@ class SettingsTab(QWidget):
         _compact(self._default_step)
         self._verify = QCheckBox("Проверять значение после вставки")
         self._verify.setChecked(settings.verify_writes)
+        self._skip_own_check = QCheckBox("Не сверять панель сразу после своей записи")
+        self._skip_own_check.setChecked(settings.self_write_grace > 0.0)
+        self._skip_own_check.setToolTip(
+            "Оверлей только что сам записал поле X — перечитывать его незачем. "
+            "После паузы (или если значение изменили) сверка вернётся."
+        )
         grid = QGridLayout()
         grid.setHorizontalSpacing(ROW_SPACING)
         grid.setVerticalSpacing(GRID_SPACING)
@@ -154,6 +166,7 @@ class SettingsTab(QWidget):
             grid.addWidget(caption, row, 0)
             grid.addWidget(widget, row, 1)
         grid.addWidget(self._verify, 2, 0, 1, 2)
+        grid.addWidget(self._skip_own_check, 3, 0, 1, 2)
         grid.setColumnStretch(2, 1)
         card.add_layout(grid)
         return card
@@ -238,6 +251,9 @@ class SettingsTab(QWidget):
             ),
             decimals=self._decimals.value(),
             verify_writes=self._verify.isChecked(),
+            self_write_grace=(
+                DEFAULT_SELF_WRITE_GRACE_S if self._skip_own_check.isChecked() else 0.0
+            ),
             default_step=self._default_step.value(),
         )
 

@@ -20,6 +20,11 @@ MAX_POINT_COORDINATE: Final = 100_000
 DEFAULT_STEP: Final = 0.5
 DEFAULT_DECIMALS: Final = 3
 
+DEFAULT_SELF_WRITE_GRACE_S: Final = 2.0
+MIN_SELF_WRITE_GRACE_S: Final = 0.0
+MAX_SELF_WRITE_GRACE_S: Final = 10.0
+# Пауза, в течение которой оверлей не перечитывает X после своей же записи (ADR-0051).
+
 MIN_DELAY_S: Final = 0.0
 MAX_DELAY_S: Final = 2.0
 
@@ -59,6 +64,8 @@ class Settings:
     delays: Delays = field(default_factory=Delays)
     decimals: int = DEFAULT_DECIMALS
     verify_writes: bool = True
+    self_write_grace: float = DEFAULT_SELF_WRITE_GRACE_S
+    # Сколько секунд после своей записи не перечитывать поле X: 0 — сверять всегда.
     always_read_pose: bool = False
     # «Всегда считать позицию»: перед каждым нажатием направления оверлей сам читает
     # поля панели, поэтому «Считать» для шага больше не требуется.
@@ -75,6 +82,11 @@ class Settings:
             raise ConfigError(
                 f"Знаков после запятой должно быть от {MIN_DECIMALS} до {MAX_DECIMALS}, "
                 f"получено {self.decimals}"
+            )
+        if not MIN_SELF_WRITE_GRACE_S <= self.self_write_grace <= MAX_SELF_WRITE_GRACE_S:
+            raise ConfigError(
+                f"Пауза доверия к своей записи должна быть от {MIN_SELF_WRITE_GRACE_S} до "
+                f"{MAX_SELF_WRITE_GRACE_S} с, получено {self.self_write_grace}"
             )
         try:
             validate_step(self.default_step)
@@ -130,6 +142,7 @@ class Settings:
             "delays": self.delays.to_dict(),
             "decimals": self.decimals,
             "verify_writes": self.verify_writes,
+            "self_write_grace": self.self_write_grace,
             "always_read_pose": self.always_read_pose,
             "straight_cardinal": self.straight_cardinal,
             "default_step": self.default_step,
@@ -175,6 +188,10 @@ class Settings:
             delays=delays,
             decimals=_as_int(raw.get("decimals", DEFAULT_DECIMALS), "decimals"),
             verify_writes=_as_bool(raw.get("verify_writes", True), "verify_writes"),
+            self_write_grace=_as_float(
+                raw.get("self_write_grace", DEFAULT_SELF_WRITE_GRACE_S),
+                "пауза доверия к своей записи",
+            ),
             always_read_pose=_as_bool(raw.get("always_read_pose", False), "always_read_pose"),
             straight_cardinal=_as_bool(raw.get("straight_cardinal", False), "straight_cardinal"),
             default_step=_as_float(raw.get("default_step", DEFAULT_STEP), "шаг по умолчанию"),
