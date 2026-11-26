@@ -25,41 +25,41 @@ Changelog = "https://github.com/Ven4esters/Mappers-Overlay-Redux/blob/main/CHANG
 # job ставит только те инструменты, которые вызывает, и не тянет PyInstaller в линтер
 # (пункт 19 плана). Совпадение пинов проверяет tests/test_metadata.py.
 dev = [
-    "mypy==1.11.2",
-    "ruff==0.7.4",
-    "pytest==9.0.3",
-    "pytest-cov==5.0.0",
+    "mypy==2.4.1",
+    "ruff==0.17.6",
+    "pytest==9.2.0",
+    "pytest-cov==7.1.0",
     "hypothesis==6.170.17",
-    "pip-audit==2.7.3",
-    "bandit==1.7.10",
-    "build==1.2.2",
+    "pip-audit==2.10.1",
+    "bandit==1.9.4",
+    "build==1.6.1",
     "detect-secrets==1.5.0",
-    "pre-commit==4.0.1",
-    "pyinstaller==6.10.0",
+    "pre-commit==4.7.0",
+    "pyinstaller==6.22.3",
 ]
 # Проверки кода: стиль, формат, типы, хуки, секреты.
 lint = [
-    "mypy==1.11.2",
-    "ruff==0.7.4",
-    "pre-commit==4.0.1",
+    "mypy==2.4.1",
+    "ruff==0.17.6",
+    "pre-commit==4.7.0",
     "detect-secrets==1.5.0",
 ]
 # Тесты: pytest с покрытием и property-based проверки инвариантов формул.
 test = [
-    "pytest==9.0.3",
-    "pytest-cov==5.0.0",
+    "pytest==9.2.0",
+    "pytest-cov==7.1.0",
     "hypothesis==6.170.17",
 ]
 # Безопасность: статический анализ, уязвимости, лицензии, секреты.
 security = [
-    "pip-audit==2.7.3",
-    "bandit==1.7.10",
+    "pip-audit==2.10.1",
+    "bandit==1.9.4",
     "detect-secrets==1.5.0",
 ]
 # Сборка: пакет, SBOM, exe.
 build = [
-    "build==1.2.2",
-    "pyinstaller==6.10.0",
+    "build==1.6.1",
+    "pyinstaller==6.22.3",
 ]
 
 [tool.setuptools]
