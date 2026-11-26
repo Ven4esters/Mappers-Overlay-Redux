@@ -184,7 +184,7 @@ def bumped(root: Path, version: str) -> list[Path]:
 
 
 def _call(
-    command: Sequence[str], root: Path, *, check: bool = True
+    command: Sequence[str], root: Path, *, check: bool = True, stdin: str | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Выполнить внешнюю команду в корне проекта.
 
@@ -198,12 +198,15 @@ def _call(
         check=check,
         capture_output=True,
         text=True,
+        input=stdin,
     )
 
 
-def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _git(
+    root: Path, *args: str, check: bool = True, stdin: str | None = None
+) -> subprocess.CompletedProcess[str]:
     """Вызвать git в корне проекта."""
-    return _call(["git", *args], root, check=check)
+    return _call(["git", *args], root, check=check, stdin=stdin)
 
 
 def tag_problems(root: Path, version: str) -> list[str]:
@@ -333,9 +336,13 @@ def _commit(root: Path, version: str) -> None:
 
 
 def _tag(root: Path, version: str) -> str:
-    """Аннотированный тег, содержимое — раздел CHANGELOG."""
+    """Аннотированный тег, содержимое — раздел CHANGELOG.
+
+    Сообщение идёт через stdin и ``--cleanup=whitespace``: с ``-m`` git вырезает строки,
+    начинающиеся с ``#``, и заголовок раздела «## [X.Y.Z]» исчезает из тега.
+    """
     tag = f"v{version}"
-    _git(root, "tag", "-a", tag, "-m", notes(version, root))
+    _git(root, "tag", "-a", tag, "-F", "-", "--cleanup=whitespace", stdin=notes(version, root))
     return tag
 
 
