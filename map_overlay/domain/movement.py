@@ -93,7 +93,7 @@ def shifted(
 
 
 def _height_step(
-    direction: Direction, pose: Pose, *, straight: bool = False
+    direction: Direction, pose: Pose, *, straight: bool
 ) -> tuple[float, float, float]:
     """Шаг режима высоты: локальная ось ``Z``, повёрнутая на ``RY``.
 

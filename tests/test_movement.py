@@ -8,7 +8,17 @@ from dataclasses import replace
 import pytest
 from map_overlay.domain.directions import Direction
 from map_overlay.domain.fields import Field
-from map_overlay.domain.movement import changed_fields, shifted, validate_step
+from map_overlay.domain.movement import (
+    ALT_TITLES,
+    COORD_FIELDS,
+    DIAGONAL_TITLES,
+    alt_hint,
+    changed_fields,
+    first_angle_fields,
+    next_angle_fields,
+    shifted,
+    validate_step,
+)
 from map_overlay.domain.pose import Pose
 from map_overlay.errors import ValidationError
 
@@ -621,3 +631,97 @@ def test_straight_without_tilt_matches_the_usual_height() -> None:
     assert shifted(pose, Direction.FORWARD, 2.0, tilt=True, straight=True) == shifted(
         pose, Direction.FORWARD, 2.0, tilt=True
     )
+
+
+def test_invalid_step_says_what_is_wrong() -> None:
+    """Сообщение об ошибке читает пользователь в диалоге — оно должно называть причину."""
+    with pytest.raises(ValidationError) as not_a_number:
+        validate_step(math.nan)
+    assert str(not_a_number.value) == "Шаг должен быть числом"
+    with pytest.raises(ValidationError) as out_of_range:
+        validate_step(250.0)
+    assert str(out_of_range.value) == "Шаг должен быть от 0.01 до 100.0 м, получено 250"
+
+
+@pytest.mark.parametrize(
+    ("direction", "expected"),
+    [
+        (Direction.FORWARD_LEFT, "вверх-влево"),
+        (Direction.FORWARD_RIGHT, "вверх-вправо"),
+        (Direction.BACK_LEFT, "вниз-влево"),
+        (Direction.BACK_RIGHT, "вниз-вправо"),
+    ],
+)
+def test_diagonal_titles_name_the_screen_direction(direction: Direction, expected: str) -> None:
+    """Подсказка кнопки говорит, куда уедет предмет на экране, а не «куда по оси»."""
+    assert DIAGONAL_TITLES[direction] == expected
+
+
+@pytest.mark.parametrize(
+    ("direction", "expected"), [(Direction.FORWARD, "вверх"), (Direction.BACK, "вниз")]
+)
+def test_alt_titles_name_the_height(direction: Direction, expected: str) -> None:
+    """При нажатом ``Alt`` те же клавиши меняют высоту — и подсказка обязана это сказать."""
+    assert ALT_TITLES[direction] == expected
+
+
+@pytest.mark.parametrize(
+    ("pose", "expected"),
+    [
+        (Pose(rx=0.0), frozenset()),
+        (Pose(rx=5.0), frozenset({Field.RY, Field.RZ})),
+        (Pose(rx=0.0, ry=30.0), frozenset()),
+    ],
+)
+def test_next_angle_fields_after_the_first_read(pose: Pose, expected: frozenset[Field]) -> None:
+    """Диагональ дочитывает ``RY`` и ``RZ`` только когда наклон есть: без ``RX`` их не читают."""
+    assert next_angle_fields(Direction.FORWARD_LEFT, pose) == expected
+
+
+def test_next_angle_fields_ignores_the_direction_for_direct_steps() -> None:
+    """Прямому шагу углы после первого чтения не нужны — даже при наклоне."""
+    assert next_angle_fields(Direction.FORWARD, Pose(rx=45.0, ry=45.0)) == frozenset()
+
+
+def test_changed_fields_counts_a_difference_exactly_at_the_tolerance_as_noise() -> None:
+    """Разница ровно в допуск — ещё «то же значение», а на волос больше — уже изменение."""
+    assert changed_fields(Pose(x=0.0), Pose(x=0.5), tolerance=0.5) == ()
+    assert changed_fields(Pose(x=0.0), Pose(x=0.51), tolerance=0.5) == (Field.X,)
+
+
+def test_alt_hint_names_the_axis_and_the_angle() -> None:
+    """Подсказка режима высоты — единственное объяснение, что делает ``Alt``."""
+    assert alt_hint() == "8 \u2191 вверх · 2 \u2193 вниз (ось Z, поворот RY)"
+
+
+@pytest.mark.parametrize(
+    ("direction", "tilt", "straight", "expected"),
+    [
+        (Direction.FORWARD, False, False, frozenset({Field.RZ})),
+        (Direction.BACK, False, False, frozenset({Field.RZ})),
+        (Direction.FORWARD, True, False, frozenset({Field.RY})),
+        (Direction.BACK, True, False, frozenset({Field.RY})),
+        (Direction.FORWARD, True, True, frozenset()),
+        (Direction.LEFT, True, False, frozenset({Field.RZ})),
+        (Direction.RIGHT, False, True, frozenset({Field.RZ})),
+        (Direction.FORWARD_LEFT, False, False, frozenset({Field.RX})),
+        (Direction.BACK_RIGHT, True, True, frozenset({Field.RX})),
+    ],
+)
+def test_first_angle_fields_reads_only_what_the_step_needs(
+    direction: Direction, tilt: bool, straight: bool, expected: frozenset[Field]
+) -> None:
+    """Первый заход в панель читает один угол: лишнее чтение — лишний запрос в игру."""
+    assert first_angle_fields(direction, tilt=tilt, straight=straight) == expected
+
+
+def test_coord_fields_are_the_three_coordinates() -> None:
+    """В панель пишутся только координаты: углы читаются, но не меняются шагом."""
+    coordinates = frozenset({Field.X, Field.Y, Field.Z})
+    assert coordinates == COORD_FIELDS
+
+
+def test_first_angle_fields_defaults_describe_the_usual_step() -> None:
+    """Без аргументов это обычный шаг: ``Alt`` выключен, «прямой шаг» тоже."""
+    assert first_angle_fields(Direction.FORWARD) == frozenset({Field.RZ})
+    assert first_angle_fields(Direction.FORWARD, tilt=True) == frozenset({Field.RY})

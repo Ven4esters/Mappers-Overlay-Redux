@@ -15,3 +15,6 @@ config/
 htmlcov/
 *.zip
 *.egg-info/
+.mutmut-cache
+mutants/
+.hypothesis/

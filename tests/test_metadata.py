@@ -49,3 +49,18 @@ def test_lock_file_covers_runtime_dependencies() -> None:
     versions = dict(re.findall(r"^([A-Za-z0-9_.-]+)==([^\s;]+)", lock, flags=re.MULTILINE))
     assert versions["pyside6-essentials"].startswith("6.")
     assert versions["pyperclip"].startswith("1.")
+
+
+def test_narrow_extras_are_covered_by_dev() -> None:
+    """Узкие наборы для CI (``lint``/``test``/``security``/``build``) — подмножества ``dev``.
+
+    Job'ы ставят только нужное, чтобы не тянуть PyInstaller в линтер, но пины обязаны
+    совпадать: разошедшаяся версия ruff в CI и у разработчика — это «у меня зелёно».
+    """
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    extras = pyproject["project"]["optional-dependencies"]
+    dev = set(extras["dev"])
+    for name in ("lint", "test", "security", "build"):
+        assert name in extras, f"нет набора extra: {name}"
+        assert set(extras[name]) <= dev, f"{name}: {set(extras[name]) - dev} нет в dev"
+    assert set(extras) == {"dev", "lint", "test", "security", "build"}
