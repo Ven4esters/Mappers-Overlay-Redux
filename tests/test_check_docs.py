@@ -147,3 +147,19 @@ def test_missing_badge_is_reported(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text(f"Версия — {__version__}\n\n{body}", encoding="utf-8")
     problems = check_readme(tmp_path)
     assert any("нет бейджа версии" in problem.message for problem in problems)
+
+
+def test_developer_section_in_readme_is_reported(tmp_path: Path) -> None:
+    """Витрина — для пользователя: тесты и сборка живут в docs/DEVELOPMENT.md.
+
+    Раздел «Тесты» с командами `pytest` когда-то занимал в README полстраницы и ничего
+    не давал человеку, который просто двигает предметы в игре.
+    """
+    from tools.check_docs import REQUIRED_README_SECTIONS
+
+    body = "\n".join(f"## {title}\n" for title in (*REQUIRED_README_SECTIONS, "Тесты"))
+    text = f"Версия — {__version__}\n\n{body}"
+    image = f"![Версия](https://img.shields.io/badge/version-{__version__}-blue)\n\n"
+    (tmp_path / "README.md").write_text(image + text, encoding="utf-8")
+    problems = check_readme(tmp_path)
+    assert any("docs/DEVELOPMENT.md" in problem.message for problem in problems)
