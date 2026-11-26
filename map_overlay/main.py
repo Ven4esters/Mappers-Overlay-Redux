@@ -37,8 +37,23 @@ logger = logging.getLogger(__name__)
 APP_NAME = "Mapper's Overlay Redux"
 
 
+def _use_utf8_console() -> None:
+    """Перевести вывод в UTF-8, чтобы кириллица не роняла запуск.
+
+    Зачем: кодовую страницу консоли выбирает система. На раннере Windows это cp1252, и
+    ``print("Экземпляр: ...")`` в ``--check-only`` бросал ``UnicodeEncodeError``: проверка
+    окружения завершалась с кодом 1, хотя с окружением всё в порядке. Неподдерживаемые
+    символы заменяются, а не прерывают вывод.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Запустить оверлей. Возвращает код выхода."""
+    _use_utf8_console()
     args = _parse_args(argv)
     # Сначала журнал: иначе самое первое сообщение (и ошибки старта) уходит в никуда.
     setup_logging(log_path(), debug=args.debug, console=args.debug)
