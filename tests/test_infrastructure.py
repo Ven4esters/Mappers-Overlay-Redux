@@ -434,6 +434,7 @@ def test_modifier_down_checks_every_modifier() -> None:
     assert port.modifier_down() is True  # type: ignore[attr-defined]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="на Windows хук действительно ставится")
 def test_hook_without_windows_reports_itself_unavailable(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
