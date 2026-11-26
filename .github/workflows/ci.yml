@@ -194,7 +194,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Тесты (offscreen)
-        run: pytest --cov=map_overlay --cov-report=term-missing --cov-fail-under=80
+        shell: pwsh
+        run: |
+          pytest --cov=map_overlay --cov-report=term-missing --cov-fail-under=80 `
+            --tb=short -rf 2>&1 | Tee-Object -FilePath pytest.log
+          $status = $LASTEXITCODE
+          if ($status -ne 0) {
+            # Журнал шага на раннере недоступен, а аннотации читаются через API:
+            # без этого видно только «exit code 1».
+            Get-Content pytest.log -Tail 25 | ForEach-Object {
+              Write-Host "::error title=Хвост журнала pytest::$($_ -replace '::', '--')"
+            }
+          }
+          exit $status
       - name: Проверка окружения без окна
         env:
           MAP_OVERLAY_HOME: ${{ runner.temp }}\overlay-home
