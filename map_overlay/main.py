@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from map_overlay import __version__, diagnostics
 from map_overlay.application.ports import HotkeySource, PanelAutomation
 from map_overlay.config import Settings
+from map_overlay.console import use_utf8_console
 from map_overlay.context import AppContext
 from map_overlay.domain import lemmas
 from map_overlay.domain.fields import PANEL_ORDER
@@ -39,6 +40,7 @@ APP_NAME = "Mapper's Overlay Redux"
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Запустить оверлей. Возвращает код выхода."""
+    use_utf8_console()
     args = _parse_args(argv)
     # Сначала журнал: иначе самое первое сообщение (и ошибки старта) уходит в никуда.
     setup_logging(log_path(), debug=args.debug, console=args.debug)

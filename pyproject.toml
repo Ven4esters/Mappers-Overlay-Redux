@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mappers-overlay-redux"
-version = "1.24.0"
+version = "1.24.1"
 description = "Mapper's Overlay Redux — оверлей для мапперов LSP (FiveM): калибровка полей панели, запись координат и сдвиг по 8 направлениям."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
-    "PySide6-Essentials==6.8.1",
-    "pyperclip==1.9.0",
+    "PySide6-Essentials>=6.8,<6.12",
+    "pyperclip>=1.9,<2",
 ]
 
 [project.urls]

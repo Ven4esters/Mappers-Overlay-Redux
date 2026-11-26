@@ -6,6 +6,7 @@ import threading
 import time
 from collections.abc import Callable
 
+import pytest
 from map_overlay.errors import ApplicationError, NotCalibratedError
 from map_overlay.ui.tasks import TaskRunner
 from PySide6.QtWidgets import QApplication
@@ -120,15 +121,21 @@ def test_abandon_without_task_returns_false() -> None:
 
 
 def test_busy_seconds_show_the_wait(qt_app: QApplication) -> None:
-    runner = TaskRunner()
+    """Время задачи считается по её часам, а не по настенным: тест не ждёт реальных секунд.
+
+    Иначе проверка зависела от планировщика раннера и падала на Windows: ``sleep(0.05)``
+    занимал 0.047 с, потому что поток задачи стартовал уже после замера.
+    """
+    now = [100.0]
+    runner = TaskRunner(clock=lambda: now[0])
     assert runner.busy_seconds() == 0.0
     runner.submit(
         lambda: time.sleep(0.15),
         on_success=lambda _result: None,
         on_error=lambda _message: None,
     )
-    time.sleep(0.05)
-    assert runner.busy_seconds() >= 0.05
+    now[0] = 100.5
+    assert runner.busy_seconds() == pytest.approx(0.5)
     assert wait_for(qt_app, lambda: not runner.is_busy())
     assert runner.busy_seconds() == 0.0
     runner.shutdown()

@@ -1,0 +1,42 @@
+# Еженедельный аудит зависимостей по lock-файлу.
+#
+# Зачем отдельно от CI: уязвимость в зависимости появляется между выпусками, и узнать
+# о ней в момент следующего коммита — значит узнать поздно. Здесь проверка идёт по
+# расписанию и не блокирует ни один реквест: её задача — разбудить, а не отговорить.
+
+name: Аудит зависимостей
+
+on:
+  schedule:
+    # Каждый понедельник в 04:00 UTC — до начала рабочей недели.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Уязвимости по lock-файлу
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          # Тот же Python, что в замке: requirements.lock собран под 3.12.
+          python-version: "3.12"
+          cache: pip
+
+      - name: Установка по lock-файлу
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+
+      - name: Уязвимости зависимостей
+        run: python -m pip_audit

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Final, cast
+from typing import Any, Final, cast
 
 from PySide6.QtCore import QEvent, QLocale, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QDoubleValidator, QPainter, QPaintEvent, QPen, QPixmap, QValidator
@@ -172,9 +172,15 @@ class DecimalSpinBox(QDoubleSpinBox):
         super().__init__(parent)
         self.setLocale(QLocale.c())
 
-    def validate(self, text: str, position: int) -> QValidator.State:
-        """Разрешить запятую как десятичный разделитель при наборе."""
-        return cast(QValidator.State, super().validate(_dot_separator(text), position))
+    def validate(self, text: str, position: int) -> Any:
+        """Разрешить запятую как десятичный разделитель при наборе.
+
+        Результат базового метода возвращается как есть: в PySide6 6.8 это
+        ``QValidator.State``, в 6.12 — кортеж «состояние, текст, позиция». Обе ветки
+        живут в разрешённом диапазоне зависимости, поэтому тип здесь не сужаем:
+        Qt получит ровно то, что ожидает его собственная обвязка.
+        """
+        return super().validate(_dot_separator(text), position)
 
     def valueFromText(self, text: str) -> float:  # noqa: N802 - имя из Qt
         """Прочитать «2,5» и «2.5» одинаково."""

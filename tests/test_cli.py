@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -133,3 +136,30 @@ def test_home_environment_variable_renamed_with_legacy_support(
     assert application_dir() == old_dir.resolve()
     monkeypatch.setenv(HOME_ENV, str(new_dir))
     assert application_dir() == new_dir.resolve()
+
+
+def test_check_only_survives_narrow_console_encoding(tmp_path: Path) -> None:
+    """Кириллица в узкой кодировке консоли не роняет проверку окружения.
+
+    На раннере Windows кодовая страница cp1252: до исправления ``--check-only`` падал
+    с ``UnicodeEncodeError`` и кодом 1, и шаг CI краснел при исправном окружении.
+    """
+    root = Path(__file__).resolve().parent.parent
+    env = {
+        **os.environ,
+        "MAP_OVERLAY_HOME": str(tmp_path),
+        "PYTHONIOENCODING": "cp1252",
+        "PYTHONPATH": str(root),
+    }
+    result = subprocess.run(
+        [sys.executable, "main.py", "--check-only"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Экземпляр:" in result.stdout

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator
 
 import map_overlay.main as app_main
@@ -103,12 +104,22 @@ def test_is_busy_is_false_without_mutex_support() -> None:
     assert fake.closed == []
 
 
-def test_on_linux_the_real_mutex_is_unavailable() -> None:
-    """На Linux настоящий замок ничего не блокирует: проверка только для Windows."""
-    lock = InstanceLock()
-    assert lock.acquire() is True
-    assert lock.held is False
-    lock.release()
+def test_real_mutex_behaves_by_platform() -> None:
+    """Настоящий замок: на Windows он держится и блокирует второй, на Linux — нет.
+
+    Тест один на обе платформы нарочно: на Linux он фиксирует «проверка отключена
+    штатно», а на Windows — что мьютекс действительно создаётся. Именно эта проверка
+    падала в джобе Windows, когда тест был написан только под Linux.
+    """
+    first = InstanceLock("Local\\MappersOverlayRedux.Tests")
+    second = InstanceLock("Local\\MappersOverlayRedux.Tests")
+    try:
+        assert first.acquire() is True
+        assert first.held is (sys.platform == "win32")
+        assert second.acquire() is (sys.platform != "win32")
+    finally:
+        first.release()
+        second.release()
 
 
 def test_second_instance_exits_with_code_two(monkeypatch: pytest.MonkeyPatch) -> None:

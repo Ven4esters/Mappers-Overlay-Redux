@@ -8,8 +8,8 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import cast
 
-from PySide6.QtCore import QEvent, Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QKeyEvent
+from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer
+from PySide6.QtGui import QCloseEvent, QKeyEvent, QShowEvent
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QComboBox,
@@ -325,7 +325,7 @@ class MainWindow(QMainWindow):
             self._mini_button.setToolTip("Вернуть полное окно: вкладки, калибровка, настройки")
             self.movement.set_compact(True)
             self._fit_layout()
-            self.resize(MINI_WIDTH, MINI_HEIGHT)
+            self._resize_to_fit(MINI_WIDTH, MINI_HEIGHT)
         else:
             self._tabs.tabBar().setVisible(True)
             self._calibration_label.setVisible(True)
@@ -336,9 +336,62 @@ class MainWindow(QMainWindow):
             self.movement.set_compact(False)
             self._fit_layout()
             width, height = self._normal_size or (WINDOW_WIDTH, WINDOW_HEIGHT)
-            self.resize(width, height)
+            self._fit_layout()
+            self._resize_to_fit(width, height)
             if 0 <= self._normal_tab < self._tabs.count():
                 self._tabs.setCurrentIndex(self._normal_tab)
+
+    def needed_width(self) -> int:
+        """Наименьшая ширина, при которой содержимое вкладок не обрезается.
+
+        Горизонтальной прокрутки у вкладок нет: всё, что шире окна, просто исчезает.
+        Ширина содержимого зависит от системного шрифта — на Windows (Segoe UI) и при
+        увеличенном шрифте она больше эталонных 640 пикселей, и вкладка обрезалась.
+        Поэтому окно не сжимается ниже фактической потребности, а не «до константы».
+        """
+        indexes = [self._tabs.currentIndex()] if self._mini else range(self._tabs.count())
+        needed = 0
+        for index in indexes:
+            area = self._tabs.widget(index)
+            content = area.widget() if isinstance(area, QScrollArea) else None
+            if content is not None:
+                needed = max(needed, content.minimumSizeHint().width())
+        if not needed:
+            return 0
+        current = self._tabs.currentWidget()
+        frame = 0
+        if isinstance(current, QScrollArea):
+            # Рамка, отступы и полоса прокрутки вокруг содержимого вкладки.
+            frame = max(0, self.width() - current.viewport().width())
+        return needed + frame
+
+    def _resize_to_fit(self, width: int, height: int) -> None:
+        """Поставить заданный размер, но не уже, чем требует содержимое.
+
+        Мерить приходится после ``resize``: до него раскладка ещё держит минимум прежнего
+        вида, и мини-версия оставалась шириной с полное окно.
+        """
+        self.setMinimumWidth(width)
+        self.resize(width, height)
+        # Скрытые в мини-версии поля сообщают о себе запросом раскладки, а не сразу:
+        # без этой обработки минимум ширины считался бы по полному виду.
+        QCoreApplication.sendPostedEvents(None, int(QEvent.Type.LayoutRequest.value))
+        layout = self.layout()
+        if layout is not None:
+            layout.invalidate()
+            layout.activate()
+        needed = self.needed_width()
+        if needed > width:
+            self.setMinimumWidth(needed)
+            self.resize(needed, height)
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 - имя из Qt
+        """Первый показ: подогнать ширину под фактический шрифт системы."""
+        super().showEvent(event)
+        needed = self.needed_width()
+        if needed > self.width():
+            self.setMinimumWidth(needed)
+            self.resize(needed, self.height())
 
     def _fit_layout(self) -> None:
         """Пересчитать минимальный размер окна после скрытия части вкладки.

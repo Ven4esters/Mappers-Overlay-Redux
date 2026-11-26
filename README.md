@@ -13,10 +13,10 @@
   <img alt="CI" src="https://github.com/Ven4esters/Mappers-Overlay-Redux/actions/workflows/ci.yml/badge.svg?branch=main">
   <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="Лицензия MIT" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="Версия 1.24.0" src="https://img.shields.io/badge/version-1.24.0-blue">
+  <img alt="Версия 1.24.1" src="https://img.shields.io/badge/version-1.24.0-blue">
 </p>
 
-Версия — 1.24.0, история изменений — [CHANGELOG.md](CHANGELOG.md).
+Версия — 1.24.1, история изменений — [CHANGELOG.md](CHANGELOG.md).
 
 ## Содержание
 
@@ -80,7 +80,7 @@
 | --- | --- | --- |
 | Windows | 10 или 11 | `winver` |
 | Python | 3.12 с [python.org](https://www.python.org/downloads/) | `python --version` |
-| PySide6-Essentials и pyperclip | 6.8.1 и 1.9.0 (ставит `run_overlay.bat`) | `pip show PySide6-Essentials` |
+| PySide6-Essentials и pyperclip | от 6.8 до 6.12 (не включая), от 1.9 до 2 (не включая) — ставит `run_overlay.bat` | `pip show PySide6-Essentials` |
 | NumLock | включён | индикатор NumLock на клавиатуре |
 | Игра | режим «окно без рамки» | настройки графики LSP |
 
@@ -547,9 +547,28 @@ ruff format --check . && ruff check . && mypy \
   && python -m tools.make_sbom --out build/sbom.json
 ```
 
-Это же проверяет CI, разложенный на пять статусов: «Стиль и типы», «Тесты», «Безопасность»,
-«Документация», «Сборка и SBOM». Секреты в отслеживаемых файлах ищет `detect-secrets` — он
-запускается через pre-commit и в CI.
+Это же проверяет CI, разложенный на шесть статусов: «Стиль и типы», «Тесты», «Безопасность»,
+«Документация», «Сборка и SBOM», «Windows». Секреты в отслеживаемых файлах ищет `detect-secrets` —
+он запускается через pre-commit и в CI.
+
+Зависимости: в `pyproject.toml` и `requirements.txt` — **диапазоны** (`PySide6-Essentials>=6.8,<7`),
+а точные версии для воспроизводимой сборки лежат в `requirements.lock`. Это осознанный размен
+(`ADR-0049`): точный пин не пропускает патчи безопасности Qt, а без замка сборка перестаёт быть
+воспроизводимой. Обновить замок после правки зависимостей:
+
+```bash
+uv pip compile pyproject.toml --extra dev --python-version 3.12 --python-platform windows \
+  -o requirements.lock
+```
+
+Обновления приходят реквестами от Dependabot (еженедельно), а уязвимости в уже поставленных
+версиях ищет отдельный воркфлоу `Аудит зависимостей` по расписанию: он ставит окружение из
+`requirements.lock` и гоняет `pip-audit`.
+
+Верхняя граница `PySide6-Essentials<6.12` — не перестраховка: в 6.12.0 интерпретатор падает на
+завершении уже после успешных проверок (`refcount error in a C extension`, код 134; на 6.11.3 не
+воспроизводится). Дефект внутри Qt-сборки, поэтому версия исключена диапазоном, а не пином: как
+только выходит исправление, граница поднимается.
 
 Картинки для документации не рисуются руками — они собираются из того же кода, что запускает
 пользователь (ADR-0039):

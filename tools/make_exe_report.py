@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Final
 
 from map_overlay import __version__
+from map_overlay.console import use_utf8_console
 
 CHUNK: Final = 1 << 20
 # Дата внутри zip фиксирована: иначе архив получает новый хеш от каждой сборки на пустом месте.
@@ -200,6 +201,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Точка входа: печать в UTF-8, чтобы кириллица не роняла запуск."""
+    use_utf8_console()
     """Собрать отчёт: суммы, файлы проверки и блок для README."""
     args = parse_args(argv)
     if not args.exe.is_file():
