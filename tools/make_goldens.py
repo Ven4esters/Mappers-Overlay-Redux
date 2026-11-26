@@ -35,8 +35,15 @@ GOLDEN_SCALE: Final = 1
 PALETTE_CELLS: Final = 12
 #: Каждый второй пиксель: среднее по клетке от этого не меняется, а прогон быстрее.
 PALETTE_STEP: Final = 2
-#: Доля площади, ниже которой цвет считается сглаживанием и в эталон не попадает.
-COLOR_SHARE: Final = 0.0004
+#: Цвет считается заметным, если занимает хотя бы эту долю снимка (промилле).
+COLOR_SHARE: Final = 0.2
+#: Порог присутствия: столько пикселей цвета должно остаться в снимке, чтобы он считался
+#: «на месте». Ниже — уже шум сглаживания, а не исчезнувший цвет темы.
+COLOR_PRESENT: Final = 0.02
+#: Насколько пиксель может отличаться от цвета темы и всё ещё считаться им. Растеризаторы
+#: текста на разных ОС дают чуть разные оттенки одного и того же цвета темы; допуск делает
+#: проверку независимой от шрифтов.
+COLOR_TOLERANCE: Final = 12
 #: Насколько доля цвета может разойтись между прогонами: шрифты меняют число пикселей
 #: внутри глифов, но не сам набор цветов темы.
 COLOR_SHARE_TOLERANCE: Final = 0.5
@@ -87,15 +94,13 @@ def palette(
     return result
 
 
-def colors(
-    pixmap: object, *, step: int = PALETTE_STEP, min_share: float = COLOR_SHARE
-) -> dict[str, float]:
-    """Цвета темы, которые занимают заметную часть снимка: ``"#rrggbb" → промилле``.
+def theme_colors(pixmap: object, *, step: int = PALETTE_STEP) -> dict[str, float]:
+    """Доли цветов темы на снимке: ``"#rrggbb" → промилле``.
 
-    Ровно эти цвета и задаёт тема: фон, поверхности, рамки, акцент, текст. Сглаживание
-    шрифтов даёт сотни промежуточных оттенков, но каждый из них — доли промилле, поэтому
-    порог по площади отсекает их, а подмена цвета в теме сразу видна: старый цвет
-    пропадает, новый появляется.
+    Считаются только цвета из ``ui/theme.py`` (с допуском ``COLOR_TOLERANCE``): остальное —
+    сглаживание и шрифты, и их доля меняется от машины к машине. Плоские области (фон,
+    поверхности, рамки) и сплошные акценты от шрифта не зависят, поэтому подмена цвета в
+    теме видна сразу: старого цвета в снимке не остаётся.
     """
     from PySide6.QtGui import QImage  # импорт внутри: модуль нужен и без Qt
 
@@ -103,20 +108,49 @@ def colors(
     width, height = image.width(), image.height()
     stride = image.bytesPerLine()
     bits = image.constBits()
-    counts: dict[str, int] = {}
+    palette = theme_palette()
+    counts = dict.fromkeys(palette, 0)
+    nearest: dict[int, str | None] = {}
     total = 0
     for y in range(0, height, step):
         base = y * stride
         for x in range(0, width, step):
             offset = base + x * 4
-            key = f"#{bits[offset + 2]:02x}{bits[offset + 1]:02x}{bits[offset]:02x}"
-            counts[key] = counts.get(key, 0) + 1
+            red, green, blue = bits[offset + 2], bits[offset + 1], bits[offset]
+            key = (red >> 2) << 12 | (green >> 2) << 6 | (blue >> 2)
+            color = nearest.get(key, "")
+            if color == "":
+                color = _nearest(palette, red, green, blue)
+                nearest[key] = color
+            if color is not None:
+                counts[color] += 1
             total += 1
-    return {
-        color: round(count / total * 1000, 2)
-        for color, count in sorted(counts.items())
-        if count / total >= min_share
-    }
+    return {color: round(count / total * 1000, 3) for color, count in sorted(counts.items())}
+
+
+def _nearest(palette: tuple[str, ...], red: int, green: int, blue: int) -> str | None:
+    """Ближайший цвет темы в пределах допуска; ``None`` — пиксель не из палитры."""
+    best: str | None = None
+    best_distance = COLOR_TOLERANCE + 1
+    for color in palette:
+        dr = abs(int(color[1:3], 16) - red)
+        dg = abs(int(color[3:5], 16) - green)
+        db = abs(int(color[5:7], 16) - blue)
+        distance = max(dr, dg, db)
+        if distance < best_distance:
+            best, best_distance = color, distance
+    return best
+
+
+def theme_palette() -> tuple[str, ...]:
+    """Цвета из ``ui/theme.py``: имена констант вида ``ACCENT = "#3b82f6"``."""
+    from map_overlay.ui import theme
+
+    return tuple(
+        value.lower()
+        for value in vars(theme).values()
+        if isinstance(value, str) and value.startswith("#") and len(value) == 7
+    )
 
 
 def _text_of(widget: object, version: str) -> str:
@@ -182,7 +216,7 @@ def build(app: object) -> dict[str, object]:
         shots_data[key] = {
             "size": [pixmap.width(), pixmap.height()],
             "palette": palette(pixmap),
-            "colors": colors(pixmap),
+            "colors": theme_colors(pixmap),
         }
     data["shots"] = shots_data
     return data
@@ -244,23 +278,30 @@ def _palette_diffs(
 
 
 def _color_diffs(key: str, expected: object, actual: object) -> list[str]:
-    """Пропавшие и появившиеся цвета темы: их доли сравниваются с допуском."""
+    """Пропавшие и появившиеся цвета темы: доли сравниваются по наличию, а не по размеру.
+
+    Доля цвета текста зависит от шрифта машины (на раннере она вдвое меньше, чем локально),
+    поэтому «сколько» не сравнивается: важно, что цвет темы никуда не делся и новый не
+    появился. Плоские области при этом всё равно дают долю в проценты, так что исчезнувший
+    акцент или фон виден.
+    """
     if not isinstance(expected, dict) or not isinstance(actual, dict):
         return [f"{key}: цвета в эталоне испорчены"]
     problems: list[str] = []
-    missing = sorted(set(expected) - set(actual))
+    missing = sorted(
+        color
+        for color, share in expected.items()
+        if share >= COLOR_SHARE and actual.get(color, 0.0) < COLOR_PRESENT
+    )
     if missing:
         problems.append(f"{key}: цветов темы больше нет — {missing[:4]}")
-    added = sorted(set(actual) - set(expected))
+    added = sorted(
+        color
+        for color, share in actual.items()
+        if share >= COLOR_SHARE and expected.get(color, 0.0) < COLOR_PRESENT
+    )
     if added:
         problems.append(f"{key}: появились цвета темы — {added[:4]}")
-    shifted = [
-        f"{color}: {actual[color]} вместо {share}"
-        for color, share in sorted(expected.items())
-        if color in actual and abs(actual[color] - share) > max(COLOR_SHARE_TOLERANCE * share, 0.5)
-    ]
-    if shifted:
-        problems.append(f"{key}: изменилась доля цвета — {shifted[:4]}")
     return problems
 
 
