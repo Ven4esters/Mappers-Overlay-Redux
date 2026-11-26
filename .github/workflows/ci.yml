@@ -15,7 +15,7 @@ concurrency:
 
 # Гейты из инженерного стандарта разложены по отдельным job'ам: каждый — самостоятельная
 # проверка со своим именем, её видно в PR и можно сделать обязательной в защите ветки.
-# Пять проверок: стиль, тесты, безопасность, документация, сборка.
+# Шесть проверок: стиль, тесты, безопасность, документация, сборка, Windows.
 
 env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
@@ -172,4 +172,57 @@ jobs:
         with:
           name: build
           path: build/
+          if-no-files-found: error
+
+  windows:
+    # Продукт живёт на Windows, а до этой проверки ни один прогон не запускал win32-ветку:
+    # ошибки в ctypes-вызовах и в сборке PyInstaller ловились только в игре.
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      # Qt без экрана: тот же offscreen-плагин, что в тестах на Linux.
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Тесты (offscreen)
+        run: pytest --cov=map_overlay --cov-report=term-missing --cov-fail-under=80
+      - name: Проверка окружения без окна
+        env:
+          MAP_OVERLAY_HOME: ${{ runner.temp }}\overlay-home
+        run: python main.py --check-only
+      - name: Иконка для сборки
+        run: python -m tools.make_icons
+      - name: Сборка exe
+        # build_exe.bat зовёт pause и ждёт клавишу — на раннере это зависание.
+        # Поэтому здесь те же шаги, что делает .bat, но без интерактива.
+        run: python -m PyInstaller --noconfirm --clean MappersOverlayRedux.spec
+      - name: Комплект сборки
+        shell: pwsh
+        run: |
+          $exe = "dist\MappersOverlayRedux\MappersOverlayRedux.exe"
+          if (-not (Test-Path $exe)) { throw "Нет $exe" }
+          $lemmas = Get-ChildItem -Recurse dist\MappersOverlayRedux -Filter lemmas.json |
+            Select-Object -First 1
+          if (-not $lemmas) { throw "Словарь лемм не попал в сборку" }
+          $icon = Get-ChildItem -Recurse dist\MappersOverlayRedux -Filter *.ico |
+            Select-Object -First 1
+          if (-not $icon) { throw "Иконка не попала в сборку" }
+          "exe: $((Get-Item $exe).Length) байт"
+          "леммы: $($lemmas.FullName)"
+          "иконка: $($icon.FullName)"
+      - name: Артефакт сборки
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-build
+          path: dist/
+          retention-days: 7
           if-no-files-found: error

@@ -1,3 +1,5 @@
-# Запуск приложения. Версии совпадают с [project].dependencies в pyproject.toml.
-PySide6-Essentials==6.8.1
-pyperclip==1.9.0
+# Запуск приложения. Спецификаторы совпадают с [project].dependencies в pyproject.toml:
+# диапазоны, а не точные версии — иначе патчи безопасности Qt не доезжают до пользователя.
+# Точные версии для воспроизводимой сборки — в requirements.lock.
+PySide6-Essentials>=6.8,<7
+pyperclip>=1.9,<2

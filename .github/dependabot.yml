@@ -1,0 +1,42 @@
+# Политика зависимостей: диапазоны для рантайма, точные версии в lock.
+
+version: 2
+updates:
+  # Рантайм и инструменты разработки: обновления приходят реквестами, а не «когда вспомним».
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Europe/Samara
+    open-pull-requests-limit: 5
+    labels:
+      - зависимости
+    commit-message:
+      prefix: "deps"
+    groups:
+      # Мелочь — одним реквестом: иначе в понедельник их приходит десяток.
+      dev-мелочь:
+        patterns:
+          - "mypy"
+          - "ruff"
+          - "pytest*"
+          - "bandit"
+          - "build"
+          - "detect-secrets"
+          - "pre-commit"
+          - "pip-audit"
+          - "pyinstaller"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Europe/Samara
+    labels:
+      - зависимости
+    commit-message:
+      prefix: "ci"
