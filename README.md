@@ -13,10 +13,10 @@
   <img alt="CI" src="https://github.com/Ven4esters/Mappers-Overlay-Redux/actions/workflows/ci.yml/badge.svg?branch=main">
   <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="Лицензия MIT" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="Версия 1.23.4" src="https://img.shields.io/badge/version-1.23.4-blue">
+  <img alt="Версия 1.23.6" src="https://img.shields.io/badge/version-1.23.6-blue">
 </p>
 
-Версия — 1.23.4, история изменений — [CHANGELOG.md](CHANGELOG.md).
+Версия — 1.23.6, история изменений — [CHANGELOG.md](CHANGELOG.md).
 
 ## Содержание
 
@@ -24,6 +24,7 @@
 - [Возможности](#возможности)
 - [Требования](#требования)
 - [Быстрый старт](#быстрый-старт)
+- [Скачать готовую сборку](#скачать-готовую-сборку)
 - [Использование](#использование)
 - [Конфигурация](#конфигурация)
 - [Архитектура](#архитектура)
@@ -121,6 +122,50 @@ python -m venv .venv
 Ожидаемый результат — окно «Mapper's Overlay Redux» с открытой вкладкой «Навигация».
 
 </details>
+
+## Скачать готовую сборку
+
+> **TODO.** Готовой сборки пока нет: `.exe` не собран и не выложен, раздел Releases пуст — скачать
+> файл неоткуда (почему так — [ADR-0046](docs/adr/0046-releases-with-assets-only.md) и
+> [ADR-0047](docs/adr/0047-exe-release-checksums.md)). Ниже место под данные релиза; строки не
+> заполнены правдоподобными числами нарочно: «нет» значит «нет», а не «неизвестно».
+
+| Что | Значение |
+| --- | --- |
+| Ссылка на релиз | нет — появится с первой сборкой |
+| Файл | нет |
+| Версия | нет |
+| Размер | нет |
+| Дата сборки | нет |
+| MD5 | нет |
+| SHA256 | нет |
+| Проверка VirusTotal | нет — ссылка на отчёт появится после загрузки файла |
+| Архив с папкой `_internal` | нет |
+
+### Как появятся эти данные
+
+1. **Сборка.** `build_exe.bat` собирает `dist\MappersOverlayRedux` и сразу пишет отчёт в
+   `dist\release`: `MappersOverlayRedux.exe.md5`, `MappersOverlayRedux.exe.sha256`, `MD5SUMS.txt`,
+   `SHA256SUMS.txt`, `build-info.json` и готовый блок `README-exe.md`.
+2. **VirusTotal.** Загрузите `MappersOverlayRedux.exe` на
+   [virustotal.com](https://www.virustotal.com/gui/home/upload) и вставьте ссылку на отчёт в
+   `README-exe.md` — там для неё оставлена строка `TODO`.
+3. **README.** Вставьте содержимое `README-exe.md` вместо таблицы выше. Числа берутся из файла и
+   руками не переписываются: переписанная цифра расходится с файлом, и проверка у скачавших не
+   сходится.
+4. **Релиз.** Приложите к релизу тега сам `.exe`, архив с папкой `_internal` и файлы сумм, например
+   `gh release upload vX.Y.Z dist\release\MappersOverlayRedux.exe dist\release\SHA256SUMS.txt`.
+
+### Как проверить скачанный exe
+
+```powershell
+Get-FileHash .\MappersOverlayRedux.exe -Algorithm SHA256
+Get-FileHash .\MappersOverlayRedux.exe -Algorithm MD5
+certutil -hashfile .\MappersOverlayRedux.exe SHA256
+```
+
+Любая из трёх команд печатает хеш — он должен совпасть с таблицей. Не совпал: файл повреждён при
+скачивании или подменён, запускать его не нужно — скачайте заново и проверьте ещё раз.
 
 ## Использование
 
@@ -530,6 +575,11 @@ python -m tools.make_screenshots  # скриншоты вкладок, мини-
   `docs/app-icon.png` для этого README. Изменили рисунок — пересоберите файлы и закоммитьте.
 - Готовый exe в репозиторий не кладётся.
 - Сборка проверяется статически: PyInstaller под Windows, в CI собирается только колесо и SBOM.
+- Последний шаг сборки — `python -m tools.make_exe_report`: он считает MD5 и SHA256, упаковывает
+  папку в детерминированный zip (`MappersOverlayRedux_<версия>_win64.zip`) и кладёт в
+  `dist\release` файлы проверки и готовый блок для раздела
+  [«Скачать готовую сборку»](#скачать-готовую-сборку). Числа в README приходят из этого блока, а не
+  из головы: руками суммы не переписываются.
 
 Правила проекта и Definition of Done — [CONTRIBUTING.md](CONTRIBUTING.md), стиль —
 [STYLEGUIDE.md](STYLEGUIDE.md), решения — [docs/adr/](docs/adr/), памятка по пройденным тупикам —

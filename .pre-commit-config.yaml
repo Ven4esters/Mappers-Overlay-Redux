@@ -44,6 +44,12 @@ repos:
         pass_filenames: false
         files: ^docs/quality/exceptions\.md$
 
+      - id: secrets
+        name: секреты в репозитории (detect-secrets)
+        entry: detect-secrets-hook
+        language: system
+        types: [text]
+
       - id: whitespace
         name: пробелы в конце строк и пустая строка в конце файла
         entry: python -m tools.check_whitespace
